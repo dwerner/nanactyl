@@ -1,0 +1,2 @@
+[workspace]
+members = ["crates/base", "crates/mod_test"]

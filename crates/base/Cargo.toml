@@ -1,0 +1,18 @@
+[package]
+name = "base"
+publish = false
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "pin"
+path = "src/main.rs"
+
+[dependencies]
+ash = "0.37"
+libloading = "0.7"
+sdl2 = "0.35"
+thiserror = "1"
+
+[build-dependencies]
+const-gen = "1.1"

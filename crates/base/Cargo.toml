@@ -11,8 +11,13 @@ path = "src/main.rs"
 [dependencies]
 ash = "0.37"
 libloading = "0.7"
+log = "0.4"
 sdl2 = "0.35"
 thiserror = "1"
+tempdir = "0.3.7"
+
+[dev-dependencies]
+cmd_lib = "1.3"
 
 [build-dependencies]
 const-gen = "1.1"

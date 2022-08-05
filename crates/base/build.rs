@@ -15,12 +15,18 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("const_gen.rs");
 
-    let target_dir = format!("{}", find_target_dir().as_path().display());
-    let target_dir = &target_dir;
+    // let target_dir = format!("{}", find_target_dir().as_path().display());
+    // let _target_dir = &target_dir;
+
+    let relative_target_dir = format!("../../target/{}", env::var("PROFILE").unwrap());
 
     fs::write(
         &dest_path,
-        vec![const_declaration!(TARGET_DIR = target_dir)].join("\n"),
+        vec![
+            // const_declaration!(TARGET_DIR = target_dir),
+            const_declaration!(RELATIVE_TARGET_DIR = relative_target_dir),
+        ]
+        .join("\n"),
     )
     .unwrap();
 }

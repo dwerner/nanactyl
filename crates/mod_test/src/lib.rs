@@ -3,10 +3,10 @@ use std::time::Duration;
 use base::CoreState;
 
 #[no_mangle]
-pub extern "C" fn mod_test_load(_state: &mut CoreState) {}
+pub extern "C" fn load(_state: &mut CoreState) {}
 
 #[no_mangle]
-pub extern "C" fn mod_test_update(_state: &mut CoreState, _dt: &Duration) {}
+pub extern "C" fn update(_state: &mut CoreState, _dt: &Duration) {}
 
 #[no_mangle]
-pub extern "C" fn mod_test_unload(_state: &mut CoreState) {}
+pub extern "C" fn unload(_state: &mut CoreState) {}

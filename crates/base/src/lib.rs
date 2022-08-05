@@ -1,3 +1,3 @@
-pub mod libloader;
+pub mod plugin;
 
 pub struct CoreState;

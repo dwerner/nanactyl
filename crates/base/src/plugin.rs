@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTimeError, UNIX_EPOCH};
 use std::{fs, io};
 
@@ -39,19 +39,25 @@ pub enum PluginError {
     LibLoading(#[from] libloading::Error),
 }
 
+#[derive(Debug, PartialEq)]
+pub enum PluginUpdate {
+    Updated,
+    Unchanged,
+}
+
 ///
 /// We keep track of last-modified date of the file, and when it changes we
 /// copy the file, along with a version counter to a temporary directory to load it from.
 ///
 pub struct Plugin<T> {
     /// Source filename to watch
-    filename: String,
+    path: PathBuf,
     lib: Option<Library>,
     modified: Duration,
     /// Keep track of how many times we've loaded,
     /// as we use this in the filename for the temp copy
     version: u64,
-    mod_name: String,
+    name: String,
     tempdir: TempDir,
     _pd: PhantomData<T>,
 }
@@ -64,7 +70,7 @@ impl<T> Plugin<T> {
     /// Returns the defined name of the module
     ///
     pub fn name(&self) -> &str {
-        &self.mod_name
+        &self.name
     }
 
     ///
@@ -76,14 +82,20 @@ impl<T> Plugin<T> {
         } else {
             format!("{}/deps/lib{}.so", RELATIVE_TARGET_DIR, plugin_name)
         };
+        let path = PathBuf::from(filename);
+        Self::open_at(path, plugin_name)
+    }
+
+    /// Open a plugin at `path`, with `name`.
+    pub fn open_at(path: impl AsRef<Path>, name: &str) -> Result<Plugin<T>, PluginError> {
         let modified = Duration::from_millis(0);
         Ok(Plugin {
-            filename: filename.to_string(),
-            lib: None,
-            version: 0,
-            mod_name: plugin_name.to_string(),
+            path: path.as_ref().to_path_buf(),
+            name: name.to_string(),
+            tempdir: TempDir::new(name)?,
             modified,
-            tempdir: TempDir::new(plugin_name)?,
+            version: 0,
+            lib: None,
             _pd: PhantomData::<T>,
         })
     }
@@ -96,8 +108,8 @@ impl<T> Plugin<T> {
     /// - load the new library
     /// - call "load" lifecycle event on the newly loaded library, passing &mut State
     ///
-    pub fn check_for_plugin_update(&mut self, state: &mut T) -> Result<(), PluginError> {
-        let source = PathBuf::from(self.filename.clone());
+    pub fn check_for_plugin_update(&mut self, state: &mut T) -> Result<PluginUpdate, PluginError> {
+        let source = PathBuf::from(self.path.clone());
         let file_stem = source.file_stem().unwrap().to_str().unwrap();
 
         let new_meta = fs::metadata(&source)?;
@@ -111,22 +123,17 @@ impl<T> Plugin<T> {
             let mut temp_file_path = self.tempdir.path().to_path_buf();
             temp_file_path.push(&new_filename);
             fs::copy(&source, temp_file_path.as_path())?;
-            unsafe {
-                let lib = Library::new(temp_file_path)?;
-                self.version += 1;
-                self.lib = Some(lib);
-                self.call_load(state);
-            }
+            let lib = unsafe { Library::new(temp_file_path)? };
+            self.lib = Some(lib);
+            self.version += 1;
+            self.call_load(state);
+            return Ok(PluginUpdate::Updated);
         }
-        Ok(())
+        Ok(PluginUpdate::Unchanged)
     }
 
-    ////
-    /// update()
-    ///
-    /// Call to the mod to update the state with the "update" normative lifecycle event
-    ///
-    pub fn call_update(&mut self, state: &mut T, delta_time: &Duration) -> Duration {
+    /// Call to the mod to update the state with the "update" lifecycle event
+    pub fn call_update(&self, state: &mut T, delta_time: &Duration) -> Duration {
         let start_time = Instant::now();
         match self.lib {
             Some(ref lib) => unsafe {
@@ -148,7 +155,7 @@ impl<T> Plugin<T> {
         }
 
         let elapsed = start_time.elapsed();
-        log::info!("Updated {}", self.name());
+        log::debug!("Updated {} version {}", self.name(), self.version);
         elapsed
     }
 
@@ -159,7 +166,7 @@ impl<T> Plugin<T> {
     ///
     fn call_load(&self, state: &mut T) {
         self.call(LOAD_METHOD, state);
-        log::info!("Loaded {}", self.name());
+        log::info!("Loaded {} version {}", self.name(), self.version);
     }
 
     ///
@@ -172,7 +179,7 @@ impl<T> Plugin<T> {
         if let Some(lib) = self.lib.take() {
             lib.close()?;
         }
-        log::info!("Unloaded {}", self.name());
+        log::info!("Unloaded {} version {}", self.name(), self.version);
         Ok(())
     }
 
@@ -204,32 +211,79 @@ impl<T> Plugin<T> {
 mod tests {
     use std::{fs::File, io::Write};
 
+    use ::function_name::named;
     use cmd_lib::run_cmd;
 
     use super::*;
 
-    // TODO: compile, run, and modify at runtime, to test libloader further
-    const MOD_TEST_SRC: &str = r#"
-use std::time::Duration;
-#[no_mangle] pub extern "C" fn mod_load(state: &mut u32) {}
-#[no_mangle] pub extern "C" fn mod_update(state: &mut CoreState, dt: &Duration) {}
-#[no_mangle] pub extern "C" fn mod_unload(state: &mut CoreState) {}
-"#;
+    fn generate_plugin_for_test(value: i32) -> String {
+        let operation = format!("    *state += {value};");
+        [
+            "use std::time::Duration;",
+            "#[no_mangle] pub extern \"C\" fn load(state: &mut i32) {",
+            &operation,
+            "}",
+            "#[no_mangle] pub extern \"C\" fn update(state: &mut i32, _dt: &Duration) {",
+            &operation,
+            "}",
+            "#[no_mangle] pub extern \"C\" fn unload(state: &mut i32) {",
+            &operation,
+            "}",
+        ]
+        .join("\n")
+    }
 
-    fn compile_lib(test_prefix: &str) {
-        let tempdir = TempDir::new(test_prefix).unwrap();
+    fn compile_lib(tempdir: &TempDir, plugin_source: &str) -> PathBuf {
         let mut source_file_path = tempdir.path().to_path_buf();
-        source_file_path.push("plugin.rs");
+        source_file_path.push(format!("test_plugin_source.rs"));
         let mut dest_file_path = tempdir.path().to_path_buf();
-        dest_file_path.push("plugin.so");
+        dest_file_path.push("test_plugin.plugin");
 
-        let mut file = File::open(&source_file_path).unwrap();
-        file.write_all(MOD_TEST_SRC.as_bytes()).unwrap();
+        let mut file = File::create(&source_file_path).unwrap();
+        file.write_all(plugin_source.as_bytes()).unwrap();
         file.flush().unwrap();
         drop(file);
 
-        run_cmd!(rustc --crate-type cdylib ${source_file_path.display()} ${dest_file_path.display()})
-            .unwrap();
+        // actually compile the generated source using rustc as a dylib
+        run_cmd!(rustc ${source_file_path} --crate-type dylib -o ${dest_file_path}).unwrap();
+        dest_file_path
+    }
+
+    #[test]
+    #[named]
+    fn test_generated_plugin() {
+        cmd_lib::init_builtin_logger();
+        let tempdir = TempDir::new(function_name!()).unwrap();
+        let src = generate_plugin_for_test(1);
+        let plugin_path = compile_lib(&tempdir, &src);
+
+        // The normal use case - load a plugin, pass in state, then reload.
+        let mut state = 1i32;
+        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
+        let update = loader.check_for_plugin_update(&mut state).unwrap();
+        assert_eq!(state, 2);
+        assert_eq!(update, PluginUpdate::Updated);
+
+        let dt = Duration::from_millis(1);
+
+        loader.call_update(&mut state, &dt);
+        assert_eq!(state, 3);
+
+        // re-generate source code for plugin, saving at the same location.
+        let src = generate_plugin_for_test(-1);
+        compile_lib(&tempdir, &src);
+
+        loader.check_for_plugin_update(&mut state).unwrap();
+        assert_eq!(update, PluginUpdate::Updated);
+
+        loader.call_update(&mut state, &dt);
+        assert_eq!(state, 2);
+
+        loader.call_update(&mut state, &dt);
+        assert_eq!(state, 1);
+
+        loader.call_update(&mut state, &dt);
+        assert_eq!(state, 0);
     }
 
     #[test]

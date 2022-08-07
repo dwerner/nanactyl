@@ -15,6 +15,8 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("const_gen.rs");
 
+    // If target_dir is needed for assets, then perhaps this is of use.
+    // But... relative paths to things might still make more sense.
     // let target_dir = format!("{}", find_target_dir().as_path().display());
     // let _target_dir = &target_dir;
 

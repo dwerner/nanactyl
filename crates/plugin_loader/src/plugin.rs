@@ -35,8 +35,20 @@ pub enum PluginError {
     #[error("system time error {0:?}")]
     SystemTime(#[from] SystemTimeError),
 
-    #[error("libloading error {0:?}")]
-    LibLoading(#[from] libloading::Error),
+    #[error("method not found {name} - {error:?}")]
+    MethodNotFound {
+        name: String,
+        error: libloading::Error,
+    },
+
+    #[error("error closing lib {0:?}")]
+    ErrorOnClose(libloading::Error),
+
+    #[error("error opening lib {0:?}")]
+    ErrorOnOpen(libloading::Error),
+
+    #[error("update invoked when plugin unloaded")]
+    UpdateNotLoaded,
 }
 
 #[derive(Debug, PartialEq)]
@@ -66,17 +78,13 @@ type UpdateFn<T> = unsafe extern "C" fn(&mut T, &Duration);
 type CallFn<T> = unsafe extern "C" fn(&mut T);
 
 impl<T> Plugin<T> {
-    ///
     /// Returns the defined name of the module
-    ///
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    ///
-    /// Construct a new wrapper for a dynamically loaded plugin
-    ///
-    pub fn open(plugin_name: &str) -> Result<Self, PluginError> {
+    /// Opens a plugin from the project target directory. Note that `check` must be called subsequently in order to invoke callbacks on the plugin.
+    pub fn open_from_target_dir(plugin_name: &str) -> Result<Self, PluginError> {
         let filename = if cfg!(windows) {
             format!("{}/{}.dll", RELATIVE_TARGET_DIR, plugin_name)
         } else {
@@ -86,7 +94,7 @@ impl<T> Plugin<T> {
         Self::open_at(path, plugin_name)
     }
 
-    /// Open a plugin at `path`, with `name`.
+    /// Opens a plugin at `path`, with `name`. Note that `check` must be called subsequently in order to invoke callbacks on the plugin.
     pub fn open_at(path: impl AsRef<Path>, name: &str) -> Result<Plugin<T>, PluginError> {
         let modified = Duration::from_millis(0);
         Ok(Plugin {
@@ -100,18 +108,15 @@ impl<T> Plugin<T> {
         })
     }
 
-    ///
-    /// Check for an update of the lib on disk.
+    /// Check for an update of the lib on disk. Note that this is required for initial load.
     /// If there has been a change:
     /// - copy it to the tmp directory
     /// - call "unload" lifecycle event on the current mod if there is one
     /// - load the new library
     /// - call "load" lifecycle event on the newly loaded library, passing &mut State
-    ///
-    pub fn check_for_plugin_update(&mut self, state: &mut T) -> Result<PluginUpdate, PluginError> {
+    pub fn check(&mut self, state: &mut T) -> Result<PluginUpdate, PluginError> {
         let source = PathBuf::from(self.path.clone());
         let file_stem = source.file_stem().unwrap().to_str().unwrap();
-
         let new_meta = fs::metadata(&source)?;
         let last_modified: Duration = new_meta.modified()?.duration_since(UNIX_EPOCH)?;
         if self.modified != last_modified {
@@ -123,86 +128,84 @@ impl<T> Plugin<T> {
             let mut temp_file_path = self.tempdir.path().to_path_buf();
             temp_file_path.push(&new_filename);
             fs::copy(&source, temp_file_path.as_path())?;
-            let lib = unsafe { Library::new(temp_file_path)? };
+            let lib = unsafe { Library::new(temp_file_path).map_err(PluginError::ErrorOnOpen)? };
             self.lib = Some(lib);
             self.version += 1;
-            self.call_load(state);
+            self.call_load(state)?;
             return Ok(PluginUpdate::Updated);
         }
         Ok(PluginUpdate::Unchanged)
     }
 
     /// Call to the mod to update the state with the "update" lifecycle event
-    pub fn call_update(&self, state: &mut T, delta_time: &Duration) -> Duration {
+    pub fn call_update(
+        &self,
+        state: &mut T,
+        delta_time: &Duration,
+    ) -> Result<Duration, PluginError> {
         let start_time = Instant::now();
         match self.lib {
+            None => return Err(PluginError::UpdateNotLoaded),
             Some(ref lib) => unsafe {
                 // TODO: it could be that the lib fn needs to be cached.
-                let maybe_func = lib.get::<UpdateFn<T>>(UPDATE_METHOD);
-                match maybe_func {
-                    Ok(func) => func(state, delta_time),
-                    Err(_) => log::error!(
-                        "Unable to call function: {} - method does not exist in lib: {:?}",
-                        std::str::from_utf8(UPDATE_METHOD).unwrap(),
-                        lib
-                    ),
-                }
+                lib.get::<UpdateFn<T>>(UPDATE_METHOD)
+                    .map(|f| f(state, delta_time))
+                    .map_err(|error| PluginError::MethodNotFound {
+                        name: String::from_utf8(UPDATE_METHOD.to_vec()).unwrap(),
+                        error,
+                    })?;
             },
-            None => log::error!(
-                "Cannot call method {} - lib not found",
-                std::str::from_utf8(UPDATE_METHOD).unwrap()
-            ),
         }
-
-        let elapsed = start_time.elapsed();
         log::debug!("Updated {} version {}", self.name(), self.version);
-        elapsed
+        Ok(start_time.elapsed())
     }
 
-    ///
-    /// call_load()
-    ///
     /// Trigger the "load" lifecycle event
-    ///
-    fn call_load(&self, state: &mut T) {
-        self.call(LOAD_METHOD, state);
-        log::info!("Loaded {} version {}", self.name(), self.version);
-    }
-
-    ///
-    /// call_unload()
-    ///
-    /// Trigger the unload lifecycle event
-    ///
-    fn call_unload(&mut self, state: &mut T) -> Result<(), PluginError> {
-        self.call(UNLOAD_METHOD, state);
-        if let Some(lib) = self.lib.take() {
-            lib.close()?;
+    fn call_load(&mut self, state: &mut T) -> Result<(), PluginError> {
+        if let Some(ref lib) = self.lib {
+            unsafe {
+                // TODO: could cache the func until unload
+                lib.get::<CallFn<T>>(LOAD_METHOD)
+                    .map(|f| f(state))
+                    .map_err(|error| PluginError::MethodNotFound {
+                        name: String::from_utf8(LOAD_METHOD.to_vec()).unwrap(),
+                        error,
+                    })?;
+            }
         }
-        log::info!("Unloaded {} version {}", self.name(), self.version);
+        log::debug!("Loaded {} version {}", self.name(), self.version);
         Ok(())
     }
 
-    /// call a given method by name, passing state
-    fn call(&self, method: &[u8], state: &mut T) {
-        match self.lib {
-            Some(ref lib) => unsafe {
+    /// Trigger the unload lifecycle event
+    fn call_unload(&mut self, state: &mut T) -> Result<(), PluginError> {
+        if let Some(ref lib) = self.lib {
+            unsafe {
                 // TODO: could cache the func until unload
-                let maybe_func = lib.get::<CallFn<T>>(method);
-                match maybe_func {
-                    Ok(func) => func(state),
-                    Err(e) => {
-                        log::error!(
-                            "Unable to call function: {} - method does not exist in lib: {:?} - {:?}",
-                            std::str::from_utf8(method).unwrap(), lib, e
-                        )
-                    }
-                }
-            },
-            None => log::error!(
-                "Cannot call method {} - lib not found",
-                std::str::from_utf8(method).unwrap()
-            ),
+                lib.get::<CallFn<T>>(UNLOAD_METHOD)
+                    .map(|f| f(state))
+                    .map_err(|error| PluginError::MethodNotFound {
+                        name: String::from_utf8(UNLOAD_METHOD.to_vec()).unwrap(),
+                        error,
+                    })?;
+            }
+        }
+        if let Some(lib) = self.lib.take() {
+            lib.close()
+                .map_err(|error_closing| PluginError::ErrorOnClose(error_closing))?;
+        }
+        log::debug!("Unloaded {} version {}", self.name(), self.version);
+        Ok(())
+    }
+}
+
+impl<T> Drop for Plugin<T> {
+    fn drop(&mut self) {
+        if let Some(lib) = self.lib.take() {
+            let name = self.name();
+            lib.close().unwrap_or_else(|e| {
+                panic!("error closing plugin {} in drop() impl - {:?}", name, e)
+            });
         }
     }
 }
@@ -233,6 +236,7 @@ mod tests {
         .join("\n")
     }
 
+    // actually compile the generated source using rustc as a dylib
     fn compile_lib(tempdir: &TempDir, plugin_source: &str) -> PathBuf {
         let mut source_file_path = tempdir.path().to_path_buf();
         source_file_path.push(format!("test_plugin_source.rs"));
@@ -244,7 +248,6 @@ mod tests {
         file.flush().unwrap();
         drop(file);
 
-        // actually compile the generated source using rustc as a dylib
         run_cmd!(rustc ${source_file_path} --crate-type dylib -o ${dest_file_path}).unwrap();
         dest_file_path
     }
@@ -260,65 +263,53 @@ mod tests {
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
         let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
-        let update = loader.check_for_plugin_update(&mut state).unwrap();
+        let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
         assert_eq!(update, PluginUpdate::Updated);
 
         let dt = Duration::from_millis(1);
 
-        loader.call_update(&mut state, &dt);
+        loader.call_update(&mut state, &dt).unwrap();
         assert_eq!(state, 3);
 
         // re-generate source code for plugin, saving at the same location.
         let src = generate_plugin_for_test(-1);
         compile_lib(&tempdir, &src);
 
-        loader.check_for_plugin_update(&mut state).unwrap();
+        loader.check(&mut state).unwrap();
         assert_eq!(update, PluginUpdate::Updated);
 
-        loader.call_update(&mut state, &dt);
+        loader.call_update(&mut state, &dt).unwrap();
         assert_eq!(state, 2);
 
-        loader.call_update(&mut state, &dt);
+        loader.call_update(&mut state, &dt).unwrap();
         assert_eq!(state, 1);
 
-        loader.call_update(&mut state, &dt);
+        loader.call_update(&mut state, &dt).unwrap();
         assert_eq!(state, 0);
     }
 
     #[test]
-    fn should_open_and_check_lib() {
-        let mut state = 1;
-        let mut loader = Plugin::<u32>::open("mod_test").unwrap();
-        loader.check_for_plugin_update(&mut state).unwrap();
-    }
+    #[named]
+    fn should_fail_to_update_when_not_yet_loaded() {
+        cmd_lib::init_builtin_logger();
+        let tempdir = TempDir::new(function_name!()).unwrap();
+        let src = generate_plugin_for_test(1);
+        let plugin_path = compile_lib(&tempdir, &src);
 
-    #[test]
-    fn should_call_load() {
-        let mut state = 1;
-        let mut loader = Plugin::<u32>::open("mod_test").unwrap();
-        loader.check_for_plugin_update(&mut state).unwrap();
-        loader.call_load(&mut state);
-    }
-
-    #[test]
-    fn should_call_unload() {
-        let mut state = 1;
-        let mut loader = Plugin::<u32>::open("mod_test").unwrap();
-        loader.check_for_plugin_update(&mut state).unwrap();
-        loader.call_load(&mut state);
-        loader.call_unload(&mut state).unwrap();
-        loader.call_load(&mut state);
-        loader.call_unload(&mut state).unwrap();
+        // The normal use case - load a plugin, pass in state, then reload.
+        let mut state = 1i32;
+        let loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
+        assert!(matches!(
+            loader.call_update(&mut state, &Duration::from_millis(1)),
+            Err(PluginError::UpdateNotLoaded)
+        ));
     }
 
     #[test]
     fn should_fail_to_load_lib_that_doesnt_exist() {
         let mut state = 0;
-        let mut loader = Plugin::<u32>::open("mod_unknown").unwrap();
-        assert!(matches!(
-            loader.check_for_plugin_update(&mut state),
-            Err(PluginError::Io(_))
-        ))
+        let mut loader = Plugin::<u32>::open_from_target_dir("mod_unknown").unwrap();
+        assert!(matches!(loader.check(&mut state), Err(PluginError::Io(_))))
     }
 }

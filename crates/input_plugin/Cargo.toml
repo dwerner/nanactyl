@@ -1,5 +1,5 @@
 [package]
-name = "mod_test"
+name = "input_plugin"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,4 +7,6 @@ edition = "2021"
 crate-type = ["dylib"]
 
 [dependencies]
-base = { path = "../base"}
+state = { path = "../state" }
+thiserror = "1"
+env_logger = "*"

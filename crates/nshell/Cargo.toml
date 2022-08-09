@@ -1,0 +1,9 @@
+[package]
+name = "nshell"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+plugin_loader = { path = "../plugin_loader" }
+state = { path = "../state" }
+env_logger = "*"

@@ -20,7 +20,7 @@ fn main() {
     // let target_dir = format!("{}", find_target_dir().as_path().display());
     // let _target_dir = &target_dir;
 
-    let relative_target_dir = format!("../../target/{}", env::var("PROFILE").unwrap());
+    let relative_target_dir = format!("target/{}", env::var("PROFILE").unwrap());
 
     fs::write(
         &dest_path,

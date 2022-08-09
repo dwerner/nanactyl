@@ -1,2 +1,7 @@
 [workspace]
-members = ["crates/base", "crates/mod_test"]
+members = [
+    "crates/state",
+    "crates/plugin_loader",
+    "crates/input_plugin",
+    "crates/nshell",
+]

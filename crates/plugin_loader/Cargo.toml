@@ -1,18 +1,12 @@
 [package]
-name = "base"
+name = "plugin_loader"
 publish = false
 version = "0.1.0"
 edition = "2021"
 
-[[bin]]
-name = "pin"
-path = "src/main.rs"
-
 [dependencies]
-ash = "0.37"
 libloading = "0.7"
 log = "0.4"
-sdl2 = "0.35"
 thiserror = "1"
 tempdir = "0.3.7"
 

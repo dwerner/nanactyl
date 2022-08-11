@@ -30,10 +30,9 @@ impl InputEventSource for InputWrapper {
 
 #[no_mangle]
 pub extern "C" fn load(state: &mut State) {
-    // Surprise! Env logger needs to be initialized in the library as well.
-    env_logger::init();
+    state::writeln!(state, "loaded input system {}", 42);
 
-    log::info!("loaded input system");
+    env_logger::init();
 
     let haptic_subsystem = state.sdl_context.haptic().unwrap();
     let game_controller_subsystem = state.sdl_context.game_controller().unwrap();
@@ -54,7 +53,7 @@ pub extern "C" fn load(state: &mut State) {
 }
 
 #[no_mangle]
-pub extern "C" fn update(state: &mut State, dt: &Duration) {
+pub extern "C" fn update(state: &mut State, _dt: &Duration) {
     log::debug!("updating input plugin");
     if let Some(ref mut input) = state.input_system {
         input.update();

@@ -55,9 +55,9 @@ impl InputSystem {
         })
     }
 
+    // TODO: Probably we want either a Result<EngineEvent, ...> or Option<EngineEvent> here.
     /// Evaluate an event from SDL, modify state internally and surface an engine event event if it's relevant to the event loop.
     pub fn evaluate_event(&mut self, event: SdlEvent) -> EngineEvent {
-        log::info!("game event {:?}", event);
         match event {
             SdlEvent::JoyHatMotion {
                 timestamp,
@@ -73,11 +73,11 @@ impl InputSystem {
             } => {
                 let game_controller = match self.game_controller_subsystem.open(controller_index) {
                     Ok(game_controller) => {
-                        log::info!("Added game controller {controller_index}",);
+                        log::info!("Added game controller {controller_index}.",);
                         game_controller
                     }
                     Err(_) => {
-                        log::error!("Unable to open game_controller {controller_index}");
+                        log::error!("Unable to open game_controller {controller_index}...");
                         todo!("handle this error better")
                     }
                 };
@@ -106,7 +106,7 @@ impl InputSystem {
                     Err(_) => {
                         // We don't want to kill the game when we can't open a joystick.
                         log::error!("Unable to open joystick {joy_index}");
-                        todo!("handle this error better")
+                        return EngineEvent::Continue;
                     }
                 };
                 self.joysticks.insert(joy_index, joystick);
@@ -119,7 +119,7 @@ impl InputSystem {
                 timestamp: _,
                 which: joy_index,
             } => {
-                log::info!("Joystick {joy_index} removed",);
+                log::info!("Joystick {joy_index} removed.",);
                 self.joysticks.remove(&joy_index);
                 self.haptic_devices.remove(&joy_index);
                 return EngineEvent::InputDevice(DeviceEvent::JoystickRemoved(joy_index));

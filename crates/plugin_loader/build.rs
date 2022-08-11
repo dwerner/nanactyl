@@ -33,6 +33,7 @@ fn main() {
     .unwrap();
 }
 
+#[allow(unused)]
 fn find_target_dir() -> PathBuf {
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let mut buf = PathBuf::from_str(&out_dir).unwrap();

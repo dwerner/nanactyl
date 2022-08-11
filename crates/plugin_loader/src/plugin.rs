@@ -29,8 +29,15 @@ const UNLOAD_METHOD: &[u8] = b"unload";
 
 #[derive(thiserror::Error, Debug)]
 pub enum PluginError {
-    #[error("io error {0:?}")]
-    Io(#[from] io::Error),
+    #[error("copy file io error {0:?}")]
+    CopyFile(io::Error),
+    #[error("tempdir io error {0:?}")]
+    TempdirIo(io::Error),
+
+    #[error("metadata io error {0:?}")]
+    MetadataIo(io::Error),
+    #[error("modified io error {0:?}")]
+    ModifiedTime(io::Error),
 
     #[error("system time error {0:?}")]
     SystemTime(#[from] SystemTimeError),
@@ -52,8 +59,8 @@ pub enum PluginError {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum PluginUpdate {
-    Updated,
+pub enum PluginCheck {
+    FoundNewVersion,
     Unchanged,
 }
 
@@ -64,6 +71,8 @@ pub enum PluginUpdate {
 pub struct Plugin<T> {
     /// Source filename to watch
     path: PathBuf,
+    updates: u64,
+    check_interval: u32,
     lib: Option<Library>,
     modified: Duration,
     /// Keep track of how many times we've loaded,
@@ -100,9 +109,11 @@ impl<T> Plugin<T> {
         Ok(Plugin {
             path: path.as_ref().to_path_buf(),
             name: name.to_string(),
-            tempdir: TempDir::new(name)?,
+            tempdir: TempDir::new(name).map_err(PluginError::TempdirIo)?,
             modified,
             version: 0,
+            updates: 0,
+            check_interval: 100,
             lib: None,
             _pd: PhantomData::<T>,
         })
@@ -111,35 +122,46 @@ impl<T> Plugin<T> {
     /// Check for an update of the lib on disk. Note that this is required for initial load.
     /// If there has been a change:
     /// - copy it to the tmp directory
-    /// - call "unload" lifecycle event on the current mod if there is one
     /// - load the new library
+    /// - call "unload" lifecycle event on the current mod if there is one
     /// - call "load" lifecycle event on the newly loaded library, passing &mut State
-    pub fn check(&mut self, state: &mut T) -> Result<PluginUpdate, PluginError> {
+    pub fn check(&mut self, state: &mut T) -> Result<PluginCheck, PluginError> {
         let source = PathBuf::from(self.path.clone());
         let file_stem = source.file_stem().unwrap().to_str().unwrap();
-        let new_meta = fs::metadata(&source)?;
-        let last_modified: Duration = new_meta.modified()?.duration_since(UNIX_EPOCH)?;
+        let new_meta = fs::metadata(&source).map_err(PluginError::MetadataIo)?;
+        let last_modified: Duration = new_meta
+            .modified()
+            .map_err(PluginError::ModifiedTime)?
+            .duration_since(UNIX_EPOCH)?;
         if self.modified != last_modified {
-            if self.lib.is_some() {
-                self.call_unload(state)?;
-            }
             self.modified = last_modified;
             let new_filename = format!("{}_{}.plugin", file_stem, self.version);
             let mut temp_file_path = self.tempdir.path().to_path_buf();
             temp_file_path.push(&new_filename);
-            fs::copy(&source, temp_file_path.as_path())?;
+            fs::copy(&source, temp_file_path.as_path()).map_err(PluginError::CopyFile)?;
             let lib = unsafe { Library::new(temp_file_path).map_err(PluginError::ErrorOnOpen)? };
+            if self.lib.is_some() {
+                self.call_unload(state)?;
+            }
             self.lib = Some(lib);
             self.version += 1;
             self.call_load(state)?;
-            return Ok(PluginUpdate::Updated);
+            return Ok(PluginCheck::FoundNewVersion);
         }
-        Ok(PluginUpdate::Unchanged)
+        Ok(PluginCheck::Unchanged)
+    }
+
+    fn updates(&self) -> u64 {
+        self.updates
+    }
+
+    pub fn should_check(&self) -> bool {
+        self.updates == 0 || (self.updates > 0 && self.updates % self.check_interval as u64 == 0)
     }
 
     /// Call to the mod to update the state with the "update" lifecycle event
     pub fn call_update(
-        &self,
+        &mut self,
         state: &mut T,
         delta_time: &Duration,
     ) -> Result<Duration, PluginError> {
@@ -157,6 +179,15 @@ impl<T> Plugin<T> {
             },
         }
         log::debug!("Updated {} version {}", self.name(), self.version);
+        self.updates += 1;
+        if self.updates() > 0 && self.updates() % 1000 == 0 {
+            #[cfg(unix)]
+            {
+                let mappings = crate::linux::distinct_plugins_mapped(self.name());
+                log::warn!("plugins mapped {:?}", mappings);
+            }
+        }
+
         Ok(start_time.elapsed())
     }
 
@@ -219,8 +250,7 @@ mod tests {
 
     use super::*;
 
-    fn generate_plugin_for_test(value: i32) -> String {
-        let operation = format!("    *state += {value};");
+    fn generate_plugin_for_test(operation: &str) -> String {
         [
             "use std::time::Duration;",
             "#[no_mangle] pub extern \"C\" fn load(state: &mut i32) {",
@@ -248,16 +278,15 @@ mod tests {
         file.flush().unwrap();
         drop(file);
 
-        run_cmd!(rustc ${source_file_path} --crate-type dylib -o ${dest_file_path}).unwrap();
+        run_cmd!(rustc ${source_file_path} --crate-type cdylib -o ${dest_file_path}).unwrap();
         dest_file_path
     }
 
     #[test]
     #[named]
     fn test_generated_plugin() {
-        cmd_lib::init_builtin_logger();
         let tempdir = TempDir::new(function_name!()).unwrap();
-        let src = generate_plugin_for_test(1);
+        let src = generate_plugin_for_test("*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
 
         // The normal use case - load a plugin, pass in state, then reload.
@@ -265,7 +294,7 @@ mod tests {
         let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
         let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
-        assert_eq!(update, PluginUpdate::Updated);
+        assert_eq!(update, PluginCheck::FoundNewVersion);
 
         let dt = Duration::from_millis(1);
 
@@ -273,11 +302,11 @@ mod tests {
         assert_eq!(state, 3);
 
         // re-generate source code for plugin, saving at the same location.
-        let src = generate_plugin_for_test(-1);
+        let src = generate_plugin_for_test("*state -= 1;");
         compile_lib(&tempdir, &src);
 
         loader.check(&mut state).unwrap();
-        assert_eq!(update, PluginUpdate::Updated);
+        assert_eq!(update, PluginCheck::FoundNewVersion);
 
         loader.call_update(&mut state, &dt).unwrap();
         assert_eq!(state, 2);
@@ -291,15 +320,57 @@ mod tests {
 
     #[test]
     #[named]
-    fn should_fail_to_update_when_not_yet_loaded() {
-        cmd_lib::init_builtin_logger();
+    fn test_generated_plugin_mappings() {
         let tempdir = TempDir::new(function_name!()).unwrap();
-        let src = generate_plugin_for_test(1);
+        let src = generate_plugin_for_test("*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
 
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
+        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
+        let update = loader.check(&mut state).unwrap();
+        assert_eq!(state, 2);
+        assert_eq!(update, PluginCheck::FoundNewVersion);
+
+        let dt = Duration::from_millis(1);
+
+        loader.call_update(&mut state, &dt).unwrap();
+        assert_eq!(state, 3);
+
+        // re-generate source code for plugin, saving at the same location.
+        let src = generate_plugin_for_test(
+            r#"
+            *state -= 1;
+            thread_local! {
+                static THING: String = String::new();
+            }
+        "#,
+        );
+        compile_lib(&tempdir, &src);
+
+        loader.check(&mut state).unwrap();
+        assert_eq!(update, PluginCheck::FoundNewVersion);
+
+        loader.call_update(&mut state, &dt).unwrap();
+        assert_eq!(state, 2);
+
+        #[cfg(unix)]
+        assert_eq!(
+            crate::linux::distinct_plugins_mapped("test_plugin"),
+            ["test_plugin_1"],
+        );
+    }
+
+    #[test]
+    #[named]
+    fn should_fail_to_update_when_not_yet_loaded() {
+        let tempdir = TempDir::new(function_name!()).unwrap();
+        let src = generate_plugin_for_test("*state += 1;");
+        let plugin_path = compile_lib(&tempdir, &src);
+
+        // The normal use case - load a plugin, pass in state, then reload.
+        let mut state = 1i32;
+        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
         assert!(matches!(
             loader.call_update(&mut state, &Duration::from_millis(1)),
             Err(PluginError::UpdateNotLoaded)
@@ -310,6 +381,9 @@ mod tests {
     fn should_fail_to_load_lib_that_doesnt_exist() {
         let mut state = 0;
         let mut loader = Plugin::<u32>::open_from_target_dir("mod_unknown").unwrap();
-        assert!(matches!(loader.check(&mut state), Err(PluginError::Io(_))))
+        assert!(matches!(
+            loader.check(&mut state),
+            Err(PluginError::MetadataIo(_))
+        ))
     }
 }

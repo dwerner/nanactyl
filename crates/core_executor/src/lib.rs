@@ -1,6 +1,6 @@
 use std::{future::Future, pin::Pin, thread::JoinHandle};
 
-use futures_channel::oneshot::{Canceled, Receiver, Sender};
+use futures_channel::oneshot::Canceled;
 use futures_lite::{future, FutureExt, StreamExt};
 
 pub struct CoreExecutor {
@@ -60,7 +60,10 @@ impl CoreExecutor {
 
 /// Spawner for CoreExecutor - can be send to other threads for relaying work to this executor.
 impl CoreExecutorSpawner {
-    pub fn spawn<T>(&mut self, task: impl Future<Output = T> + Send + 'static) -> Receiver<T>
+    pub fn spawn<T>(
+        &mut self,
+        task: impl Future<Output = T> + Send + 'static,
+    ) -> impl Future<Output = Result<T, Canceled>>
     where
         T: std::fmt::Debug + Send + 'static,
     {
@@ -83,7 +86,7 @@ mod tests {
     use std::pin::Pin;
 
     use super::*;
-    use futures_lite::{future, FutureExt, StreamExt};
+    use futures_lite::{future, FutureExt};
 
     #[test]
     fn test_core_executor() {
@@ -147,77 +150,6 @@ mod tests {
 
         other_jh.join().unwrap();
         tx.send(async { ThreadShould::Exit }.boxed()).unwrap();
-
-        jh.join().unwrap();
-        println!("ending thread {:?}", std::thread::current().id());
-    }
-
-    #[test]
-    fn playground_impl_channel_of_tasks_futures_channel() {
-        let (mut tx, mut rx) = futures_channel::mpsc::channel::<
-            Pin<Box<dyn Future<Output = ExecutorTask> + Send + '_>>,
-        >(15);
-        println!("current thread {:?}", std::thread::current().id());
-        let jh = std::thread::spawn(move || {
-            let local_exec = smol::LocalExecutor::new();
-            println!(
-                "thread {:?} will be used as the 'main' thread",
-                std::thread::current().id()
-            );
-            future::block_on(async move {
-                loop {
-                    if let Some(task) = rx.next().await {
-                        println!(
-                            "running task on current thread {:?}",
-                            std::thread::current().id()
-                        );
-                        let task = local_exec.spawn(task);
-                        match local_exec.run(task).await {
-                            ExecutorTask::Continue => (),
-                            ExecutorTask::Exit => break,
-                        }
-                    }
-                }
-                println!("ending executor thread");
-            });
-        });
-        for x in 0..10 {
-            let (task_tx, task_rx) = futures_channel::oneshot::channel();
-            println!("sending task from thread {:?}", std::thread::current().id());
-            tx.try_send(
-                async move {
-                    for thing in 1..5 {
-                        println!("thing {} x {}", thing, x);
-                    }
-                    task_tx.send(42).unwrap();
-                    ExecutorTask::Continue
-                }
-                .boxed(),
-            )
-            .unwrap();
-            let answer = future::block_on(task_rx);
-            assert_eq!(answer, Ok(42));
-        }
-
-        let mut sender = tx.clone();
-        let other_jh = std::thread::spawn(move || {
-            for _ in 1..10 {
-                println!("sending from thread {:?}", std::thread::current().id());
-                sender
-                    .try_send(async { ExecutorTask::Continue }.boxed())
-                    .unwrap();
-            }
-        });
-
-        other_jh.join().unwrap();
-        tx.try_send(
-            async {
-                println!("sending ThreadShould::Exit");
-                ExecutorTask::Exit
-            }
-            .boxed(),
-        )
-        .unwrap();
 
         jh.join().unwrap();
         println!("ending thread {:?}", std::thread::current().id());

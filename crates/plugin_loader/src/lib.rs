@@ -5,7 +5,7 @@ pub use plugin::{Plugin, PluginCheck, PluginError};
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[macro_export]
-macro_rules! register {
+macro_rules! register_tls_dtor_hook {
     () => {
         #[cfg(target_os = "linux")]
         #[no_mangle]

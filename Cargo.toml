@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/state",
+    "crates/core_executor",
     "crates/plugin_loader",
     "crates/input_plugin",
     "crates/nshell",

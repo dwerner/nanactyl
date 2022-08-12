@@ -1,5 +1,5 @@
 // This trait needs to exist so we can box an "InputEventSource" plugin and let it call itself.
-pub trait InputEventSource {
+pub trait InputEventSource: Send + Sync + 'static {
     fn events(&mut self) -> &[EngineEvent];
     fn update(&mut self);
 }

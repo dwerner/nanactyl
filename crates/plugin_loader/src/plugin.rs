@@ -66,7 +66,7 @@ pub enum PluginCheck {
 /// We keep track of last-modified date of the file, and when it changes we
 /// copy the file, along with a version counter to a temporary directory to load it from.
 ///
-pub struct Plugin<T> {
+pub struct Plugin<T: Send + Sync + 'static> {
     /// Source filename to watch
     path: PathBuf,
     updates: u64,
@@ -84,7 +84,10 @@ pub struct Plugin<T> {
 type UpdateFn<T> = unsafe extern "C" fn(&mut T, &Duration);
 type CallFn<T> = unsafe extern "C" fn(&mut T);
 
-impl<T> Plugin<T> {
+impl<T> Plugin<T>
+where
+    T: Send + Sync,
+{
     /// Returns the defined name of the module
     pub fn name(&self) -> &str {
         &self.name
@@ -155,8 +158,8 @@ impl<T> Plugin<T> {
         self.updates == 0 || (self.updates > 0 && self.updates % self.check_interval as u64 == 0)
     }
 
-    /// Call to the mod to update the state with the "update" lifecycle event
-    pub fn call_update(
+    /// Call to the mod to update the state with the "update" lifecycle event.
+    pub async fn call_update(
         &mut self,
         state: &mut T,
         delta_time: &Duration,
@@ -230,7 +233,10 @@ impl<T> Plugin<T> {
     }
 }
 
-impl<T> Drop for Plugin<T> {
+impl<T> Drop for Plugin<T>
+where
+    T: Send + Sync,
+{
     fn drop(&mut self) {
         if let Some(lib) = self.lib.take() {
             let name = self.name();
@@ -282,9 +288,9 @@ mod tests {
         dest_file_path
     }
 
-    #[test]
+    #[smol_potat::test]
     #[named]
-    fn test_generated_plugin() {
+    async fn test_generated_plugin() {
         let tempdir = TempDir::new(function_name!()).unwrap();
         let src = generate_plugin_for_test("*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
@@ -298,7 +304,7 @@ mod tests {
 
         let dt = Duration::from_millis(1);
 
-        loader.call_update(&mut state, &dt).unwrap();
+        loader.call_update(&mut state, &dt).await.unwrap();
         assert_eq!(state, 3);
 
         // re-generate source code for plugin, saving at the same location.
@@ -308,19 +314,19 @@ mod tests {
         loader.check(&mut state).unwrap();
         assert_eq!(update, PluginCheck::FoundNewVersion);
 
-        loader.call_update(&mut state, &dt).unwrap();
+        loader.call_update(&mut state, &dt).await.unwrap();
         assert_eq!(state, 2);
 
-        loader.call_update(&mut state, &dt).unwrap();
+        loader.call_update(&mut state, &dt).await.unwrap();
         assert_eq!(state, 1);
 
-        loader.call_update(&mut state, &dt).unwrap();
+        loader.call_update(&mut state, &dt).await.unwrap();
         assert_eq!(state, 0);
     }
 
-    #[test]
+    #[smol_potat::test]
     #[named]
-    fn test_generated_plugin_mappings() {
+    async fn test_generated_plugin_mappings() {
         let tempdir = TempDir::new(function_name!()).unwrap();
         let src = generate_plugin_for_test("*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
@@ -334,7 +340,7 @@ mod tests {
 
         let dt = Duration::from_millis(1);
 
-        loader.call_update(&mut state, &dt).unwrap();
+        loader.call_update(&mut state, &dt).await.unwrap();
         assert_eq!(state, 3);
 
         // re-generate source code for plugin, saving at the same location.
@@ -351,7 +357,7 @@ mod tests {
         loader.check(&mut state).unwrap();
         assert_eq!(update, PluginCheck::FoundNewVersion);
 
-        loader.call_update(&mut state, &dt).unwrap();
+        loader.call_update(&mut state, &dt).await.unwrap();
         assert_eq!(state, 2);
 
         #[cfg(unix)]
@@ -361,9 +367,9 @@ mod tests {
         );
     }
 
-    #[test]
+    #[smol_potat::test]
     #[named]
-    fn should_fail_to_update_when_not_yet_loaded() {
+    async fn should_fail_to_update_when_not_yet_loaded() {
         let tempdir = TempDir::new(function_name!()).unwrap();
         let src = generate_plugin_for_test("*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
@@ -372,7 +378,9 @@ mod tests {
         let mut state = 1i32;
         let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
         assert!(matches!(
-            loader.call_update(&mut state, &Duration::from_millis(1)),
+            loader
+                .call_update(&mut state, &Duration::from_millis(1))
+                .await,
             Err(PluginError::UpdateNotLoaded)
         ));
     }

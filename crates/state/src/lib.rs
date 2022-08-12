@@ -9,10 +9,9 @@ use sdl2::Sdl;
 pub struct SimpleLogger;
 static LOGGER: SimpleLogger = SimpleLogger;
 
-pub fn init_logger() -> &'static SimpleLogger {
+pub fn init_logger() {
     log::set_logger(&LOGGER).unwrap();
     log::set_max_level(LevelFilter::Info);
-    &LOGGER
 }
 
 impl log::Log for SimpleLogger {
@@ -31,17 +30,13 @@ impl log::Log for SimpleLogger {
 
 pub struct State {
     pub input_system: Option<Box<dyn input::InputEventSource>>,
-    pub sdl_context: Sdl,
-    pub logger: &'static SimpleLogger,
     updates: u64,
 }
 
 impl State {
-    pub fn new(sdl_context: Sdl, logger: &'static SimpleLogger) -> Self {
+    pub fn new() -> Self {
         Self {
-            sdl_context,
             input_system: Default::default(),
-            logger,
             updates: 0,
         }
     }

@@ -6,4 +6,4 @@ edition = "2021"
 [dependencies]
 plugin_loader = { path = "../plugin_loader" }
 state = { path = "../state" }
-env_logger = "*"
+smol-potat = "1.1.2"

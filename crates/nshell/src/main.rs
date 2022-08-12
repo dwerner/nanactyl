@@ -10,15 +10,15 @@ use state::log;
 use state::sdl2;
 use state::State;
 
-fn main() {
-    plugin_loader::register!();
-    let shared_logger = state::init_logger();
+#[smol_potat::main(threads = 4)]
+async fn main() {
+    plugin_loader::register_tls_dtor_hook!();
+    state::init_logger();
 
     log::info!("main thread startup");
-    let sdl = sdl2::init().unwrap();
 
     let mut input = Plugin::<State>::open_from_target_dir("input_plugin").unwrap();
-    let mut state = State::new(sdl, shared_logger);
+    let mut state = State::new();
     let mut updated = Instant::now();
     'main_thread_game_loop: loop {
         match input.check(&mut state) {
@@ -33,7 +33,10 @@ fn main() {
             Err(err) => panic!("unexpected error checking plugin - {:?}", err),
         }
 
-        let _update_duration = input.call_update(&mut state, &updated.elapsed()).unwrap();
+        let _update_duration = input
+            .call_update(&mut state, &updated.elapsed())
+            .await
+            .unwrap();
         updated = Instant::now();
 
         if let Some(ref mut input) = state.input_system {

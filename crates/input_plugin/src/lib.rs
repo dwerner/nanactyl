@@ -32,8 +32,6 @@ impl InputEventSource for InputWrapper {
 pub extern "C" fn load(state: &mut State) {
     state::writeln!(state, "loaded input system {}", 42);
 
-    env_logger::init();
-
     let haptic_subsystem = state.sdl_context.haptic().unwrap();
     let game_controller_subsystem = state.sdl_context.game_controller().unwrap();
     let joystick_subsystem = state.sdl_context.joystick().unwrap();

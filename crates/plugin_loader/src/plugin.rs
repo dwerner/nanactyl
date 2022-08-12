@@ -17,8 +17,6 @@ const UNLOAD_METHOD: &[u8] = b"unload";
 //     Add async futures layer over this - allowing module calls to be composed
 //     together as futures.
 //
-//     (*)- Perhaps load modules into an evmap for lock-free concurrency?
-//
 // TODO: support a dynamically *defined* and dynamically loaded lib
 // --> Load module definitions at runtime, even watch a mod folder and load them based on a def
 //
@@ -151,10 +149,8 @@ impl<T> Plugin<T> {
         Ok(PluginCheck::Unchanged)
     }
 
-    fn updates(&self) -> u64 {
-        self.updates
-    }
-
+    /// Should the plugin wrapper check for a new version on disk?
+    /// Also used on unix systems to determine if we should check /proc/PID/maps for plugin mappings.
     pub fn should_check(&self) -> bool {
         self.updates == 0 || (self.updates > 0 && self.updates % self.check_interval as u64 == 0)
     }
@@ -180,11 +176,15 @@ impl<T> Plugin<T> {
         }
         log::debug!("Updated {} version {}", self.name(), self.version);
         self.updates += 1;
-        if self.updates() > 0 && self.updates() % 1000 == 0 {
-            #[cfg(unix)]
-            {
-                let mappings = crate::linux::distinct_plugins_mapped(self.name());
-                log::warn!("plugins mapped {:?}", mappings);
+
+        #[cfg(unix)]
+        {
+            if self.should_check() {
+                let plugin_name = self.name();
+                let mappings = crate::linux::distinct_plugins_mapped(plugin_name);
+                if mappings.len() > 1 {
+                    log::warn!("multiple plugins mapped for {plugin_name}: {mappings:?}");
+                }
             }
         }
 

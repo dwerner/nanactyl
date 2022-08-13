@@ -60,7 +60,7 @@ impl CoreExecutor {
 
 /// Spawner for CoreExecutor - can be send to other threads for relaying work to this executor.
 impl CoreExecutorSpawner {
-    pub fn spawn<T>(
+    pub fn spawn<'a, T>(
         &mut self,
         task: impl Future<Output = T> + Send + 'static,
     ) -> impl Future<Output = Result<T, Canceled>>

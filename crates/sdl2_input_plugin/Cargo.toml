@@ -1,5 +1,5 @@
 [package]
-name = "input_plugin"
+name = "sdl2_input_plugin"
 version = "0.1.0"
 edition = "2021"
 

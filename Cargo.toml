@@ -3,6 +3,7 @@ members = [
     "crates/state",
     "crates/core_executor",
     "crates/plugin_loader",
-    "crates/input_plugin",
+    "crates/gilrs_input_plugin",
+    "crates/sdl2_input_plugin",
     "crates/nshell",
 ]

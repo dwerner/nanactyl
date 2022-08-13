@@ -1,6 +1,6 @@
 // This trait needs to exist so we can box an "InputEventSource" plugin and let it call itself.
-pub trait InputEventSource: Send + Sync + 'static {
-    fn events(&mut self) -> &[EngineEvent];
+pub trait InputEventSource: Send + Sync {
+    fn events(&self) -> &[EngineEvent];
     fn update(&mut self);
 }
 
@@ -19,7 +19,7 @@ pub enum InputEvent {
     Cancel,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum DeviceEvent {
     JoystickAdded(u32),
     JoystickRemoved(u32),
@@ -28,7 +28,7 @@ pub enum DeviceEvent {
 }
 
 /// Control flow for the game loop
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum EngineEvent {
     /// Continue execution of the game loop.
     Continue,

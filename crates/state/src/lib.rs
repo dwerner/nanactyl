@@ -1,10 +1,11 @@
 pub mod input;
 
+pub use futures_lite;
 pub use log;
-use log::{Level, LevelFilter, Metadata, Record};
-pub use sdl2;
 
-use sdl2::Sdl;
+use log::{Level, LevelFilter, Metadata, Record};
+
+pub use core_executor::CoreExecutorSpawner;
 
 pub struct SimpleLogger;
 static LOGGER: SimpleLogger = SimpleLogger;
@@ -31,13 +32,15 @@ impl log::Log for SimpleLogger {
 pub struct State {
     pub input_system: Option<Box<dyn input::InputEventSource>>,
     updates: u64,
+    pub exec: CoreExecutorSpawner,
 }
 
 impl State {
-    pub fn new() -> Self {
+    pub fn new(main_thread_exec: CoreExecutorSpawner) -> Self {
         Self {
             input_system: Default::default(),
             updates: 0,
+            exec: main_thread_exec,
         }
     }
 

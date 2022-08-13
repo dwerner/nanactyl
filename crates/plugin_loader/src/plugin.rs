@@ -107,6 +107,7 @@ where
     /// Opens a plugin at `path`, with `name`. Note that `check` must be called subsequently in order to invoke callbacks on the plugin.
     pub fn open_at(path: impl AsRef<Path>, name: &str) -> Result<Plugin<T>, PluginError> {
         let modified = Duration::from_millis(0);
+        fs::metadata(&path).map_err(PluginError::MetadataIo)?;
         Ok(Plugin {
             path: path.as_ref().to_path_buf(),
             name: name.to_string(),

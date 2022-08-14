@@ -7,8 +7,8 @@ edition = "2021"
 [dependencies]
 libloading = "0.7"
 log = "0.4"
-thiserror = "1"
 tempdir = "0.3.7"
+thiserror = "1"
 
 [target.'cfg(unix)'.dependencies]
 cstr = "0.2.10"

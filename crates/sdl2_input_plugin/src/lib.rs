@@ -5,7 +5,7 @@ use std::time::Duration;
 use input_system::InputSystem;
 use state::{
     input::{EngineEvent, InputEventSource},
-    State,
+    InputState,
 };
 
 use std::cell::RefCell;
@@ -40,7 +40,7 @@ impl InputEventSource for InputWrapper {
 }
 
 #[no_mangle]
-pub extern "C" fn load(state: &mut State) {
+pub extern "C" fn load(state: &mut InputState) {
     SDL_CONTEXT.with(|s| {
         let sdl_context = match s.borrow_mut().take() {
             Some(sdl) => sdl,
@@ -91,14 +91,14 @@ pub extern "C" fn load(state: &mut State) {
 }
 
 #[no_mangle]
-pub extern "C" fn update(state: &mut State, _dt: &Duration) {
+pub extern "C" fn update(state: &mut InputState, _dt: &Duration) {
     if let Some(ref mut input) = state.input_system {
         input.update();
     }
 }
 
 #[no_mangle]
-pub extern "C" fn unload(state: &mut State) {
+pub extern "C" fn unload(state: &mut InputState) {
     state::writeln!(state, "unloading input plugin");
     drop((
         input_system::JOYSTICKS,

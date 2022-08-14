@@ -1,38 +1,23 @@
-use std::{future::Future, pin::Pin, thread::JoinHandle};
+use std::{
+    future::Future,
+    pin::Pin,
+    thread::{JoinHandle, Thread},
+};
 
 use futures_channel::oneshot::Canceled;
 use futures_lite::{future, FutureExt, StreamExt};
 
-pub struct CoreExecutor {
+pub struct ThreadExecutor {
+    core_id: usize,
+    spawner: ThreadExecutorSpawner,
     exec_thread_jh: Option<JoinHandle<()>>,
-    tx: futures_channel::mpsc::Sender<ExecutorTask>,
 }
 
-impl Drop for CoreExecutor {
-    fn drop(&mut self) {
-        if let Some(thread_handle) = self.exec_thread_jh.take() {
-            self.tx.try_send(ExecutorTask::Exit).unwrap();
-            thread_handle.join().unwrap();
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct CoreExecutorSpawner {
-    tx: futures_channel::mpsc::Sender<ExecutorTask>,
-}
-enum ExecutorTask {
-    Exit,
-    Task(PinnedTask),
-}
-
-type PinnedTask = Pin<Box<dyn Future<Output = ()> + Send>>;
-
-// Must be owned by a single thread
-impl CoreExecutor {
-    pub fn new() -> (CoreExecutorSpawner, Self) {
+impl ThreadExecutor {
+    pub fn new(core_id: usize) -> Self {
         let (tx, mut rx) = futures_channel::mpsc::channel::<ExecutorTask>(100);
         let exec_thread_jh = std::thread::spawn(move || {
+            core_affinity::set_for_current(core_affinity::CoreId { id: core_id });
             let local_exec = smol::LocalExecutor::new();
             future::block_on(async move {
                 loop {
@@ -48,19 +33,59 @@ impl CoreExecutor {
                 }
             });
         });
-        (
-            CoreExecutorSpawner { tx: tx.clone() },
-            CoreExecutor {
-                exec_thread_jh: Some(exec_thread_jh),
-                tx,
-            },
-        )
+        let exec_thread_jh = Some(exec_thread_jh);
+        Self {
+            core_id,
+            spawner: ThreadExecutorSpawner { core_id, tx },
+            exec_thread_jh,
+        }
+    }
+}
+
+impl Drop for ThreadExecutor {
+    fn drop(&mut self) {
+        if let Some(thread_handle) = self.exec_thread_jh.take() {
+            self.spawner.tx.try_send(ExecutorTask::Exit).unwrap();
+            thread_handle.join().unwrap();
+        }
+    }
+}
+
+pub struct CoreAffinityExecutor {
+    thread_executors: Vec<ThreadExecutor>,
+}
+
+#[derive(Clone)]
+pub struct ThreadExecutorSpawner {
+    pub core_id: usize,
+    tx: futures_channel::mpsc::Sender<ExecutorTask>,
+}
+enum ExecutorTask {
+    Exit,
+    Task(PinnedTask),
+}
+
+type PinnedTask = Pin<Box<dyn Future<Output = ()> + Send>>;
+
+// Must be owned by a single thread
+impl CoreAffinityExecutor {
+    // TODO: take a thread name, and label the thread with that for better debug experience
+    pub fn new(cores: usize) -> Self {
+        let thread_executors = (0..cores).map(ThreadExecutor::new).collect::<Vec<_>>();
+        CoreAffinityExecutor { thread_executors }
+    }
+
+    pub fn spawners(&self) -> Vec<ThreadExecutorSpawner> {
+        self.thread_executors
+            .iter()
+            .map(|ThreadExecutor { spawner, .. }| spawner.clone())
+            .collect()
     }
 }
 
 /// Spawner for CoreExecutor - can be send to other threads for relaying work to this executor.
-impl CoreExecutorSpawner {
-    pub fn spawn<'a, T>(
+impl ThreadExecutorSpawner {
+    pub fn spawn<T>(
         &mut self,
         task: impl Future<Output = T> + Send + 'static,
     ) -> impl Future<Output = Result<T, Canceled>>
@@ -78,6 +103,12 @@ impl CoreExecutorSpawner {
             .expect("unable to execute task");
         oneshot_rx
     }
+
+    pub fn fire(&mut self, task: impl Future<Output = ()> + Send + 'static) {
+        self.tx
+            .try_send(ExecutorTask::Task(task.boxed()))
+            .expect("unable to execute task");
+    }
 }
 
 #[cfg(test)]
@@ -90,7 +121,8 @@ mod tests {
 
     #[test]
     fn test_core_executor() {
-        let (mut spawner, _exec) = CoreExecutor::new();
+        let exec = CoreAffinityExecutor::new(2);
+        let spawner = &mut exec.spawners()[0];
         let answer_rx = spawner.spawn(async { 42 });
         let answer_value = future::block_on(answer_rx);
         assert_eq!(answer_value, Ok(42));

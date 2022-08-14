@@ -26,7 +26,10 @@ static SYSTEM_THREAD_ATEXIT: Lazy<Option<NextFn>> = Lazy::new(|| unsafe {
 pub unsafe fn thread_atexit(func: *mut c_void, obj: *mut c_void, dso_symbol: *mut c_void) {
     // Default behavior, left here to provide a hook in case we want to disable thread local destructors from being registered.
     if let Some(system_thread_atexit) = *SYSTEM_THREAD_ATEXIT {
-        system_thread_atexit(func, obj, dso_symbol);
+        // Just don't register dtors
+
+        log::warn!("thread local dtor registration is disabled.");
+        // system_thread_atexit(func, obj, dso_symbol);
     } else {
         // hot reloading is disabled *and* we don't have `__cxa_thread_atexit_impl`,
         // throw hands up in the air and leak memory.

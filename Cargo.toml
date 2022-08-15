@@ -3,7 +3,9 @@ members = [
     "crates/state",
     "crates/core_executor",
     "crates/plugin_loader",
-    "crates/gilrs_input_plugin",
-    "crates/sdl2_input_plugin",
     "crates/nshell",
+
+    # these plugin crates should not be depended upon by anything else
+    "crates/plugins/gilrs_input_plugin",
+    "crates/plugins/sdl2_input_plugin",
 ]

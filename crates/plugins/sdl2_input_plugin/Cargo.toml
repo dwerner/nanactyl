@@ -7,6 +7,6 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-state = { path = "../state" }
+state = { path = "../../state" }
 thiserror = "1"
 sdl2 = "0.35.2"

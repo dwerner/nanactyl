@@ -2,53 +2,62 @@ use std::time::Duration;
 use std::time::Instant;
 
 use core_executor::CoreAffinityExecutor;
+use futures_lite::future;
 use plugin_loader::Plugin;
 
 use plugin_loader::PluginCheck;
 use plugin_loader::PluginError;
 
-use state::input::EngineEvent;
-use state::log;
-use state::InputState;
+use input::input::EngineEvent;
+use input::log;
+use input::InputState;
+use render::RenderState;
 
 fn main() {
     plugin_loader::register_tls_dtor_hook!();
-    state::init_logger();
 
     log::info!("main thread startup");
 
-    let mut input = Plugin::<InputState>::open_from_target_dir("gilrs_input_plugin").unwrap();
-    let mut input2 = Plugin::<InputState>::open_from_target_dir("sdl2_input_plugin").unwrap();
-
     let executor = CoreAffinityExecutor::new(4);
     let spawners = executor.spawners();
-    let (spawners1, spawners2) = spawners.split_at(2);
 
-    let mut state = InputState::new(spawners1.to_owned());
-    let mut state2 = InputState::new(spawners2.to_owned());
+    let mut world = world::World::new();
+    world.start_thing().build();
 
-    let mut frame_start;
-    'frame_loop: loop {
-        frame_start = Instant::now();
-        check_plugin(&mut input, &mut state);
-        check_plugin(&mut input2, &mut state2);
+    let mut render_state = RenderState::new();
 
-        let _ = smol::block_on(futures::future::join(
-            input.call_update(&mut state, &frame_start.elapsed()),
-            input2.call_update(&mut state2, &frame_start.elapsed()),
-        ));
+    future::block_on(async move {
+        let mut input = Plugin::<InputState>::open_from_target_dir("sdl2_input_plugin").unwrap();
+        let mut renderer =
+            Plugin::<RenderState>::open_from_target_dir("tui_renderer_plugin").unwrap();
 
-        if let Some(EngineEvent::ExitToDesktop) = handle_input_events(&state) {
-            break 'frame_loop;
+        // state needs to be dropped on the same thread as it was created
+        let mut input_state = InputState::new(spawners.to_owned());
+
+        let mut frame_start;
+        'frame_loop: loop {
+            frame_start = Instant::now();
+            check_plugin(&mut input, &mut input_state);
+
+            render_state.update(&world).unwrap();
+
+            let _ = input
+                .call_update(&mut input_state, &frame_start.elapsed())
+                .await;
+
+            let _ = renderer
+                .call_update(&mut render_state, &frame_start.elapsed())
+                .await;
+
+            if let Some(EngineEvent::ExitToDesktop) = handle_input_events(&input_state) {
+                break 'frame_loop;
+            }
+
+            let elapsed = frame_start.elapsed();
+            let delay = Duration::from_millis(16).saturating_sub(elapsed);
+            smol::Timer::after(delay).await;
         }
-        if let Some(EngineEvent::ExitToDesktop) = handle_input_events(&state2) {
-            break 'frame_loop;
-        }
-
-        let elapsed = frame_start.elapsed();
-        let delay = Duration::from_millis(16).saturating_sub(elapsed);
-        std::thread::sleep(delay);
-    }
+    });
     log::info!("nshell closed");
 }
 
@@ -59,15 +68,15 @@ fn handle_input_events(state: &InputState) -> Option<EngineEvent> {
         .map(|input| input.events().to_vec())
     {
         if !events.is_empty() {
-            state::writeln!(state, "Processing {} events", events.len());
+            //state::writeln!(state, "Processing {} events", events.len());
             for event in events {
                 match event {
-                    EngineEvent::Continue => (),
+                    EngineEvent::Continue => input::writeln!(state, "nothing event"),
                     EngineEvent::InputDevice(input_device_event) => {
-                        state::writeln!(state, "input device event {:?}", input_device_event);
+                        input::writeln!(state, "input device event {:?}", input_device_event);
                     }
                     EngineEvent::Input(input_event) => {
-                        state::writeln!(state, "input event {:?}", input_event);
+                        input::writeln!(state, "input event {:?}", input_event);
                     }
                     ret @ EngineEvent::ExitToDesktop => {
                         log::info!("Got {:?}", ret);
@@ -92,7 +101,7 @@ where
             plugin.version()
         ),
         Ok(PluginCheck::Unchanged) => (),
-        Err(m @ PluginError::MetadataIo(_)) => {
+        Err(m @ PluginError::MetadataIo { .. }) => {
             log::warn!(
                 "error getting file metadata for plugin {}: {:?}",
                 plugin.name(),

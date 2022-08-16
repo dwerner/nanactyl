@@ -1,14 +1,10 @@
-use std::{
-    future::Future,
-    pin::Pin,
-    thread::{JoinHandle, Thread},
-};
+use std::{future::Future, pin::Pin, thread::JoinHandle};
 
 use futures_channel::oneshot::Canceled;
 use futures_lite::{future, FutureExt, StreamExt};
 
 pub struct ThreadExecutor {
-    core_id: usize,
+    _core_id: usize,
     spawner: ThreadExecutorSpawner,
     exec_thread_jh: Option<JoinHandle<()>>,
 }
@@ -35,7 +31,7 @@ impl ThreadExecutor {
         });
         let exec_thread_jh = Some(exec_thread_jh);
         Self {
-            core_id,
+            _core_id: core_id,
             spawner: ThreadExecutorSpawner { core_id, tx },
             exec_thread_jh,
         }

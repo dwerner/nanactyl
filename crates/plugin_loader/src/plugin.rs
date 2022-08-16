@@ -32,8 +32,13 @@ pub enum PluginError {
     #[error("tempdir io error {0:?}")]
     TempdirIo(io::Error),
 
-    #[error("metadata io error {0:?}")]
-    MetadataIo(io::Error),
+    #[error("metadata io plugin name: {name}, path {path}, err {err:?}")]
+    MetadataIo {
+        name: String,
+        path: PathBuf,
+        err: io::Error,
+    },
+
     #[error("modified io error {0:?}")]
     ModifiedTime(io::Error),
 
@@ -56,7 +61,7 @@ pub enum PluginError {
     UpdateNotLoaded,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PluginCheck {
     FoundNewVersion,
     Unchanged,
@@ -117,11 +122,17 @@ where
         check_interval: u32,
     ) -> Result<Plugin<T>, PluginError> {
         let modified = Duration::from_millis(0);
-        fs::metadata(&path).map_err(PluginError::MetadataIo)?;
-        Ok(Plugin {
-            path: path.as_ref().to_path_buf(),
+        let path = path.as_ref().to_path_buf();
+        let name = name.to_string();
+        fs::metadata(&path).map_err(|err| PluginError::MetadataIo {
             name: name.to_string(),
-            tempdir: TempDir::new(name).map_err(PluginError::TempdirIo)?,
+            path: path.clone(),
+            err,
+        })?;
+        Ok(Plugin {
+            path,
+            tempdir: TempDir::new(&name).map_err(PluginError::TempdirIo)?,
+            name: name.to_string(),
             modified,
             version: 0,
             updates: 0,
@@ -142,9 +153,13 @@ where
         if !self.should_check() {
             return Ok(PluginCheck::Unchanged);
         }
-        let source = PathBuf::from(self.path.clone());
+        let source = self.path.clone();
         let file_stem = source.file_stem().unwrap().to_str().unwrap();
-        let new_meta = fs::metadata(&source).map_err(PluginError::MetadataIo)?;
+        let new_meta = fs::metadata(&source).map_err(|err| PluginError::MetadataIo {
+            err,
+            path: source.clone(),
+            name: self.name().to_string(),
+        })?;
         let last_modified: Duration = new_meta
             .modified()
             .map_err(PluginError::ModifiedTime)?
@@ -253,8 +268,7 @@ where
             }
         }
         if let Some(lib) = self.lib.take() {
-            lib.close()
-                .map_err(|error_closing| PluginError::ErrorOnClose(error_closing))?;
+            lib.close().map_err(PluginError::ErrorOnClose)?;
         }
         log::debug!("Unloaded {} version {}", self.name(), self.version);
         Ok(())
@@ -427,6 +441,6 @@ mod tests {
     #[test]
     fn should_fail_to_load_lib_that_doesnt_exist() {
         let load = Plugin::<u32>::open_from_target_dir("mod_unknown");
-        assert!(matches!(load, Err(PluginError::MetadataIo(_))))
+        assert!(matches!(load, Err(PluginError::MetadataIo { .. })))
     }
 }

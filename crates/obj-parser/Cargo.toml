@@ -1,0 +1,10 @@
+[package]
+name = "obj-parser"
+version = "0.2.0"
+authors = ["dwerner <dan.werner@gmail.com>"]
+license = "BSD-2-Clause"
+description = "A simple obj/mtl parser written with nom."
+edition = "2015"
+
+[dependencies.nom]
+version = "2"

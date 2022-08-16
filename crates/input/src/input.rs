@@ -6,7 +6,7 @@ pub trait InputEventSource: Send + Sync {
 
 /// Input events
 #[derive(Debug, Clone, PartialEq)]
-pub enum InputEvent {
+pub enum Button {
     Left,
     Up,
     LeftUp,
@@ -17,6 +17,13 @@ pub enum InputEvent {
     Right,
     Ok,
     Cancel,
+    Unmapped,
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum InputEvent {
+    ButtonPressed(Button),
+    ButtonReleased(Button),
 }
 
 #[derive(Debug, PartialEq, Clone)]

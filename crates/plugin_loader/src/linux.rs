@@ -18,6 +18,8 @@ static SYSTEM_THREAD_ATEXIT: Lazy<Option<NextFn>> = Lazy::new(|| unsafe {
     ))
 });
 
+const ENABLE_DTOR_REGISTRATION_BLOCKING: bool = true;
+
 /// Turns glibc's TLS destructor register function, `__cxa_thread_atexit_impl`,
 ///
 /// # Safety
@@ -27,13 +29,14 @@ pub unsafe fn thread_atexit(func: *mut c_void, obj: *mut c_void, dso_symbol: *mu
     // Default behavior, left here to provide a hook in case we want to disable thread local destructors from being registered.
     if let Some(system_thread_atexit) = *SYSTEM_THREAD_ATEXIT {
         // Just don't register dtors
-
+        // TODO: Consider dbg!(stacktrace) here (optional dependency?)
         log::warn!("thread local dtor registration is disabled.");
-        // system_thread_atexit(func, obj, dso_symbol);
-    } else {
-        // hot reloading is disabled *and* we don't have `__cxa_thread_atexit_impl`,
-        // throw hands up in the air and leak memory.
+        if !ENABLE_DTOR_REGISTRATION_BLOCKING {
+            system_thread_atexit(func, obj, dso_symbol);
+        }
     }
+    // if hot reloading is disabled *and* we don't have `__cxa_thread_atexit_impl`,
+    // throw hands up in the air and leak memory.
 }
 
 /// Check /proc/PID/maps for our process and a plugin name.

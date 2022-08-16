@@ -2,19 +2,18 @@ mod input_system;
 
 use std::time::Duration;
 
-use input_system::InputSystem;
-use state::{
+use input::{
     input::{EngineEvent, InputEventSource},
     InputState,
 };
+use input_system::InputSystem;
 
 use std::cell::RefCell;
 
 thread_local! {
-    pub static SDL_CONTEXT: RefCell<Option<sdl2::Sdl>> = RefCell::new(None);
+    static SDL_CONTEXT: RefCell<Option<sdl2::Sdl>> = RefCell::new(None);
     static HAPTIC_SUBSYSTEM: RefCell<Option<sdl2::HapticSubsystem>> = RefCell::new(None);
     static GAME_CONTROLLER_SUBSYSTEM: RefCell<Option<sdl2::GameControllerSubsystem>> = RefCell::new(None);
-    static JOYSTICK_SUBSYSTEM: RefCell<Option<sdl2::JoystickSubsystem>> = RefCell::new(None);
     static EVENT_PUMP: RefCell<Option<sdl2::EventPump>> = RefCell::new(None);
 }
 
@@ -30,8 +29,14 @@ impl InputEventSource for InputWrapper {
         while let Some(event) =
             EVENT_PUMP.with(|pump| pump.borrow_mut().as_mut().unwrap().poll_event())
         {
-            let to_publish = input_system.evaluate_event(event);
-            self.outgoing_events.push(to_publish);
+            let e = match input_system.evaluate_event(&event) {
+                EngineEvent::Continue => {
+                    //println!("unmapped event {:?}", event);
+                    continue;
+                }
+                e => e,
+            };
+            self.outgoing_events.push(e);
         }
     }
     fn events(&self) -> &[EngineEvent] {
@@ -52,13 +57,6 @@ pub extern "C" fn load(state: &mut InputState) {
                 None => sdl_context.haptic().unwrap(),
             };
             *h.borrow_mut() = Some(haptic);
-        });
-        JOYSTICK_SUBSYSTEM.with(|j| {
-            let joystick = match j.borrow_mut().take() {
-                Some(thing) => thing,
-                None => sdl_context.joystick().unwrap(),
-            };
-            *j.borrow_mut() = Some(joystick);
         });
         GAME_CONTROLLER_SUBSYSTEM.with(|g| {
             let controller = match g.borrow_mut().take() {
@@ -83,9 +81,9 @@ pub extern "C" fn load(state: &mut InputState) {
     };
     state.input_system = Some(Box::new(wrapper));
 
-    state::writeln!(
+    input::writeln!(
         state,
-        "loaded input system - thread id({:?}) - lots of thread_locals here!",
+        "loaded input system - thread id({:?}) - lots of thread_locals here!...",
         std::thread::current().id()
     );
 }
@@ -99,15 +97,13 @@ pub extern "C" fn update(state: &mut InputState, _dt: &Duration) {
 
 #[no_mangle]
 pub extern "C" fn unload(state: &mut InputState) {
-    state::writeln!(state, "unloading input plugin");
-    drop((
-        input_system::JOYSTICKS,
-        input_system::GAME_CONTROLLERS,
-        input_system::HAPTIC_DEVICES,
-        HAPTIC_SUBSYSTEM,
-        GAME_CONTROLLER_SUBSYSTEM,
-        JOYSTICK_SUBSYSTEM,
-        EVENT_PUMP,
-        SDL_CONTEXT,
-    ));
+    input::writeln!(state, "unloading input plugin...");
+    input_system::GAME_CONTROLLERS.with(|j| j.borrow_mut().clear());
+    input_system::HAPTIC_DEVICES.with(|j| j.borrow_mut().clear());
+    HAPTIC_SUBSYSTEM.with(|x| x.borrow_mut().take());
+    GAME_CONTROLLER_SUBSYSTEM.with(|x| x.borrow_mut().take());
+    EVENT_PUMP.with(|x| x.borrow_mut().take());
+    SDL_CONTEXT.with(|x| x.borrow_mut().take());
+    // Required! Will live beyond the lifetime of the plugin then.
+    drop(state.input_system.take());
 }

@@ -1,5 +1,6 @@
 use std::{future::Future, pin::Pin, thread::JoinHandle};
 
+use async_executor::LocalExecutor;
 use futures_channel::oneshot::Canceled;
 use futures_lite::{future, FutureExt, StreamExt};
 
@@ -14,7 +15,7 @@ impl ThreadExecutor {
         let (tx, mut rx) = futures_channel::mpsc::channel::<ExecutorTask>(100);
         let exec_thread_jh = std::thread::spawn(move || {
             core_affinity::set_for_current(core_affinity::CoreId { id: core_id });
-            let local_exec = smol::LocalExecutor::new();
+            let local_exec = LocalExecutor::new();
             future::block_on(async move {
                 loop {
                     if let Some(thread_control_flow) = rx.next().await {
@@ -113,6 +114,7 @@ mod tests {
     use std::pin::Pin;
 
     use super::*;
+    use async_executor::LocalExecutor;
     use futures_lite::{future, FutureExt};
 
     #[test]
@@ -134,7 +136,7 @@ mod tests {
             Continue,
         }
         let jh = std::thread::spawn(move || {
-            let local_exec = smol::LocalExecutor::new();
+            let local_exec = LocalExecutor::new();
             loop {
                 let task = rx.recv().unwrap();
                 println!(

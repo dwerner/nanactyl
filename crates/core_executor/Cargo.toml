@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 futures-lite = "1.12"
 futures-channel = "0.3.21"
-smol = "1.2.5"
+async-executor = "1.4.1"
 core_affinity = "0.5.10"
 
 [dev-dependencies]

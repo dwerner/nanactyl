@@ -79,12 +79,24 @@ pub struct Plugin<T: Send + Sync + 'static> {
     check_interval: u32,
     lib: Option<Library>,
     modified: Duration,
+    libcache: Option<LibCache<T>>,
     /// Keep track of how many times we've loaded,
     /// as we use this in the filename for the temp copy
     version: u64,
     name: String,
     tempdir: TempDir,
     _pd: PhantomData<T>,
+}
+
+#[cfg(unix)]
+use libloading::os::unix::Symbol as PlatformSymbol;
+#[cfg(windows)]
+use libloading::os::windows::Symbol as PlatformSymbol;
+
+struct LibCache<T> {
+    load: PlatformSymbol<CallFn<T>>,
+    update: PlatformSymbol<UpdateFn<T>>,
+    unload: PlatformSymbol<CallFn<T>>,
 }
 
 type UpdateFn<T> = unsafe extern "C" fn(&mut T, &Duration);
@@ -139,6 +151,7 @@ where
             last_reloaded: 0,
             check_interval,
             lib: None,
+            libcache: None,
             _pd: PhantomData::<T>,
         })
     }
@@ -153,6 +166,7 @@ where
         if !self.should_check() {
             return Ok(PluginCheck::Unchanged);
         }
+
         let source = self.path.clone();
         let file_stem = source.file_stem().unwrap().to_str().unwrap();
         let new_meta = fs::metadata(&source).map_err(|err| PluginError::MetadataIo {
@@ -160,10 +174,12 @@ where
             path: source.clone(),
             name: self.name().to_string(),
         })?;
+
         let last_modified: Duration = new_meta
             .modified()
             .map_err(PluginError::ModifiedTime)?
             .duration_since(UNIX_EPOCH)?;
+
         if self.modified != last_modified {
             self.modified = last_modified;
             let new_filename = format!("{}_{}.plugin", file_stem, self.version);
@@ -171,13 +187,39 @@ where
             temp_file_path.push(&new_filename);
             fs::copy(&source, temp_file_path.as_path()).map_err(PluginError::CopyFile)?;
             let lib = unsafe { Library::new(temp_file_path).map_err(PluginError::ErrorOnOpen)? };
+            let libcache = unsafe {
+                let load = lib.get::<CallFn<T>>(LOAD_METHOD).map_err(|error| {
+                    PluginError::MethodNotFound {
+                        name: "load".to_string(),
+                        error,
+                    }
+                })?;
+                let unload = lib.get::<CallFn<T>>(UNLOAD_METHOD).map_err(|error| {
+                    PluginError::MethodNotFound {
+                        name: "unload".to_string(),
+                        error,
+                    }
+                })?;
+                let update = lib.get::<UpdateFn<T>>(UPDATE_METHOD).map_err(|error| {
+                    PluginError::MethodNotFound {
+                        name: "update".to_string(),
+                        error,
+                    }
+                })?;
+                LibCache {
+                    load: load.into_raw(),
+                    update: update.into_raw(),
+                    unload: unload.into_raw(),
+                }
+            };
             if self.lib.is_some() {
                 self.call_unload(state)?;
             }
             self.lib = Some(lib);
+            self.libcache = Some(libcache);
             self.version += 1;
-            self.call_load(state)?;
             self.last_reloaded = 0;
+            self.call_load(state)?;
             return Ok(PluginCheck::FoundNewVersion);
         }
         Ok(PluginCheck::Unchanged)
@@ -199,16 +241,11 @@ where
         delta_time: &Duration,
     ) -> Result<Duration, PluginError> {
         let start_time = Instant::now();
-        match self.lib {
+        match self.libcache.as_ref() {
             None => return Err(PluginError::UpdateNotLoaded),
-            Some(ref lib) => unsafe {
+            Some(cache) => unsafe {
                 // TODO: it could be that the lib fn needs to be cached.
-                lib.get::<UpdateFn<T>>(UPDATE_METHOD)
-                    .map(|f| f(state, delta_time))
-                    .map_err(|error| PluginError::MethodNotFound {
-                        name: String::from_utf8(UPDATE_METHOD.to_vec()).unwrap(),
-                        error,
-                    })?;
+                (cache.update)(state, delta_time);
             },
         }
         self.updates += 1;
@@ -239,15 +276,9 @@ where
 
     /// Trigger the "load" lifecycle event
     fn call_load(&mut self, state: &mut T) -> Result<(), PluginError> {
-        if let Some(ref lib) = self.lib {
+        if let Some(cache) = self.libcache.as_ref() {
             unsafe {
-                // TODO: could cache the func until unload
-                lib.get::<CallFn<T>>(LOAD_METHOD)
-                    .map(|f| f(state))
-                    .map_err(|error| PluginError::MethodNotFound {
-                        name: String::from_utf8(LOAD_METHOD.to_vec()).unwrap(),
-                        error,
-                    })?;
+                (cache.load)(state);
             }
         }
         log::debug!("Loaded {} version {}", self.name(), self.version);
@@ -256,19 +287,14 @@ where
 
     /// Trigger the unload lifecycle event
     fn call_unload(&mut self, state: &mut T) -> Result<(), PluginError> {
-        if let Some(ref lib) = self.lib {
+        if let Some(cache) = self.libcache.as_ref() {
             unsafe {
-                // TODO: could cache the func until unload
-                lib.get::<CallFn<T>>(UNLOAD_METHOD)
-                    .map(|f| f(state))
-                    .map_err(|error| PluginError::MethodNotFound {
-                        name: String::from_utf8(UNLOAD_METHOD.to_vec()).unwrap(),
-                        error,
-                    })?;
+                (cache.unload)(state);
             }
         }
         if let Some(lib) = self.lib.take() {
             lib.close().map_err(PluginError::ErrorOnClose)?;
+            drop(self.libcache.take());
         }
         log::debug!("Unloaded {} version {}", self.name(), self.version);
         Ok(())
@@ -285,6 +311,7 @@ where
             lib.close().unwrap_or_else(|e| {
                 panic!("error closing plugin {} in drop() impl - {:?}", name, e)
             });
+            drop(self.libcache.take());
         }
     }
 }

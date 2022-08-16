@@ -3,20 +3,16 @@ use std::time::Instant;
 
 use core_executor::CoreAffinityExecutor;
 use futures_lite::future;
-use plugin_loader::Plugin;
-
-use plugin_loader::PluginCheck;
-use plugin_loader::PluginError;
-
 use input::input::EngineEvent;
 use input::log;
 use input::InputState;
+use plugin_loader::Plugin;
+use plugin_loader::PluginCheck;
+use plugin_loader::PluginError;
 use render::RenderState;
 
 fn main() {
     plugin_loader::register_tls_dtor_hook!();
-
-    log::info!("main thread startup");
 
     let executor = CoreAffinityExecutor::new(4);
     let spawners = executor.spawners();
@@ -34,19 +30,22 @@ fn main() {
         // state needs to be dropped on the same thread as it was created
         let mut input_state = InputState::new(spawners.to_owned());
 
-        let mut frame_start;
+        let mut frame_start = Instant::now();
+        let mut last_frame_complete = Instant::now();
         'frame_loop: loop {
             frame_start = Instant::now();
+
             check_plugin(&mut input, &mut input_state);
+            check_plugin(&mut renderer, &mut render_state);
 
             render_state.update(&world).unwrap();
 
             let _ = input
-                .call_update(&mut input_state, &frame_start.elapsed())
+                .call_update(&mut input_state, &last_frame_complete.elapsed())
                 .await;
 
             let _ = renderer
-                .call_update(&mut render_state, &frame_start.elapsed())
+                .call_update(&mut render_state, &last_frame_complete.elapsed())
                 .await;
 
             if let Some(EngineEvent::ExitToDesktop) = handle_input_events(&input_state) {
@@ -54,7 +53,10 @@ fn main() {
             }
 
             let elapsed = frame_start.elapsed();
-            let delay = Duration::from_millis(16).saturating_sub(elapsed);
+            println!("elapsed {:?}", elapsed);
+            let delay = Duration::from_millis(1000).saturating_sub(elapsed);
+            println!("delay {:?}", delay);
+            last_frame_complete = Instant::now();
             smol::Timer::after(delay).await;
         }
     });

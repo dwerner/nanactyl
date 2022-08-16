@@ -9,7 +9,9 @@ pub extern "C" fn load(state: &mut RenderState) {
 
 #[no_mangle]
 pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
-    println!("state: {:?} dt: {:?}", state, dt);
+    if state.updates % 1000 == 0 {
+        println!("state: {:?} dt: {:?}", state, dt);
+    }
 }
 
 #[no_mangle]

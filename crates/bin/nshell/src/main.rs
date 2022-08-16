@@ -53,10 +53,11 @@ fn main() {
             }
 
             let elapsed = frame_start.elapsed();
-            println!("elapsed {:?}", elapsed);
-            let delay = Duration::from_millis(1000).saturating_sub(elapsed);
-            println!("delay {:?}", delay);
+            let delay = Duration::from_millis(16).saturating_sub(elapsed);
             last_frame_complete = Instant::now();
+            if render_state.updates % 60 == 0 {
+                println!("{:?}", elapsed);
+            }
             smol::Timer::after(delay).await;
         }
     });

@@ -31,7 +31,7 @@ impl InputEventSource for InputWrapper {
         {
             let e = match input_system.evaluate_event(&event) {
                 EngineEvent::Continue => {
-                    //println!("unmapped event {:?}", event);
+                    println!("unmapped event {:?}", event);
                     continue;
                 }
                 e => e,

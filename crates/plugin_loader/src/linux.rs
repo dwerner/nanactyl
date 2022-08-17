@@ -18,7 +18,7 @@ static SYSTEM_THREAD_ATEXIT: Lazy<Option<NextFn>> = Lazy::new(|| unsafe {
     ))
 });
 
-const ENABLE_DTOR_REGISTRATION_BLOCKING: bool = true;
+const ENABLE_DTOR_REGISTRATION_BLOCKING: bool = false;
 
 /// Turns glibc's TLS destructor register function, `__cxa_thread_atexit_impl`,
 ///

@@ -352,6 +352,7 @@ dependencies = [
 name = "core_executor"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "async-executor",
  "core_affinity",
  "futures-channel",
@@ -507,6 +508,37 @@ dependencies = [
  "parking",
  "pin-project-lite",
  "waker-fn",
+]
+
+[[package]]
+name = "futures-macro"
+version = "0.3.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0db9cce532b0eae2ccf2766ab246f114b56b9cf6d445e00c2549fbc100ca045d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "futures-task"
+version = "0.3.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "842fc63b931f4056a24d59de13fb1272134ce261816e063e634ad0c15cdc5306"
+
+[[package]]
+name = "futures-util"
+version = "0.3.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0828a5471e340229c11c77ca80017937ce3c58cb788a17e5f1c2d5c485a9577"
+dependencies = [
+ "futures-core",
+ "futures-macro",
+ "futures-task",
+ "pin-project-lite",
+ "pin-utils",
+ "slab",
 ]
 
 [[package]]
@@ -718,8 +750,8 @@ version = "0.1.0"
 dependencies = [
  "core_executor",
  "futures-lite",
+ "futures-util",
  "input",
- "nalgebra",
  "plugin_loader",
  "render",
  "smol",
@@ -824,13 +856,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0a7ae3ac2f1173085d398531c705756c94a4c56843785df85a60c1a0afac116"
 
 [[package]]
+name = "pin-utils"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+
+[[package]]
 name = "plugin_loader"
 version = "0.1.0"
 dependencies = [
+ "async-io",
  "cmd_lib",
  "const-gen",
+ "core_executor",
  "cstr",
  "function_name",
+ "futures-lite",
  "libc",
  "libloading",
  "log",

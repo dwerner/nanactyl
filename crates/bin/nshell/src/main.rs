@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -10,52 +11,71 @@ use plugin_loader::Plugin;
 use plugin_loader::PluginCheck;
 use plugin_loader::PluginError;
 use render::RenderState;
+use smol::lock::Mutex;
+
+const FRAME_LENGTH_MS: u64 = 16;
 
 fn main() {
     plugin_loader::register_tls_dtor_hook!();
 
     let executor = CoreAffinityExecutor::new(4);
-    let spawners = executor.spawners();
+    let mut spawners = executor.spawners();
 
     let mut world = world::World::new();
     world.start_thing().build();
 
-    let mut render_state = RenderState::new();
 
     future::block_on(async move {
-        let mut input = Plugin::<InputState>::open_from_target_dir("sdl2_input_plugin").unwrap();
-        let mut renderer =
-            Plugin::<RenderState>::open_from_target_dir("tui_renderer_plugin").unwrap();
+        let mut input = Plugin::<InputState>::open_from_target_dir(spawners[0].clone(), "sdl2_input_plugin").unwrap();
+        let renderer =
+            Plugin::<RenderState>::open_from_target_dir(spawners[1].clone(), "tui_renderer_plugin").unwrap();
+
+        let renderer = Arc::new(Mutex::new(renderer));
 
         // state needs to be dropped on the same thread as it was created
-        let mut input_state = InputState::new(spawners.to_owned());
+        let mut input_state = InputState::new(vec![spawners[2].clone()]);
+        let render_state = RenderState::new();
 
-        let mut frame_start = Instant::now();
+        let render_state = Arc::new(Mutex::new(render_state));
+
+        let mut frame_start;
         let mut last_frame_complete = Instant::now();
         'frame_loop: loop {
             frame_start = Instant::now();
 
+            let renderer = Arc::clone(&renderer);
+            let render_state = Arc::clone(&render_state);
+
             check_plugin(&mut input, &mut input_state);
-            check_plugin(&mut renderer, &mut render_state);
+            check_plugin(&mut*(renderer.lock().await), &mut *(render_state.lock().await));
+            render_state.lock().await.update(&world).unwrap();
 
-            render_state.update(&world).unwrap();
+            let renderer_task = Arc::clone(&renderer);
+            let rs_task = Arc::clone(&render_state);
 
-            let _ = input
-                .call_update(&mut input_state, &last_frame_complete.elapsed())
-                .await;
+            let last_frame_elapsed = last_frame_complete.elapsed();
 
-            let _ = renderer
-                .call_update(&mut render_state, &last_frame_complete.elapsed())
-                .await;
+            //let start = Instant::now();
+            let _join_result = futures_util::future::join(
+                input.call_update(&mut input_state, &last_frame_elapsed),
+                spawners[3].spawn(Box::pin(
+                    async move {
+                        let renderer = &mut renderer_task.lock().await;
+                        for _ in 0..10000 { }
+                        renderer.call_update(&mut *(rs_task.lock().await), &last_frame_elapsed).await
+                    }
+                ))
+            ).await;
+            //println!("joined input and render {join_result:?} in {:?}", start.elapsed());
 
             if let Some(EngineEvent::ExitToDesktop) = handle_input_events(&input_state) {
                 break 'frame_loop;
             }
 
             let elapsed = frame_start.elapsed();
-            let delay = Duration::from_millis(16).saturating_sub(elapsed);
+            let delay = Duration::from_millis(FRAME_LENGTH_MS).saturating_sub(elapsed);
             last_frame_complete = Instant::now();
-            if render_state.updates % 60 == 0 {
+            if render_state.lock().await.updates % 60 == 0 {
                 println!("{:?}", elapsed);
             }
             smol::Timer::after(delay).await;

@@ -6,6 +6,8 @@ use std::{fs, io};
 use libloading::Library;
 use tempdir::TempDir;
 
+use core_executor::{ ThreadExecutor, ThreadExecutorSpawner };
+
 include!(concat!(env!("OUT_DIR"), "/const_gen.rs"));
 
 const UPDATE_METHOD: &[u8] = b"update";
@@ -85,6 +87,7 @@ pub struct Plugin<T: Send + Sync + 'static> {
     version: u64,
     name: String,
     tempdir: TempDir,
+    _spawner: ThreadExecutorSpawner,
     _pd: PhantomData<T>,
 }
 
@@ -117,18 +120,19 @@ where
     }
 
     /// Opens a plugin from the project target directory. Note that `check` must be called subsequently in order to invoke callbacks on the plugin.
-    pub fn open_from_target_dir(plugin_name: &str) -> Result<Self, PluginError> {
+    pub fn open_from_target_dir(spawner: ThreadExecutorSpawner, plugin_name: &str) -> Result<Self, PluginError> {
         let filename = if cfg!(windows) {
             format!("{}/{}.dll", RELATIVE_TARGET_DIR, plugin_name)
         } else {
             format!("{}/deps/lib{}.so", RELATIVE_TARGET_DIR, plugin_name)
         };
         let path = PathBuf::from(filename);
-        Self::open_at(path, plugin_name, 120)
+        Self::open_at(spawner, path, plugin_name, 120)
     }
 
     /// Opens a plugin at `path`, with `name`. Note that `check` must be called subsequently in order to invoke callbacks on the plugin.
     pub fn open_at(
+        mut spawner: ThreadExecutorSpawner,
         path: impl AsRef<Path>,
         name: &str,
         check_interval: u32,
@@ -141,6 +145,26 @@ where
             path: path.clone(),
             err,
         })?;
+
+        #[cfg(unix)]
+        {
+            let plugin_name = name.clone();
+            spawner.spawn_with_shutdown(move |shutdown| Box::pin(async move {
+                loop {
+                    let mappings = crate::linux::distinct_plugins_mapped(&plugin_name);
+                    if mappings.len() > 1 {
+                        let mut mappings = mappings.into_iter().collect::<Vec<_>>();
+                        mappings.sort();
+                        log::warn!("multiple plugins mapped for {plugin_name}:\n{mappings:#?}");
+                    }
+                    async_io::Timer::after(Duration::from_millis(250)).await;
+                    if shutdown.should_exit() {
+                        break
+                    }
+                }
+            }));
+        }
+
         Ok(Plugin {
             path,
             tempdir: TempDir::new(&name).map_err(PluginError::TempdirIo)?,
@@ -152,6 +176,7 @@ where
             check_interval,
             lib: None,
             libcache: None,
+            _spawner: spawner,
             _pd: PhantomData::<T>,
         })
     }
@@ -257,19 +282,6 @@ where
             self.updates,
             self.last_reloaded
         );
-
-        #[cfg(unix)]
-        {
-            if self.should_check() {
-                let plugin_name = self.name();
-                let mappings = crate::linux::distinct_plugins_mapped(plugin_name);
-                if mappings.len() > 1 {
-                    let mut mappings = mappings.into_iter().collect::<Vec<_>>();
-                    mappings.sort();
-                    log::warn!("multiple plugins mapped for {plugin_name}:\n{mappings:#?}");
-                }
-            }
-        }
 
         Ok(start_time.elapsed())
     }
@@ -467,6 +479,7 @@ mod tests {
 
     #[test]
     fn should_fail_to_load_lib_that_doesnt_exist() {
+        let (spawner, _) = ThreadExecutor::new();
         let load = Plugin::<u32>::open_from_target_dir("mod_unknown");
         assert!(matches!(load, Err(PluginError::MetadataIo { .. })))
     }

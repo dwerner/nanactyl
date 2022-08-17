@@ -1,4 +1,4 @@
-use std::{future::Future, pin::Pin, thread::JoinHandle};
+use std::{future::Future, pin::Pin, thread::JoinHandle, error::Error};
 
 use async_executor::LocalExecutor;
 use futures_channel::oneshot::Canceled;
@@ -33,7 +33,7 @@ impl ThreadExecutor {
         let exec_thread_jh = Some(exec_thread_jh);
         Self {
             _core_id: core_id,
-            spawner: ThreadExecutorSpawner { core_id, tx },
+            spawner: ThreadExecutorSpawner { core_id, tx, task_killers: Vec::new() },
             exec_thread_jh,
         }
     }
@@ -52,11 +52,18 @@ pub struct CoreAffinityExecutor {
     thread_executors: Vec<ThreadExecutor>,
 }
 
-#[derive(Clone)]
 pub struct ThreadExecutorSpawner {
     pub core_id: usize,
     tx: futures_channel::mpsc::Sender<ExecutorTask>,
+    task_killers: Vec<TaskShutdownHandle>,
 }
+
+impl Clone for ThreadExecutorSpawner {
+    fn clone(&self) -> Self {
+        Self { core_id: self.core_id.clone(), tx: self.tx.clone(), task_killers: Vec::new() }
+    }
+}
+
 enum ExecutorTask {
     Exit,
     Task(PinnedTask),
@@ -82,9 +89,59 @@ impl CoreAffinityExecutor {
 
 /// Spawner for CoreExecutor - can be send to other threads for relaying work to this executor.
 impl ThreadExecutorSpawner {
-    pub fn spawn<T>(
+
+    /// Spawn a task with a shutdown guard. When dropped, the TaskShutdown struct
+    /// will ensure that this task is joined on before allowing the tracking side
+    /// thread to continue.
+    ///
+    /// The contract here is: if a persistent task is needed, be sure to check
+    /// `shutdown.should_exit()`, allowing the tracking state to trigger a shutdown
+    /// if required. Long-running tasks are joined on, and therefore will block at
+    /// `unload` of a plugin.
+    ///
+    /// Note on safety:
+    ///     If a plugin starts a long-lived task (i.e. one that allows the task to
+    /// live longer than the enclosing scope), it can do so safely ONLY IF it is
+    /// stopped before the plugin is unloaded. Think of it as: once the compiled
+    /// code for a given task (i.e. the compiled plugin) has been unloaded, any
+    /// further execution of the task will result in a memory violation/segfault.
+    ///
+    /// This is an example of the unsafe-ness of loading plugins in general, as the
+    /// borrow-checker cannot know the lifetimes of things at compile time when we
+    /// are loading types and dependent code at runtime.
+    ///
+    // TODO: move this into a doctest
+    //```
+    //    state.spawn_with_shutdown(|shutdown| {
+    //    Box::pin(async move {
+    //        let mut ctr = 0;
+    //        loop {
+    //            ctr += 1;
+    //            println!(
+    //                "{} long-lived task fired by ({:?})",
+    //                ctr,
+    //                std::thread::current().id()
+    //            );
+    //            smol::Timer::after(Duration::from_millis(250)).await;
+    //            if shutdown.should_exit() {
+    //                break;
+    //            }
+    //        }
+    //    })
+    //  });
+    //```
+    pub fn spawn_with_shutdown(
         &mut self,
-        task: impl Future<Output = T> + Send + 'static,
+        task_fn: impl FnOnce(TaskShutdown) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>>,
+    ) {
+        let(killer, shutdown) = TaskShutdown::new();
+        self.fire(task_fn(shutdown));
+        self.task_killers.push(killer);
+    }
+
+    pub fn spawn<'a, T>(
+        &mut self,
+        task: Pin<Box<dyn Future<Output = T> + Send + Sync>>,
     ) -> impl Future<Output = Result<T, Canceled>>
     where
         T: std::fmt::Debug + Send + 'static,
@@ -105,6 +162,72 @@ impl ThreadExecutorSpawner {
         self.tx
             .try_send(ExecutorTask::Task(task.boxed()))
             .expect("unable to execute task");
+    }
+
+    fn block_and_kill_tasks(&mut self) {
+        for TaskShutdownHandle{ kill_send, kill_confirmation } in self.task_killers.drain(..) {
+            kill_send.send_blocking(()).expect("unable to kill task");
+            kill_confirmation.recv_blocking().expect("error during confirm");
+        }
+    }
+}
+
+impl Drop for ThreadExecutorSpawner {
+    fn drop(&mut self) {
+        self.block_and_kill_tasks();
+    }
+}
+
+pub struct TaskShutdown {
+    should_break: async_channel::Receiver<()>,
+    confirm_sender: async_channel::Sender<()>,
+}
+
+impl TaskShutdown {
+    pub fn new() -> (TaskShutdownHandle, TaskShutdown) {
+        let (kill_send, should_break) = async_channel::bounded(1);
+        let (confirm_sender, kill_confirmation) = async_channel::bounded(1);
+        let handle = TaskShutdownHandle {
+            kill_send,
+            kill_confirmation,
+        };
+        let shutdown = TaskShutdown {
+            confirm_sender,
+            should_break,
+        };
+        (handle, shutdown)
+    }
+    pub fn should_exit(&self) -> bool {
+        if let Ok(()) = self.should_break.try_recv() {
+            return true;
+        }
+        false
+    }
+}
+
+pub struct TaskShutdownHandle {
+    kill_send: async_channel::Sender<()>,
+    kill_confirmation: async_channel::Receiver<()>,
+}
+
+impl TaskShutdownHandle {
+    pub fn shutdown_blocking(&self) -> Result<(), Box<dyn Error>> {
+        self.kill_send.send_blocking(())?;
+        self.kill_confirmation.recv_blocking()?;
+        Ok(())
+    }
+    pub async fn shutdown(&self) -> Result<(), Box<dyn Error>> {
+        self.kill_send.send(()).await?;
+        self.kill_confirmation.recv().await?;
+        Ok(())
+    }
+}
+
+impl Drop for TaskShutdown {
+    fn drop(&mut self) {
+        self.confirm_sender
+            .send_blocking(())
+            .expect("unable to send shutdown confirmation")
     }
 }
 

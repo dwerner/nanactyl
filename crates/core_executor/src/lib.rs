@@ -1,18 +1,20 @@
-use std::{future::Future, pin::Pin, thread::JoinHandle, error::Error};
+use std::{error::Error, future::Future, pin::Pin, thread::JoinHandle};
 
+use async_channel::Sender;
 use async_executor::LocalExecutor;
-use futures_channel::oneshot::Canceled;
+use async_oneshot::Closed;
 use futures_lite::{future, FutureExt, StreamExt};
 
 pub struct ThreadExecutor {
     _core_id: usize,
-    spawner: ThreadExecutorSpawner,
+    // TODO: return tuple instead
+    pub spawner: ThreadExecutorSpawner,
     exec_thread_jh: Option<JoinHandle<()>>,
 }
 
 impl ThreadExecutor {
     pub fn new(core_id: usize) -> Self {
-        let (tx, mut rx) = futures_channel::mpsc::channel::<ExecutorTask>(100);
+        let (tx, mut rx) = async_channel::bounded::<ExecutorTask>(100);
         let exec_thread_jh = std::thread::spawn(move || {
             core_affinity::set_for_current(core_affinity::CoreId { id: core_id });
             let local_exec = LocalExecutor::new();
@@ -33,7 +35,11 @@ impl ThreadExecutor {
         let exec_thread_jh = Some(exec_thread_jh);
         Self {
             _core_id: core_id,
-            spawner: ThreadExecutorSpawner { core_id, tx, task_killers: Vec::new() },
+            spawner: ThreadExecutorSpawner {
+                core_id,
+                tx,
+                task_killers: Vec::new(),
+            },
             exec_thread_jh,
         }
     }
@@ -54,13 +60,17 @@ pub struct CoreAffinityExecutor {
 
 pub struct ThreadExecutorSpawner {
     pub core_id: usize,
-    tx: futures_channel::mpsc::Sender<ExecutorTask>,
+    tx: Sender<ExecutorTask>,
     task_killers: Vec<TaskShutdownHandle>,
 }
 
 impl Clone for ThreadExecutorSpawner {
     fn clone(&self) -> Self {
-        Self { core_id: self.core_id.clone(), tx: self.tx.clone(), task_killers: Vec::new() }
+        Self {
+            core_id: self.core_id,
+            tx: self.tx.clone(),
+            task_killers: Vec::new(),
+        }
     }
 }
 
@@ -89,7 +99,6 @@ impl CoreAffinityExecutor {
 
 /// Spawner for CoreExecutor - can be send to other threads for relaying work to this executor.
 impl ThreadExecutorSpawner {
-
     /// Spawn a task with a shutdown guard. When dropped, the TaskShutdown struct
     /// will ensure that this task is joined on before allowing the tracking side
     /// thread to continue.
@@ -134,19 +143,19 @@ impl ThreadExecutorSpawner {
         &mut self,
         task_fn: impl FnOnce(TaskShutdown) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>>,
     ) {
-        let(killer, shutdown) = TaskShutdown::new();
+        let (killer, shutdown) = TaskShutdown::new();
         self.fire(task_fn(shutdown));
         self.task_killers.push(killer);
     }
 
-    pub fn spawn<'a, T>(
+    pub fn spawn<T>(
         &mut self,
         task: Pin<Box<dyn Future<Output = T> + Send + Sync>>,
-    ) -> impl Future<Output = Result<T, Canceled>>
+    ) -> impl Future<Output = Result<T, Closed>>
     where
-        T: std::fmt::Debug + Send + 'static,
+        T: std::fmt::Debug + Send + Sync + 'static,
     {
-        let (oneshot_tx, oneshot_rx) = futures_channel::oneshot::channel();
+        let (mut oneshot_tx, oneshot_rx) = async_oneshot::oneshot();
         self.tx
             .try_send(ExecutorTask::Task(
                 async move {
@@ -165,9 +174,15 @@ impl ThreadExecutorSpawner {
     }
 
     fn block_and_kill_tasks(&mut self) {
-        for TaskShutdownHandle{ kill_send, kill_confirmation } in self.task_killers.drain(..) {
+        for TaskShutdownHandle {
+            kill_send,
+            kill_confirmation,
+        } in self.task_killers.drain(..)
+        {
             kill_send.send_blocking(()).expect("unable to kill task");
-            kill_confirmation.recv_blocking().expect("error during confirm");
+            kill_confirmation
+                .recv_blocking()
+                .expect("error during confirm");
         }
     }
 }
@@ -244,7 +259,7 @@ mod tests {
     fn test_core_executor() {
         let exec = CoreAffinityExecutor::new(2);
         let spawner = &mut exec.spawners()[0];
-        let answer_rx = spawner.spawn(async { 42 });
+        let answer_rx = spawner.spawn(Box::pin(async { 42 }));
         let answer_value = future::block_on(answer_rx);
         assert_eq!(answer_value, Ok(42));
     }
@@ -274,7 +289,7 @@ mod tests {
             println!("ending executor thread");
         });
         for x in 0..10 {
-            let (task_tx, task_rx) = futures_channel::oneshot::channel();
+            let (mut task_tx, task_rx) = async_oneshot::oneshot();
             println!("sending task from thread {:?}", std::thread::current().id());
             tx.send(
                 async move {

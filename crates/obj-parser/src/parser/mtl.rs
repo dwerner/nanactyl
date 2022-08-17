@@ -59,27 +59,27 @@ named!(pub ke_line< &[u8], MtlLine >, map!(
 ));
 
 named!(pub transparency_line_d< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("d"), float, end_of_line)), |t| MtlLine::TransparencyD(t)
+    sp!(delimited!(tag!("d"), float, end_of_line)), MtlLine::TransparencyD
 ));
 
 named!(pub transparency_line_tr< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("Tr"), float, end_of_line)), |t| MtlLine::TransparencyTr(t)
+    sp!(delimited!(tag!("Tr"), float, end_of_line)), MtlLine::TransparencyTr
 ));
 
 named!(pub optical_density_line< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("Ni"), float, end_of_line)), |t| MtlLine::OpticalDensity(t)
+    sp!(delimited!(tag!("Ni"), float, end_of_line)),  MtlLine::OpticalDensity
 ));
 
 named!(pub illum_line< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("illum"), uint, end_of_line)), |t| MtlLine::IlluminationModel(t)
+    sp!(delimited!(tag!("illum"), uint, end_of_line)), MtlLine::IlluminationModel
 ));
 
 named!(pub sharpness_line< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("sharpness"), uint, end_of_line)), |t| MtlLine::Sharpness(t)
+    sp!(delimited!(tag!("sharpness"), uint, end_of_line)), MtlLine::Sharpness
 ));
 
 named!(pub specular_exponent_line< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("Ns"), float, end_of_line)), |t| MtlLine::SpecularExponent(t)
+    sp!(delimited!(tag!("Ns"), float, end_of_line)), MtlLine::SpecularExponent
 ));
 
 named!(

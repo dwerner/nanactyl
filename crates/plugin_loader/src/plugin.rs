@@ -6,7 +6,7 @@ use std::{fs, io};
 use libloading::Library;
 use tempdir::TempDir;
 
-use core_executor::{ ThreadExecutor, ThreadExecutorSpawner };
+use core_executor::ThreadExecutorSpawner;
 
 include!(concat!(env!("OUT_DIR"), "/const_gen.rs"));
 
@@ -120,7 +120,10 @@ where
     }
 
     /// Opens a plugin from the project target directory. Note that `check` must be called subsequently in order to invoke callbacks on the plugin.
-    pub fn open_from_target_dir(spawner: ThreadExecutorSpawner, plugin_name: &str) -> Result<Self, PluginError> {
+    pub fn open_from_target_dir(
+        spawner: ThreadExecutorSpawner,
+        plugin_name: &str,
+    ) -> Result<Self, PluginError> {
         let filename = if cfg!(windows) {
             format!("{}/{}.dll", RELATIVE_TARGET_DIR, plugin_name)
         } else {
@@ -149,20 +152,22 @@ where
         #[cfg(unix)]
         {
             let plugin_name = name.clone();
-            spawner.spawn_with_shutdown(move |shutdown| Box::pin(async move {
-                loop {
-                    let mappings = crate::linux::distinct_plugins_mapped(&plugin_name);
-                    if mappings.len() > 1 {
-                        let mut mappings = mappings.into_iter().collect::<Vec<_>>();
-                        mappings.sort();
-                        log::warn!("multiple plugins mapped for {plugin_name}:\n{mappings:#?}");
+            spawner.spawn_with_shutdown(move |shutdown| {
+                Box::pin(async move {
+                    loop {
+                        let mappings = crate::linux::distinct_plugins_mapped(&plugin_name);
+                        if mappings.len() > 1 {
+                            let mut mappings = mappings.into_iter().collect::<Vec<_>>();
+                            mappings.sort();
+                            log::warn!("multiple plugins mapped for {plugin_name}:\n{mappings:#?}");
+                        }
+                        async_io::Timer::after(Duration::from_millis(250)).await;
+                        if shutdown.should_exit() {
+                            break;
+                        }
                     }
-                    async_io::Timer::after(Duration::from_millis(250)).await;
-                    if shutdown.should_exit() {
-                        break
-                    }
-                }
-            }));
+                })
+            });
         }
 
         Ok(Plugin {
@@ -306,7 +311,7 @@ where
         }
         if let Some(lib) = self.lib.take() {
             lib.close().map_err(PluginError::ErrorOnClose)?;
-            drop(self.libcache.take());
+            self.libcache.take();
         }
         log::debug!("Unloaded {} version {}", self.name(), self.version);
         Ok(())
@@ -323,7 +328,7 @@ where
             lib.close().unwrap_or_else(|e| {
                 panic!("error closing plugin {} in drop() impl - {:?}", name, e)
             });
-            drop(self.libcache.take());
+            self.libcache.take();
         }
     }
 }
@@ -332,6 +337,7 @@ where
 mod tests {
     use std::{fs::File, io::Write};
 
+    use core_executor::ThreadExecutor;
     use ::function_name::named;
     use cmd_lib::run_cmd;
 
@@ -380,9 +386,11 @@ mod tests {
         let src = generate_plugin_for_test("", "*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
 
+        let ThreadExecutor{ ref spawner, .. } = ThreadExecutor::new(0);
+
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin", 1).unwrap();
+        let mut loader = Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
         let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
         assert_eq!(update, PluginCheck::FoundNewVersion);
@@ -418,9 +426,10 @@ mod tests {
         let src = generate_plugin_for_test("", "*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
 
+        let ThreadExecutor{ ref spawner, .. } = ThreadExecutor::new(0);
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin", 1).unwrap();
+        let mut loader = Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
         let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
         assert_eq!(update, PluginCheck::FoundNewVersion);
@@ -466,9 +475,10 @@ mod tests {
         let src = generate_plugin_for_test("", "*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
 
+        let ThreadExecutor{ ref spawner, .. } = ThreadExecutor::new(0);
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin", 1).unwrap();
+        let mut loader = Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
         assert!(matches!(
             loader
                 .call_update(&mut state, &Duration::from_millis(1))
@@ -479,8 +489,8 @@ mod tests {
 
     #[test]
     fn should_fail_to_load_lib_that_doesnt_exist() {
-        let (spawner, _) = ThreadExecutor::new();
-        let load = Plugin::<u32>::open_from_target_dir("mod_unknown");
+        let ThreadExecutor{ ref spawner, .. } = ThreadExecutor::new(0);
+        let load = Plugin::<u32>::open_from_target_dir(spawner.clone(), "mod_unknown");
         assert!(matches!(load, Err(PluginError::MetadataIo { .. })))
     }
 }

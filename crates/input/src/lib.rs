@@ -1,12 +1,8 @@
 pub mod input;
 
-use std::{error::Error, future::Future, pin::Pin};
-
-use core_executor::TaskShutdownHandle;
 pub use core_executor::ThreadExecutorSpawner;
 pub use futures_lite;
 
-use futures_lite::future;
 pub use log;
 
 use log::{Level, LevelFilter, Metadata, Record};
@@ -68,7 +64,6 @@ impl InputState {
         self.updates
     }
 }
-
 
 #[macro_export]
 macro_rules! writeln {

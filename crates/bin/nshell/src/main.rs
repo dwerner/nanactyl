@@ -24,11 +24,13 @@ fn main() {
     let mut world = world::World::new();
     world.start_thing().build();
 
-
     future::block_on(async move {
-        let mut input = Plugin::<InputState>::open_from_target_dir(spawners[0].clone(), "sdl2_input_plugin").unwrap();
+        let mut input =
+            Plugin::<InputState>::open_from_target_dir(spawners[0].clone(), "sdl2_input_plugin")
+                .unwrap();
         let renderer =
-            Plugin::<RenderState>::open_from_target_dir(spawners[1].clone(), "tui_renderer_plugin").unwrap();
+            Plugin::<RenderState>::open_from_target_dir(spawners[1].clone(), "tui_renderer_plugin")
+                .unwrap();
 
         let renderer = Arc::new(Mutex::new(renderer));
 
@@ -47,7 +49,10 @@ fn main() {
             let render_state = Arc::clone(&render_state);
 
             check_plugin(&mut input, &mut input_state);
-            check_plugin(&mut*(renderer.lock().await), &mut *(render_state.lock().await));
+            check_plugin(
+                &mut *(renderer.lock().await),
+                &mut *(render_state.lock().await),
+            );
             render_state.lock().await.update(&world).unwrap();
 
             let renderer_task = Arc::clone(&renderer);
@@ -58,14 +63,15 @@ fn main() {
             //let start = Instant::now();
             let _join_result = futures_util::future::join(
                 input.call_update(&mut input_state, &last_frame_elapsed),
-                spawners[3].spawn(Box::pin(
-                    async move {
-                        let renderer = &mut renderer_task.lock().await;
-                        for _ in 0..10000 { }
-                        renderer.call_update(&mut *(rs_task.lock().await), &last_frame_elapsed).await
-                    }
-                ))
-            ).await;
+                spawners[3].spawn(Box::pin(async move {
+                    let renderer = &mut renderer_task.lock().await;
+                    for _ in 0..10000 {}
+                    renderer
+                        .call_update(&mut *(rs_task.lock().await), &last_frame_elapsed)
+                        .await
+                })),
+            )
+            .await;
             //println!("joined input and render {join_result:?} in {:?}", start.elapsed());
 
             if let Some(EngineEvent::ExitToDesktop) = handle_input_events(&input_state) {

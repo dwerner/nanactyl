@@ -32,7 +32,7 @@ impl Obj {
 
         let mut comments = Vec::new();
         let mut objects = Vec::new();
-        let mut object = ObjObject::new();
+        let mut object = ObjObject::default();
 
         for line in parser {
             match line {
@@ -40,7 +40,7 @@ impl Obj {
                     // new object encountered, when multiple objects exist
                     if object.name.is_some() {
                         objects.push(object);
-                        object = ObjObject::new();
+                        object = ObjObject::default();
                     }
                     object.name = Some(name);
                 }
@@ -78,7 +78,7 @@ impl Obj {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ObjObject {
     pub name: Option<String>,
     pub material: Option<ObjMaterial>,
@@ -95,17 +95,6 @@ pub struct ObjMaterial {
 }
 
 impl ObjObject {
-    pub fn new() -> Self {
-        Self {
-            name: Default::default(),
-            material: Default::default(),
-            vertices: Default::default(),
-            normals: Default::default(),
-            texture_coords: Default::default(),
-            vertex_params: Default::default(),
-            faces: Default::default(),
-        }
-    }
     pub fn vertices(&self) -> &Vec<ObjLine> {
         &self.vertices
     }

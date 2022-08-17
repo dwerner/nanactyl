@@ -6,7 +6,7 @@ use std::str;
 
 use std::io::BufRead;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct FaceIndex(pub u32, pub Option<u32>, pub Option<u32>);
 
 #[derive(PartialEq, Debug)]

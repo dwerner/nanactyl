@@ -211,26 +211,14 @@ impl Thing {
     pub fn get_camera_fi(&self) -> Option<FacetIndex> {
         self.facets
             .iter()
-            .find(|i| {
-                if let FacetIndex::Camera(_) = i {
-                    true
-                } else {
-                    false
-                }
-            })
+            .find(|i| matches!(i, FacetIndex::Camera(_)))
             .cloned()
     }
 
     pub fn get_model_fi(&self) -> Option<FacetIndex> {
         self.facets
             .iter()
-            .find(|i| {
-                if let FacetIndex::Camera(_) = i {
-                    true
-                } else {
-                    false
-                }
-            })
+            .find(|i| matches!(i, FacetIndex::Camera(_)))
             .cloned()
     }
 }

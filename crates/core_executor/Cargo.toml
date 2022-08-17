@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-futures-lite = "1.12"
-futures-channel = "0.3.21"
 async-executor = "1.4.1"
 async-channel = "1.7.1"
+async-oneshot = "0.5.0"
 core_affinity = "0.5.10"
+futures-lite = "1.12"
 
 [dev-dependencies]

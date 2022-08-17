@@ -5,7 +5,7 @@ pub trait InputEventSource: Send + Sync {
 }
 
 /// Input events
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Button {
     Left,
     Up,
@@ -20,13 +20,13 @@ pub enum Button {
     Unmapped,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum InputEvent {
     ButtonPressed(Button),
     ButtonReleased(Button),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum DeviceEvent {
     JoystickAdded(u32),
     JoystickRemoved(u32),
@@ -35,7 +35,7 @@ pub enum DeviceEvent {
 }
 
 /// Control flow for the game loop
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum EngineEvent {
     /// Continue execution of the game loop.
     Continue,

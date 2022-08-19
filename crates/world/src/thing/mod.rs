@@ -1,16 +1,16 @@
-use std::sync::Arc;
+use std::{sync::Arc};
 use std::time::Duration;
 
 use nalgebra::{Matrix4, Perspective3, Scalar, Vector3};
 
 use crate::{create_next_identity, Identifyable, Identity, World};
 
-#[derive(Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum FacetIndex {
-    Physical(usize),
-    Health(usize),
-    Camera(usize),
-    Model(usize),
+    Physical(u32),
+    Health(u32),
+    Camera(u32),
+    Model(u32),
 }
 
 pub struct ModelInstanceFacet<U = f32>
@@ -167,36 +167,37 @@ impl CameraFacet {
 }
 
 pub struct ThingBuilder<'a> {
-    pub(crate) world: &'a mut World,
+    pub(crate) world: &'a World,
     pub(crate) facets: Vec<FacetIndex>,
 }
 
 impl<'a> ThingBuilder<'a> {
     pub fn with_camera(mut self, camera: CameraFacet) -> Self {
-        let idx = self.world.facets.cameras.len();
-        self.world.facets.cameras.push(camera);
-        self.facets.push(FacetIndex::Camera(idx));
+        let cameras = &mut self.world.facets.lock().unwrap().cameras;
+        let idx = cameras.len();
+        cameras.push(camera);
+        self.facets.push(FacetIndex::Camera(idx as u32));
         self
     }
 
     pub fn with_model(mut self, transform: Matrix4<f32>, model: Arc<model::Model>) -> Self {
-        let idx = self.world.facets.models.len();
-        self.world
-            .facets
-            .models
+        let models = &mut self.world.facets.lock().unwrap().models;
+        let idx = models.len();
+        models
             .push(ModelInstanceFacet { transform, model });
-        self.facets.push(FacetIndex::Model(idx));
+        self.facets.push(FacetIndex::Model(idx as u32));
         self
     }
 
-    pub fn build(self) -> Identity {
+    pub fn emplace(self) -> Result<Identity, Thing> {
         let thing = Thing::new(self.facets);
         let id = thing.identify();
-        self.world.things.push(thing);
-        id
+        self.world.things.insert(thing)?;
+        Ok(id)
     }
 }
 
+#[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub struct Thing {
     pub id: Identity,
     pub facets: Vec<FacetIndex>, // index pointers to WorldFacets' specific fields

@@ -38,14 +38,14 @@ impl RenderState {
         Default::default()
     }
 
-    pub fn update(&mut self, world: &World) -> Result<(), Box<dyn Error>> {
+    pub async fn update(&mut self, world: &World) {
         self.updates += 1;
         self.entities.clear();
-        for thing in world.get_things() {
-            self.entities.push(Drawable {
+        let entities = &mut self.entities;
+        world.things.scan_async(|thing| {
+            entities.push(Drawable {
                 id: thing.identify(),
             })
-        }
-        Ok(())
+        }).await;
     }
 }

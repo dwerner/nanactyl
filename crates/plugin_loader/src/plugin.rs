@@ -337,9 +337,9 @@ where
 mod tests {
     use std::{fs::File, io::Write};
 
-    use core_executor::ThreadExecutor;
     use ::function_name::named;
     use cmd_lib::run_cmd;
+    use core_executor::ThreadExecutor;
 
     use crate as plugin_loader;
     use crate::register_tls_dtor_hook;
@@ -386,11 +386,12 @@ mod tests {
         let src = generate_plugin_for_test("", "*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
 
-        let ThreadExecutor{ ref spawner, .. } = ThreadExecutor::new(0);
+        let ThreadExecutor { ref spawner, .. } = ThreadExecutor::new(0);
 
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
+        let mut loader =
+            Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
         let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
         assert_eq!(update, PluginCheck::FoundNewVersion);
@@ -426,10 +427,11 @@ mod tests {
         let src = generate_plugin_for_test("", "*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
 
-        let ThreadExecutor{ ref spawner, .. } = ThreadExecutor::new(0);
+        let ThreadExecutor { ref spawner, .. } = ThreadExecutor::new(0);
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
+        let mut loader =
+            Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
         let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
         assert_eq!(update, PluginCheck::FoundNewVersion);
@@ -475,10 +477,11 @@ mod tests {
         let src = generate_plugin_for_test("", "*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
 
-        let ThreadExecutor{ ref spawner, .. } = ThreadExecutor::new(0);
+        let ThreadExecutor { ref spawner, .. } = ThreadExecutor::new(0);
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
+        let mut loader =
+            Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
         assert!(matches!(
             loader
                 .call_update(&mut state, &Duration::from_millis(1))
@@ -489,7 +492,7 @@ mod tests {
 
     #[test]
     fn should_fail_to_load_lib_that_doesnt_exist() {
-        let ThreadExecutor{ ref spawner, .. } = ThreadExecutor::new(0);
+        let ThreadExecutor { ref spawner, .. } = ThreadExecutor::new(0);
         let load = Plugin::<u32>::open_from_target_dir(spawner.clone(), "mod_unknown");
         assert!(matches!(load, Err(PluginError::MetadataIo { .. })))
     }

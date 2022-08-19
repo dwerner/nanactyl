@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 model = { path = "../model" }
 nalgebra = "0.31.1"
+scc = "0.8.4"

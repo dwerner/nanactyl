@@ -6,9 +6,7 @@ use std::time::Instant;
 
 use core_executor::CoreAffinityExecutor;
 use futures_lite::future;
-use input::input::EngineEvent;
-use input::log;
-use input::InputState;
+use input::EngineEvent;
 use plugin_loader::Plugin;
 use plugin_loader::PluginCheck;
 use plugin_loader::PluginError;
@@ -30,7 +28,10 @@ fn main() {
     for x in 0..10u32 {
         for y in 0..10u32 {
             for z in 0..10u32 {
-                world.start_thing().with_physical(x as f32, y as f32, z as f32).emplace();
+                world
+                    .start_thing()
+                    .with_physical(x as f32, y as f32, z as f32)
+                    .emplace();
             }
         }
     }
@@ -38,28 +39,39 @@ fn main() {
     let world = Arc::new(Mutex::new(world));
 
     future::block_on(async move {
-        let mut input_plugin =
-            Plugin::<InputState>::open_from_target_dir(spawners[0].clone(), "sdl2_input_plugin")
-                .unwrap();
+        let mut platform_context = platform::PlatformContext::new().unwrap();
+
+        platform_context
+            .add_vulkan_window("title", 0, 0, 640, 480)
+            .unwrap();
+
         let tui_renderer_plugin =
             Plugin::<RenderState>::open_from_target_dir(spawners[0].clone(), "tui_renderer_plugin")
-                .unwrap().into_shared();
+                .unwrap()
+                .into_shared();
         let ash_renderer_plugin =
             Plugin::<RenderState>::open_from_target_dir(spawners[0].clone(), "ash_renderer_plugin")
-                .unwrap().into_shared();
+                .unwrap()
+                .into_shared();
         let world_update_plugin =
             Plugin::<World>::open_from_target_dir(spawners[0].clone(), "world_update_plugin")
-                .unwrap().into_shared();
+                .unwrap()
+                .into_shared();
 
         // state needs to be dropped on the same thread as it was created
-        let mut input_state = InputState::new(vec![spawners[0].clone()]);
-        let render_state = RenderState::new();
-        let render_state = Arc::new(Mutex::new(render_state));
+        let render_state = RenderState::new().into_shared();
 
         let mut frame_start;
         let mut last_frame_complete = Instant::now();
         'frame_loop: loop {
             frame_start = Instant::now();
+
+            platform_context.pump_events();
+            if let Some(EngineEvent::ExitToDesktop) =
+                handle_input_events(platform_context.peek_events())
+            {
+                break 'frame_loop;
+            }
 
             spawners[3]
                 .spawn(update_render_state_from_world(&render_state, &world))
@@ -67,7 +79,6 @@ fn main() {
                 .unwrap();
 
             // Input owns SDL handles and must be pumped on the main/owning thread.
-            check_plugin(&mut input_plugin, &mut input_state);
             let _check_plugins = futures_util::future::join3(
                 spawners[3].spawn(check_plugin_async(&ash_renderer_plugin, &render_state)),
                 spawners[4].spawn(check_plugin_async(&tui_renderer_plugin, &render_state)),
@@ -77,8 +88,7 @@ fn main() {
 
             let last_frame_elapsed = last_frame_complete.elapsed();
 
-            let _join_result = futures_util::future::join4(
-                input_plugin.call_update(&mut input_state, &last_frame_elapsed),
+            let _join_result = futures_util::future::join3(
                 spawners[1].spawn(call_plugin_update_async(
                     &ash_renderer_plugin,
                     &render_state,
@@ -89,14 +99,13 @@ fn main() {
                     &render_state,
                     &last_frame_elapsed,
                 )),
-                spawners[3].spawn(call_plugin_update_async(&world_update_plugin, &world, &last_frame_elapsed)),
+                spawners[3].spawn(call_plugin_update_async(
+                    &world_update_plugin,
+                    &world,
+                    &last_frame_elapsed,
+                )),
             )
             .await;
-
-            if let Some(EngineEvent::ExitToDesktop) = handle_input_events(&input_state) {
-                println!("{:?}", world.lock().await.things);
-                break 'frame_loop;
-            }
 
             let elapsed = frame_start.elapsed();
             let delay = Duration::from_millis(FRAME_LENGTH_MS).saturating_sub(elapsed);
@@ -137,31 +146,29 @@ where
     let state = Arc::clone(state);
     let dt = dt.clone();
     Box::pin(async move {
-        plugin.lock().await.call_update(&mut *state.lock().await, &dt).await
+        plugin
+            .lock()
+            .await
+            .call_update(&mut *state.lock().await, &dt)
+            .await
     })
 }
 
-fn handle_input_events(state: &InputState) -> Option<EngineEvent> {
-    if let Some(events) = state
-        .input_system
-        .as_ref()
-        .map(|input| input.events().to_vec())
-    {
-        if !events.is_empty() {
-            //state::writeln!(state, "Processing {} events", events.len());
-            for event in events {
-                match event {
-                    EngineEvent::Continue => input::writeln!(state, "nothing event"),
-                    EngineEvent::InputDevice(input_device_event) => {
-                        input::writeln!(state, "input device event {:?}", input_device_event);
-                    }
-                    EngineEvent::Input(input_event) => {
-                        input::writeln!(state, "input event {:?}", input_event);
-                    }
-                    ret @ EngineEvent::ExitToDesktop => {
-                        log::info!("Got {:?}", ret);
-                        return Some(ret);
-                    }
+fn handle_input_events(events: &[EngineEvent]) -> Option<EngineEvent> {
+    if !events.is_empty() {
+        //state::writeln!(state, "Processing {} events", events.len());
+        for event in events {
+            match event {
+                EngineEvent::Continue => log::debug!("nothing event"),
+                EngineEvent::InputDevice(input_device_event) => {
+                    log::info!("input device event {:?}", input_device_event);
+                }
+                EngineEvent::Input(input_event) => {
+                    log::info!("input event {:?}", input_event);
+                }
+                ret @ EngineEvent::ExitToDesktop => {
+                    log::info!("Got {:?}", ret);
+                    return Some(ret.clone());
                 }
             }
         }

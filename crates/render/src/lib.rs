@@ -1,8 +1,8 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use ash::vk;
 
-use sdl2_sys::SDL_Window;
+use platform::WinPtr;
 use world::{Identifyable, World};
 
 #[derive(Debug)]
@@ -17,14 +17,6 @@ pub struct RenderState {
     pub updates: u64,
 }
 
-#[derive(Copy, Clone)]
-pub struct WinPtr {
-    pub raw: *const SDL_Window,
-}
-
-unsafe impl Send for WinPtr {}
-unsafe impl Sync for WinPtr {}
-
 pub struct VulkanRenderState {
     pub win_ptr: WinPtr,
     pub devices: Vec<vk::Device>,
@@ -35,9 +27,12 @@ pub struct VulkanRenderState {
 }
 
 impl RenderState {
-
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn into_shared(self) -> Arc<async_lock::Mutex<Self>> {
+        Arc::new(async_lock::Mutex::new(self))
     }
 
     pub async fn update_from_world(&mut self, world: &World) {

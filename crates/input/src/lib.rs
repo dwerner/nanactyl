@@ -1,59 +1,45 @@
-pub mod input;
-
-pub use core_executor::ThreadExecutorSpawner;
-pub use futures_lite;
-
-pub use log;
-
-use log::{Level, LevelFilter, Metadata, Record};
-
-pub struct SimpleLogger;
-static LOGGER: SimpleLogger = SimpleLogger;
-
-pub fn init_logger() {
-    log::set_logger(&LOGGER).unwrap();
-    log::set_max_level(LevelFilter::Info);
+/// Input events
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Button {
+    Left,
+    Up,
+    LeftUp,
+    RightUp,
+    Down,
+    LeftDown,
+    RightDown,
+    Right,
+    Ok,
+    Cancel,
+    Unmapped,
 }
 
-impl log::Log for SimpleLogger {
-    fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Info
-    }
-
-    fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            println!("{} - {}", record.level(), record.args());
-        }
-    }
-
-    fn flush(&self) {}
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum InputEvent {
+    ButtonPressed(Button),
+    ButtonReleased(Button),
 }
 
-pub struct InputState {
-    pub input_system: Option<Box<dyn input::InputEventSource>>,
-    updates: u64,
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum DeviceEvent {
+    JoystickAdded(u32),
+    JoystickRemoved(u32),
+    GameControllerAdded(u32),
+    GameControllerRemoved(u32),
 }
 
-impl InputState {
-    pub fn new() -> Self {
-        Self {
-            input_system: Default::default(),
-            updates: 0,
-        }
-    }
+/// Control flow for the game loop
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum EngineEvent {
+    /// Continue execution of the game loop.
+    Continue,
 
-    pub fn print_msg(&self, m: &str) {
-        println!("{}", m);
-    }
+    /// Specific events, like devices being added/removed should notifiy the game loop.
+    InputDevice(DeviceEvent),
 
-    pub fn get_updates(&self) -> u64 {
-        self.updates
-    }
-}
+    /// Input events
+    Input(InputEvent),
 
-#[macro_export]
-macro_rules! writeln {
-    ($state:expr, $($args:tt)*) => {
-        $state.print_msg(&::std::fmt::format(format_args!($($args)*)))
-    };
+    /// Game loop should break and we should exit.
+    ExitToDesktop,
 }

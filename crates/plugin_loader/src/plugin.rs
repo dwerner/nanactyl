@@ -126,7 +126,7 @@ where
         let filename = if cfg!(windows) {
             format!("{}/{}.dll", RELATIVE_TARGET_DIR, plugin_name)
         } else {
-            format!("{}/deps/lib{}.so", RELATIVE_TARGET_DIR, plugin_name)
+            format!("{}/lib{}.so", RELATIVE_TARGET_DIR, plugin_name)
         };
         let path = PathBuf::from(filename);
         Self::open_at(spawner, path, plugin_name, 120)

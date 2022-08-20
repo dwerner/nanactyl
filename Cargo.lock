@@ -778,6 +778,8 @@ dependencies = [
  "futures-lite",
  "futures-util",
  "input",
+ "log",
+ "platform",
  "plugin_loader",
  "render",
  "smol",
@@ -886,6 +888,20 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+
+[[package]]
+name = "platform"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "async-lock",
+ "core_executor",
+ "futures-lite",
+ "futures-util",
+ "input",
+ "sdl2",
+ "thiserror",
+]
 
 [[package]]
 name = "plugin_loader"
@@ -1064,7 +1080,8 @@ name = "render"
 version = "0.1.0"
 dependencies = [
  "ash",
- "sdl2-sys",
+ "async-lock",
+ "platform",
  "world",
 ]
 
@@ -1104,17 +1121,6 @@ dependencies = [
  "cfg-if",
  "libc",
  "version-compare",
-]
-
-[[package]]
-name = "sdl2_input_plugin"
-version = "0.1.0"
-dependencies = [
- "input",
- "log",
- "sdl2",
- "sdl2-sys",
- "thiserror",
 ]
 
 [[package]]

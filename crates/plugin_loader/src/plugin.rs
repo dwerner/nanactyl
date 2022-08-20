@@ -12,6 +12,7 @@ use core_executor::ThreadExecutorSpawner;
 
 include!(concat!(env!("OUT_DIR"), "/const_gen.rs"));
 
+const ENABLE_PLUGIN_MAPPING_CHECK: bool = false;
 const UPDATE_METHOD: &[u8] = b"update";
 const LOAD_METHOD: &[u8] = b"load";
 const UNLOAD_METHOD: &[u8] = b"unload";
@@ -148,7 +149,7 @@ where
         })?;
 
         #[cfg(unix)]
-        {
+        if ENABLE_PLUGIN_MAPPING_CHECK {
             // TODO: move this into the plugin's interface - rely on the caller to delegate the work.
             let plugin_name = name.clone();
             spawner.spawn_with_shutdown(move |shutdown| {

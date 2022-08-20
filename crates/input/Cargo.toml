@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 smol = "1.2.5"
+sdl2 = "0.35.2"
 futures-lite = "1.12.0"
 async-channel = "1.7.1"
 core_executor = { path = "../core_executor" }

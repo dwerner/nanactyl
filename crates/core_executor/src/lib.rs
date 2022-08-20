@@ -95,6 +95,15 @@ impl CoreAffinityExecutor {
             .map(|ThreadExecutor { spawner, .. }| spawner.clone())
             .collect()
     }
+
+    pub fn spawner_for_core(&self, id: usize) -> Option<ThreadExecutorSpawner> {
+        self.thread_executors
+            .iter()
+            .map(|ThreadExecutor { spawner, .. }| spawner)
+            .find(|ThreadExecutorSpawner { core_id, .. }| *core_id == id)
+            .cloned()
+    }
+
 }
 
 /// Spawner for CoreExecutor - can be send to other threads for relaying work to this executor.

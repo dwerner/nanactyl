@@ -57,6 +57,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ash_renderer_plugin"
+version = "0.1.0"
+dependencies = [
+ "render",
+]
+
+[[package]]
 name = "async-channel"
 version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -602,6 +609,7 @@ dependencies = [
  "core_executor",
  "futures-lite",
  "log",
+ "sdl2",
  "smol",
 ]
 

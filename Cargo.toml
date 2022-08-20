@@ -10,8 +10,9 @@ members = [
     "crates/world",
 
     # plugins: these should not be depended upon by anything other than binaries, indirectly
-    "crates/plugins/tui_renderer_plugin",
+    "crates/plugins/ash_renderer_plugin",
     "crates/plugins/sdl2_input_plugin",
+    "crates/plugins/tui_renderer_plugin",
     "crates/plugins/world_update_plugin",
 
     # binaries

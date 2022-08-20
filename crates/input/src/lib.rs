@@ -32,28 +32,14 @@ impl log::Log for SimpleLogger {
 pub struct InputState {
     pub input_system: Option<Box<dyn input::InputEventSource>>,
     updates: u64,
-    pub execs: Vec<ThreadExecutorSpawner>,
 }
 
 impl InputState {
-    pub fn new(execs: Vec<ThreadExecutorSpawner>) -> Self {
+    pub fn new() -> Self {
         Self {
             input_system: Default::default(),
             updates: 0,
-            execs,
         }
-    }
-
-    // TODO: how should plugins know what core to send work to? Round robin here?
-    pub fn spawner(&mut self) -> ThreadExecutorSpawner {
-        self.execs[0].clone()
-    }
-
-    pub fn spawner_for_core(&self, id: usize) -> Option<ThreadExecutorSpawner> {
-        self.execs
-            .iter()
-            .find(|ThreadExecutorSpawner { core_id, .. }| *core_id == id)
-            .cloned()
     }
 
     pub fn print_msg(&self, m: &str) {

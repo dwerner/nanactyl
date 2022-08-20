@@ -41,15 +41,18 @@ fn main() {
         let mut input_plugin =
             Plugin::<InputState>::open_from_target_dir(spawners[0].clone(), "sdl2_input_plugin")
                 .unwrap();
-        let render_plugin =
-            Plugin::<RenderState>::open_from_target_dir(spawners[1].clone(), "tui_renderer_plugin")
+        let tui_renderer_plugin =
+            Plugin::<RenderState>::open_from_target_dir(spawners[0].clone(), "tui_renderer_plugin")
+                .unwrap().into_shared();
+        let ash_renderer_plugin =
+            Plugin::<RenderState>::open_from_target_dir(spawners[0].clone(), "ash_renderer_plugin")
                 .unwrap().into_shared();
         let world_update_plugin =
-            Plugin::<World>::open_from_target_dir(spawners[2].clone(), "world_update_plugin")
+            Plugin::<World>::open_from_target_dir(spawners[0].clone(), "world_update_plugin")
                 .unwrap().into_shared();
 
         // state needs to be dropped on the same thread as it was created
-        let mut input_state = InputState::new(vec![spawners[2].clone()]);
+        let mut input_state = InputState::new(vec![spawners[0].clone()]);
         let render_state = RenderState::new();
         let render_state = Arc::new(Mutex::new(render_state));
 
@@ -65,22 +68,28 @@ fn main() {
 
             // Input owns SDL handles and must be pumped on the main/owning thread.
             check_plugin(&mut input_plugin, &mut input_state);
-            let _check_plugins = futures_util::future::join(
-                spawners[3].spawn(check_plugin_async(&render_plugin, &render_state)),
-                spawners[4].spawn(check_plugin_async(&world_update_plugin, &world)),
+            let _check_plugins = futures_util::future::join3(
+                spawners[3].spawn(check_plugin_async(&ash_renderer_plugin, &render_state)),
+                spawners[4].spawn(check_plugin_async(&tui_renderer_plugin, &render_state)),
+                spawners[5].spawn(check_plugin_async(&world_update_plugin, &world)),
             )
             .await;
 
             let last_frame_elapsed = last_frame_complete.elapsed();
 
-            let _join_result = futures_util::future::join3(
+            let _join_result = futures_util::future::join4(
                 input_plugin.call_update(&mut input_state, &last_frame_elapsed),
-                spawners[6].spawn(call_plugin_update_async(
-                    &render_plugin,
+                spawners[1].spawn(call_plugin_update_async(
+                    &ash_renderer_plugin,
                     &render_state,
                     &last_frame_elapsed,
                 )),
-                spawners[7].spawn(call_plugin_update_async(&world_update_plugin, &world, &last_frame_elapsed)),
+                spawners[2].spawn(call_plugin_update_async(
+                    &tui_renderer_plugin,
+                    &render_state,
+                    &last_frame_elapsed,
+                )),
+                spawners[3].spawn(call_plugin_update_async(&world_update_plugin, &world, &last_frame_elapsed)),
             )
             .await;
 
@@ -111,7 +120,7 @@ fn update_render_state_from_world<'a>(
         render_state
             .lock()
             .await
-            .update(&mut *world.lock().await)
+            .update_from_world(&mut *world.lock().await)
             .await;
     })
 }

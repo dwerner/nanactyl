@@ -40,7 +40,7 @@ impl RenderState {
         Default::default()
     }
 
-    pub async fn update(&mut self, world: &World) {
+    pub async fn update_from_world(&mut self, world: &World) {
         self.updates += 1;
         self.entities.clear();
         let entities = &mut self.entities;

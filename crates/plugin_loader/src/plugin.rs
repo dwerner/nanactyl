@@ -16,19 +16,6 @@ const UPDATE_METHOD: &[u8] = b"update";
 const LOAD_METHOD: &[u8] = b"load";
 const UNLOAD_METHOD: &[u8] = b"unload";
 
-//
-// TODO:
-//     Add async futures layer over this - allowing module calls to be composed
-//     together as futures.
-//
-// TODO: support a dynamically *defined* and dynamically loaded lib
-// --> Load module definitions at runtime, even watch a mod folder and load them based on a def
-//
-// Plugin support:
-//
-// Each plugin defines a set of extern "C" functions that are called
-// at specific lifecycle points.
-
 #[derive(thiserror::Error, Debug)]
 pub enum PluginError {
     #[error("copy file io error {0:?}")]
@@ -71,6 +58,10 @@ pub enum PluginCheck {
     Unchanged,
 }
 
+// Plugin support:
+//
+// Each plugin defines a set of extern "C" functions that are called
+// at specific lifecycle points.
 ///
 /// We keep track of last-modified date of the file, and when it changes we
 /// copy the file, along with a version counter to a temporary directory to load it from.
@@ -158,6 +149,7 @@ where
 
         #[cfg(unix)]
         {
+            // TODO: move this into the plugin's interface - rely on the caller to delegate the work.
             let plugin_name = name.clone();
             spawner.spawn_with_shutdown(move |shutdown| {
                 Box::pin(async move {

@@ -1,4 +1,9 @@
-use std::sync::{atomic::{AtomicUsize, Ordering}, Mutex};
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use thing::{CameraFacet, HealthFacet, ModelInstanceFacet, PhysicalFacet, Thing, ThingBuilder};
 
@@ -36,8 +41,10 @@ impl WorldFacets {
 
 #[derive(Default)]
 pub struct World {
-    pub things: scc::HashSet<Thing>,
-    facets: Mutex<WorldFacets>,
+    pub things: Vec<Thing>,
+    facets: WorldFacets,
+    pub updates: u64,
+    pub run_life: Duration,
 }
 
 impl World {
@@ -45,19 +52,27 @@ impl World {
         Default::default()
     }
 
-    pub fn start_thing(&self) -> ThingBuilder {
+    pub fn start_thing(&mut self) -> ThingBuilder {
         ThingBuilder {
             world: self,
             facets: Vec::new(),
         }
     }
 
-    pub fn get_things(&self) -> &scc::HashSet<Thing> {
+    pub fn tick(&mut self, dt: &Duration) {
+        self.run_life += *dt;
+        self.updates += 1;
+        for physical in self.facets.physical.iter_mut() {
+            physical.position += physical.linear_velocity * (dt.as_millis() / 1000) as f32;
+        }
+    }
+
+    pub fn get_things(&self) -> &[Thing] {
         &self.things
     }
 
     pub fn clear(&mut self) {
-        let facets = &mut self.facets.lock().unwrap();
+        let facets = &mut self.facets;
         facets.cameras.clear();
         facets.health.clear();
         facets.models.clear();

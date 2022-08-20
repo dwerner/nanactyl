@@ -1,4 +1,4 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 use std::time::Duration;
 
 use nalgebra::{Matrix4, Perspective3, Scalar, Vector3};
@@ -167,33 +167,48 @@ impl CameraFacet {
 }
 
 pub struct ThingBuilder<'a> {
-    pub(crate) world: &'a World,
+    pub(crate) world: &'a mut World,
     pub(crate) facets: Vec<FacetIndex>,
 }
 
 impl<'a> ThingBuilder<'a> {
     pub fn with_camera(mut self, camera: CameraFacet) -> Self {
-        let cameras = &mut self.world.facets.lock().unwrap().cameras;
+        let cameras = &mut self.world.facets.cameras;
         let idx = cameras.len();
         cameras.push(camera);
         self.facets.push(FacetIndex::Camera(idx as u32));
         self
     }
 
+
+    // Transform should be used as the offset of drawing from the physical facet
     pub fn with_model(mut self, transform: Matrix4<f32>, model: Arc<model::Model>) -> Self {
-        let models = &mut self.world.facets.lock().unwrap().models;
+        let models = &mut self.world.facets.models;
         let idx = models.len();
-        models
-            .push(ModelInstanceFacet { transform, model });
+        models.push(ModelInstanceFacet { transform, model });
         self.facets.push(FacetIndex::Model(idx as u32));
         self
     }
 
-    pub fn emplace(self) -> Result<Identity, Thing> {
+    pub fn with_physical(mut self, x: f32, y: f32, z: f32) -> Self {
+        let physical = &mut self.world.facets.physical;
+        let idx = physical.len();
+        physical.push(PhysicalFacet {
+            position: Vector3::new(x,y,z),
+            linear_velocity: Vector3::new(0.0, 0.0, 0.1),
+            angular_velocity: Vector3::identity(),
+            body: Shape::Box { width: 1.0, height: 1.0, depth: 1.0 },
+            mass: 1.0,
+        });
+        self.facets.push(FacetIndex::Physical(idx as u32));
+        self
+    }
+
+    pub fn emplace(self) -> Identity {
         let thing = Thing::new(self.facets);
         let id = thing.identify();
-        self.world.things.insert(thing)?;
-        Ok(id)
+        self.world.things.push(thing);
+        id
     }
 }
 

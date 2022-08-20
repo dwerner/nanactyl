@@ -1,8 +1,10 @@
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTimeError, UNIX_EPOCH};
 use std::{fs, io};
 
+use async_lock::Mutex;
 use libloading::Library;
 use tempdir::TempDir;
 
@@ -109,6 +111,11 @@ impl<T> Plugin<T>
 where
     T: Send + Sync,
 {
+    /// Wrap this plugin in Arc<Mutex<_>>
+    pub fn into_shared(self) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(self))
+    }
+
     /// Returns the defined name of the module
     pub fn name(&self) -> &str {
         &self.name

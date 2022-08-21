@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 use input::{Button, DeviceEvent, EngineEvent, InputEvent};
+
+use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 use sdl2::{
     controller::GameController, event::Event as SdlEvent, haptic::Haptic, keyboard::Keycode,
-    sys::SDL_Window,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -26,11 +28,25 @@ pub enum PlatformError {
 
 #[derive(Copy, Clone)]
 pub struct WinPtr {
-    pub raw: *const SDL_Window,
+    pub raw_window_handle: RawWindowHandle,
+}
+
+impl Debug for WinPtr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WinPtr")
+            .field("raw", &self.raw_window_handle)
+            .finish()
+    }
 }
 
 unsafe impl Send for WinPtr {}
 unsafe impl Sync for WinPtr {}
+
+unsafe impl HasRawWindowHandle for WinPtr {
+    fn raw_window_handle(&self) -> RawWindowHandle {
+        self.raw_window_handle
+    }
+}
 
 pub struct PlatformContext {
     _todo_sdl_context: sdl2::Sdl,
@@ -97,9 +113,10 @@ impl PlatformContext {
     }
 
     pub fn get_raw_window_handle(&self, index: usize) -> Option<WinPtr> {
-        self.windows
-            .get(index)
-            .map(|handle| WinPtr { raw: handle.raw() })
+        self.windows.get(index).map(|w| {
+            let raw_window_handle = w.raw_window_handle();
+            WinPtr { raw_window_handle }
+        })
     }
 
     // Pump a maximum of 50 events.

@@ -103,7 +103,6 @@ impl CoreAffinityExecutor {
             .find(|ThreadExecutorSpawner { core_id, .. }| *core_id == id)
             .cloned()
     }
-
 }
 
 /// Spawner for CoreExecutor - can be send to other threads for relaying work to this executor.

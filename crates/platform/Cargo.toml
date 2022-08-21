@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sdl2 = "0.35.2"
+sdl2 = { version = "0.35.2", features = ["raw-window-handle"] }
+raw-window-handle = "0.4.2"
 async-channel = "1.7.1"
 async-lock = "2.5.0"
 futures-util = "0.3.23"

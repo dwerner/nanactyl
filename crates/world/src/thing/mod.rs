@@ -180,7 +180,6 @@ impl<'a> ThingBuilder<'a> {
         self
     }
 
-
     // Transform should be used as the offset of drawing from the physical facet
     pub fn with_model(mut self, transform: Matrix4<f32>, model: Arc<model::Model>) -> Self {
         let models = &mut self.world.facets.models;
@@ -194,10 +193,14 @@ impl<'a> ThingBuilder<'a> {
         let physical = &mut self.world.facets.physical;
         let idx = physical.len();
         physical.push(PhysicalFacet {
-            position: Vector3::new(x,y,z),
+            position: Vector3::new(x, y, z),
             linear_velocity: Vector3::new(0.0, 0.0, 0.1),
             angular_velocity: Vector3::identity(),
-            body: Shape::Box { width: 1.0, height: 1.0, depth: 1.0 },
+            body: Shape::Box {
+                width: 1.0,
+                height: 1.0,
+                depth: 1.0,
+            },
             mass: 1.0,
         });
         self.facets.push(FacetIndex::Physical(idx as u32));

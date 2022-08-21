@@ -11,7 +11,7 @@ pub extern "C" fn load(_state: &mut RenderState) {
 pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
     // Call render, buffers are updated etc
     if state.updates % 600 == 0 {
-        println!("state: {} dt: {:?}", state.entities.len(), dt);
+        println!("tui state: {} dt: {:?}", state.updates, dt);
     }
 }
 

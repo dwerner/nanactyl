@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ash = "0.37.0+1.3.209"
+ash = { version = "0.37.0+1.3.209" }
+ash-window = "0.11.0"
 async-lock = "2.5.0"
 
 platform = { path = "../platform" }

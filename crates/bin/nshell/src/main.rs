@@ -41,14 +41,12 @@ fn main() {
     future::block_on(async move {
         let mut platform_context = platform::PlatformContext::new().unwrap();
 
-        platform_context
-            .add_vulkan_window("title", 0, 0, 640, 480)
+        let index = platform_context
+            .add_vulkan_window("nshell", 0, 0, 640, 480)
             .unwrap();
 
-        let tui_renderer_plugin =
-            Plugin::<RenderState>::open_from_target_dir(spawners[0].clone(), "tui_renderer_plugin")
-                .unwrap()
-                .into_shared();
+        let win_ptr = platform_context.get_raw_window_handle(index).unwrap();
+
         let ash_renderer_plugin =
             Plugin::<RenderState>::open_from_target_dir(spawners[0].clone(), "ash_renderer_plugin")
                 .unwrap()
@@ -59,7 +57,7 @@ fn main() {
                 .into_shared();
 
         // state needs to be dropped on the same thread as it was created
-        let render_state = RenderState::new().into_shared();
+        let render_state = RenderState::new(win_ptr).into_shared();
 
         let mut frame_start;
         let mut last_frame_complete = Instant::now();
@@ -79,23 +77,17 @@ fn main() {
                 .unwrap();
 
             // Input owns SDL handles and must be pumped on the main/owning thread.
-            let _check_plugins = futures_util::future::join3(
+            let _check_plugins = futures_util::future::join(
                 spawners[3].spawn(check_plugin_async(&ash_renderer_plugin, &render_state)),
-                spawners[4].spawn(check_plugin_async(&tui_renderer_plugin, &render_state)),
                 spawners[5].spawn(check_plugin_async(&world_update_plugin, &world)),
             )
             .await;
 
             let last_frame_elapsed = last_frame_complete.elapsed();
 
-            let _join_result = futures_util::future::join3(
+            let _join_result = futures_util::future::join(
                 spawners[1].spawn(call_plugin_update_async(
                     &ash_renderer_plugin,
-                    &render_state,
-                    &last_frame_elapsed,
-                )),
-                spawners[2].spawn(call_plugin_update_async(
-                    &tui_renderer_plugin,
                     &render_state,
                     &last_frame_elapsed,
                 )),

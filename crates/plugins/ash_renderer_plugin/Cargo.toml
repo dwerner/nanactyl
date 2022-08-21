@@ -10,3 +10,4 @@ crate-type = ["cdylib"]
 render = {path = "../../render" }
 platform = {path = "../../platform" }
 ash = "0.37.0+1.3.209"
+image = { version = "0.24.3", default-features = false, features=["png"] }

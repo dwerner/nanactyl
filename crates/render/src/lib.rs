@@ -1,7 +1,6 @@
 use std::pin::Pin;
 use std::{sync::Arc, time::Duration};
 
-use ash::extensions::khr::XlibSurface;
 use ash::vk;
 use ash::{
     extensions::khr::{Surface, Swapchain},
@@ -186,6 +185,8 @@ impl VulkanBase {
             .cloned()
             .find(|&mode| mode == vk::PresentModeKHR::MAILBOX)
             .unwrap_or(vk::PresentModeKHR::FIFO);
+
+        println!("present_mode: {present_mode:?}");
 
         let swapchain_loader = Swapchain::new(&instance, &device);
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()

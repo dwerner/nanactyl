@@ -1,6 +1,6 @@
 use std::{ffi::CStr, io::Cursor, mem::align_of, time::Duration};
 
-use ash::{util::Align, vk::{self, BufferUsageFlags}};
+use ash::{util::Align, vk};
 
 use render::{Presenter, RenderState, VulkanBase};
 
@@ -10,7 +10,7 @@ impl Presenter for Renderer {
         present(self, base);
     }
     fn drop_resources(&self, base: &mut VulkanBase) {
-        drop_resources(self, base);
+        drop_resources(base, self);
     }
 }
 
@@ -95,15 +95,17 @@ impl<'a> AttachmentsModifier<'a> {
 
 // TODO: lift into VulkanBaseExt/ VulkanBaseWrap
 fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
-    let (attachments, color, depth) = { VulkanBaseWrap(base).attachments() };
-    let renderpass = { VulkanBaseWrap(base).renderpass(attachments.all(), &color, &depth) };
-    let framebuffers: Vec<vk::Framebuffer> = { VulkanBaseWrap(base).framebuffers(renderpass) };
 
     let index_buffer_data = [0u32, 1, 2, 2, 3, 0];
-
-    let (index_buffer, index_buffer_memory) =
-        allocate_buffer(base, vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data).unwrap();
-
+    let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
+        .unwrap()
+        .to_rgba8();
+    let uniform_color_buffer_data = [Vector3 {
+        x: 1.0,
+        y: 1.0,
+        z: 1.0,
+        _pad: 0.0,
+    }];
     let vertex_data = [
         Vertex {
             pos: [-1.0, -1.0, 0.0, 1.0],
@@ -122,77 +124,31 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
             uv: [1.0, 0.0],
         },
     ];
+
+    let (attachments, color, depth) = { VulkanBaseWrap(base).attachments() };
+    let renderpass = { VulkanBaseWrap(base).renderpass(attachments.all(), &color, &depth) };
+    let framebuffers: Vec<vk::Framebuffer> = { VulkanBaseWrap(base).framebuffers(renderpass) };
+
+
+    let (index_buffer, index_buffer_memory) =
+        init_buffer_with(base, vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data).unwrap();
+
     let (vertex_input_buffer, vertex_input_buffer_memory) =
-        allocate_buffer(base, vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data).unwrap();
+        init_buffer_with(base, vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data).unwrap();
 
-    let uniform_color_buffer_data = [Vector3 {
-        x: 1.0, //0.5,
-        y: 1.0,
-        z: 1.0,
-        _pad: 0.0,
-    }];
     let (uniform_color_buffer, uniform_color_buffer_memory) =
-        allocate_buffer(base, vk::BufferUsageFlags::UNIFORM_BUFFER, &uniform_color_buffer_data).unwrap();
-
-    let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
-        .unwrap()
-        .to_rgba8();
+        init_buffer_with(base, vk::BufferUsageFlags::UNIFORM_BUFFER, &uniform_color_buffer_data).unwrap();
 
     let (width, height) = image.dimensions();
     let image_extent = vk::Extent2D { width, height };
     let image_data = image.into_raw();
-    let image_buffer_info = vk::BufferCreateInfo {
-        size: (std::mem::size_of::<u8>() * image_data.len()) as u64,
-        usage: vk::BufferUsageFlags::TRANSFER_SRC,
-        sharing_mode: vk::SharingMode::EXCLUSIVE,
-        ..Default::default()
-    };
-    let image_buffer = unsafe { base.device.create_buffer(&image_buffer_info, None) }.unwrap();
-    let image_buffer_memory_req =
-        unsafe { base.device.get_buffer_memory_requirements(image_buffer) };
-    let image_buffer_memory_index = VulkanBase::find_memorytype_index(
-        &image_buffer_memory_req,
-        &base.device_memory_properties,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    )
-    .expect("Unable to find suitable memorytype for the vertex buffer.");
 
-    let image_buffer_allocate_info = vk::MemoryAllocateInfo {
-        allocation_size: image_buffer_memory_req.size,
-        memory_type_index: image_buffer_memory_index,
-        ..Default::default()
-    };
-    let image_buffer_memory = unsafe {
-        base.device
-            .allocate_memory(&image_buffer_allocate_info, None)
-    }
-    .unwrap();
-    let image_ptr = unsafe {
-        base.device.map_memory(
-            image_buffer_memory,
-            0,
-            image_buffer_memory_req.size,
-            vk::MemoryMapFlags::empty(),
-        )
-    }
-    .unwrap();
-    let mut image_slice = unsafe {
-        Align::new(
-            image_ptr,
-            std::mem::align_of::<u8>() as u64,
-            image_buffer_memory_req.size,
-        )
-    };
-    image_slice.copy_from_slice(&image_data);
-    unsafe { base.device.unmap_memory(image_buffer_memory) };
-    unsafe {
-        base.device
-            .bind_buffer_memory(image_buffer, image_buffer_memory, 0)
-    }
-    .unwrap();
+    let (image_buffer, image_buffer_memory) = init_buffer_with(
+        base, vk::BufferUsageFlags::TRANSFER_SRC, &image_data
+    ).unwrap();
 
     let (texture_create_info, texture_image, texture_memory) =
-        allocate_texture_buffer(base, image_extent);
+        init_texture_destination_buffer(base, image_extent);
 
     VulkanBase::record_submit_commandbuffer(
         &base.device,
@@ -324,8 +280,8 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
     let descriptor_pool = unsafe {
         base.device
             .create_descriptor_pool(&descriptor_pool_info, None)
-    }
-    .unwrap();
+    }.map_err(VulkanError::VkResult).unwrap();
+
     let desc_layout_bindings = [
         vk::DescriptorSetLayoutBinding {
             descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
@@ -348,7 +304,7 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
         base.device
             .create_descriptor_set_layout(&descriptor_info, None)
     }
-    .unwrap()];
+    .map_err(VulkanError::VkResult).unwrap()];
 
     let desc_alloc_info = vk::DescriptorSetAllocateInfo::builder()
         .descriptor_pool(descriptor_pool)
@@ -412,8 +368,7 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
     let pipeline_layout = unsafe {
         base.device
             .create_pipeline_layout(&layout_create_info, None)
-    }
-    .unwrap();
+    }.map_err(VulkanError::VkResult).unwrap();
 
     let shader_entry_name = unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") };
     let shader_stage_create_infos = [
@@ -535,7 +490,7 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
             None,
         )
     }
-    .unwrap();
+    .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result)).unwrap();
 
     Renderer {
         graphics_pipelines,
@@ -565,10 +520,12 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
     }
 }
 
-fn allocate_texture_buffer(
+/// Allocate a destination buffer for a texture based on an Extent2D
+/// TODO: move to VulkanBase
+fn init_texture_destination_buffer(
     base: &mut VulkanBase,
     image_extent: vk::Extent2D,
-) -> (vk::ImageCreateInfo, vk::Image, vk::DeviceMemory) {
+) -> Result<(vk::ImageCreateInfo, vk::Image, vk::DeviceMemory), VulkanError> {
     let texture_create_info = vk::ImageCreateInfo {
         image_type: vk::ImageType::TYPE_2D,
         format: vk::Format::R8G8B8A8_UNORM,
@@ -581,27 +538,29 @@ fn allocate_texture_buffer(
         sharing_mode: vk::SharingMode::EXCLUSIVE,
         ..Default::default()
     };
-    let texture_image = unsafe { base.device.create_image(&texture_create_info, None) }.unwrap();
+    let texture_image = unsafe { base.device.create_image(&texture_create_info, None) }.map_err(VulkanError::VkResult)?;
     let texture_memory_req = unsafe { base.device.get_image_memory_requirements(texture_image) };
     let texture_memory_index = VulkanBase::find_memorytype_index(
         &texture_memory_req,
         &base.device_memory_properties,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    )
-    .expect("Unable to find suitable memory index for depth image.");
+    ).ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
+
     let texture_allocate_info = vk::MemoryAllocateInfo {
         allocation_size: texture_memory_req.size,
         memory_type_index: texture_memory_index,
         ..Default::default()
     };
+
     let texture_memory =
-        unsafe { base.device.allocate_memory(&texture_allocate_info, None) }.unwrap();
+        unsafe { base.device.allocate_memory(&texture_allocate_info, None) }.map_err(VulkanError::VkResult)?;
+
     unsafe {
         base.device
             .bind_image_memory(texture_image, texture_memory, 0)
-    }
-    .expect("Unable to bind depth image memory");
-    (texture_create_info, texture_image, texture_memory)
+    }.map_err(VulkanError::VkResult)?;
+
+    Ok((texture_create_info, texture_image, texture_memory))
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -610,10 +569,15 @@ pub enum VulkanError {
     UnableToFindMemoryTypeForBuffer,
 
     #[error("vk result")]
-    VkResult(vk::Result)
+    VkResult(vk::Result),
+
+    #[error("failed to create pipeline")]
+    FailedToCreatePipeline(Vec<vk::Pipeline>, vk::Result),
 }
 
-fn allocate_buffer<T>(
+/// Allocate a buffer with usage flags
+/// TODO: move to vulkanbase
+pub fn init_buffer_with<T>(
     base: &mut VulkanBase,
     usage: vk::BufferUsageFlags,
     data: &[T],
@@ -646,7 +610,7 @@ fn allocate_buffer<T>(
             .allocate_memory(&allocate_info, None)
     }.map_err(VulkanError::VkResult)?;
 
-    let vert_ptr = unsafe {
+    let ptr = unsafe {
         base.device.map_memory(
             buffer_memory,
             0,
@@ -654,10 +618,11 @@ fn allocate_buffer<T>(
             vk::MemoryMapFlags::empty(),
         )
     }.map_err(VulkanError::VkResult)?;
+
     let mut slice = unsafe {
         Align::new(
-            vert_ptr,
-            align_of::<Vertex>() as u64,
+            ptr,
+            align_of::<T>() as u64,
             buffer_memory_req.size,
         )
     };
@@ -916,7 +881,10 @@ fn present(renderer: &Renderer, base: &mut VulkanBase) {
     .unwrap();
 }
 
-fn drop_resources(renderer: &Renderer, base: &mut VulkanBase) {
+fn drop_resources(
+    base: &mut VulkanBase,
+    renderer: &Renderer,
+) {
     unsafe {
         base.device.device_wait_idle().unwrap();
         for pipeline in renderer.graphics_pipelines.iter() {

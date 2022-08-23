@@ -9,7 +9,7 @@ impl Presenter for Renderer {
         //println!("presented something... Ha HAA");
         present(self, base);
     }
-    fn drop_resources(self, base: &mut VulkanBase) {
+    fn drop_resources(&self, base: &mut VulkanBase) {
         drop_resources(self, base);
     }
 }
@@ -41,6 +41,8 @@ pub struct Vector3 {
 }
 
 fn setup(base: &mut VulkanBase) -> Renderer {
+
+    // Renderpass + attachment building
     let renderpass_attachments = [
         vk::AttachmentDescription {
             format: base.surface_format.format,
@@ -233,7 +235,7 @@ fn setup(base: &mut VulkanBase) -> Renderer {
     .unwrap();
 
     let uniform_color_buffer_data = Vector3 {
-        x: 1.0,
+        x: 1.0, //0.5,
         y: 1.0,
         z: 1.0,
         _pad: 0.0,
@@ -878,11 +880,11 @@ fn present(renderer: &Renderer, base: &mut VulkanBase) {
         .unwrap();
 }
 
-fn drop_resources(renderer: Renderer, base: &mut VulkanBase) {
+fn drop_resources(renderer: &Renderer, base: &mut VulkanBase) {
     unsafe {
         base.device.device_wait_idle().unwrap();
-        for pipeline in renderer.graphics_pipelines {
-            base.device.destroy_pipeline(pipeline, None);
+        for pipeline in renderer.graphics_pipelines.iter() {
+            base.device.destroy_pipeline(*pipeline, None);
         }
         base.device.destroy_pipeline_layout(renderer.pipeline_layout, None);
         base.device
@@ -906,8 +908,8 @@ fn drop_resources(renderer: Renderer, base: &mut VulkanBase) {
         }
         base.device.destroy_descriptor_pool(renderer.descriptor_pool, None);
         base.device.destroy_sampler(renderer.sampler, None);
-        for framebuffer in renderer.framebuffers {
-            base.device.destroy_framebuffer(framebuffer, None);
+        for framebuffer in renderer.framebuffers.iter() {
+            base.device.destroy_framebuffer(*framebuffer, None);
         }
         base.device.destroy_render_pass(renderer.renderpass, None);
     }
@@ -919,7 +921,7 @@ pub extern "C" fn load(state: &mut RenderState) {
     println!("set up some vulkan state!");
 
     let mut base = VulkanBase::new(state.win_ptr.clone());
-    state.vulkan.presenter = Some(Box::pin(setup(&mut base)));
+    state.vulkan.presenter = Some(Box::new(setup(&mut base)));
     state.vulkan.base = Some(base);
 }
 
@@ -937,8 +939,9 @@ pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
 #[no_mangle]
 pub extern "C" fn unload(state: &mut RenderState) {
     println!("unloaded ash_renderer_plugin");
-    if let Some(renderer) = state.vulkan.presenter.take() {
-
+    if let (Some(renderer), Some(base)) = (state.vulkan.presenter.as_ref(), state.vulkan.base.as_mut()) {
+        renderer.drop_resources(base);
     }
+    state.vulkan.presenter.take();
     state.vulkan.base.take();
 }

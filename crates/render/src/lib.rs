@@ -1,7 +1,6 @@
 use std::pin::Pin;
 use std::{sync::Arc, time::Duration};
 
-use ash::extensions::khr::XlibSurface;
 use ash::vk;
 use ash::{
     extensions::khr::{Surface, Swapchain},
@@ -54,12 +53,12 @@ impl RenderState {
 #[derive(Default)]
 pub struct VulkanRendererState {
     pub base: Option<VulkanBase>,
-    pub presenter: Option<Pin<Box<dyn Presenter + Send + Sync>>>,
+    pub presenter: Option<Box<dyn Presenter + Send + Sync>>,
 }
 
 pub trait Presenter {
     fn present(&self, base: &mut VulkanBase);
-    fn drop_resources(self, base: &mut VulkanBase);
+    fn drop_resources(&self, base: &mut VulkanBase);
 }
 
 pub struct VulkanBase {

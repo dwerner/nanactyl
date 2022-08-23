@@ -42,7 +42,7 @@ fn main() {
         let mut platform_context = platform::PlatformContext::new().unwrap();
 
         let index = platform_context
-            .add_vulkan_window("nshell", 0, 0, 640, 480)
+            .add_vulkan_window("nshell", 0, 0, 400, 400)
             .unwrap();
 
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();

@@ -193,8 +193,8 @@ impl<'a> ThingBuilder<'a> {
         let physical = &mut self.world.facets.physical;
         let idx = physical.len();
         physical.push(PhysicalFacet {
-            position: Vector3::new(x, y, z),
-            linear_velocity: Vector3::new(0.0, 0.0, 0.1),
+            position: vec3(x, y, z),
+            linear_velocity: vec3(0.0, 0.0, 0.1),
             angular_velocity: Vector3::identity(),
             body: Shape::Box {
                 width: 1.0,

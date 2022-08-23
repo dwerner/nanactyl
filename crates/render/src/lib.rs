@@ -53,7 +53,7 @@ impl RenderState {
 #[derive(Default)]
 pub struct VulkanRendererState {
     pub base: Option<VulkanBase>,
-    pub presenter: Option<Box<dyn Presenter + Send + Sync>>,
+    pub presenter: Option<Pin<Box<dyn Presenter + Send + Sync>>>,
 }
 
 pub trait Presenter {
@@ -185,6 +185,8 @@ impl VulkanBase {
             .cloned()
             .find(|&mode| mode == vk::PresentModeKHR::MAILBOX)
             .unwrap_or(vk::PresentModeKHR::FIFO);
+
+        println!("present_mode: {present_mode:?}");
 
         let swapchain_loader = Swapchain::new(&instance, &device);
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()

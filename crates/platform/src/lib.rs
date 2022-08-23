@@ -44,6 +44,7 @@ unsafe impl Sync for WinPtr {}
 
 unsafe impl HasRawWindowHandle for WinPtr {
     fn raw_window_handle(&self) -> RawWindowHandle {
+        println!("{:?}", self.raw_window_handle);
         self.raw_window_handle
     }
 }

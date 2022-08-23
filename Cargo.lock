@@ -75,6 +75,7 @@ dependencies = [
  "image",
  "platform",
  "render",
+ "thiserror",
 ]
 
 [[package]]

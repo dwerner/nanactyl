@@ -99,12 +99,12 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
     let renderpass = { VulkanBaseWrap(base).renderpass(attachments.all(), &color, &depth) };
     let framebuffers: Vec<vk::Framebuffer> = { VulkanBaseWrap(base).framebuffers(renderpass) };
 
-    let index_buffer_data = vec![0u32, 1, 2, 2, 3, 0];
+    let index_buffer_data = [0u32, 1, 2, 2, 3, 0];
 
     let (index_buffer, index_buffer_memory) =
-        allocate_and_update_index_buffer(&index_buffer_data, base);
+        allocate_and_update_index_buffer(base, &index_buffer_data);
 
-    let vertices = [
+    let vertex_data = [
         Vertex {
             pos: [-1.0, -1.0, 0.0, 1.0],
             uv: [0.0, 0.0],
@@ -123,7 +123,7 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
         },
     ];
     let (vertex_input_buffer, vertex_input_buffer_memory) =
-        allocate_and_update_vertex_buffer(&vertices, base);
+        allocate_and_copy_to_vertex_buffer(base, &vertex_data);
 
     let uniform_color_buffer_data = Vector3 {
         x: 1.0,
@@ -131,148 +131,21 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
         z: 1.0,
         _pad: 0.0,
     };
-    let uniform_color_buffer_info = vk::BufferCreateInfo {
-        size: std::mem::size_of_val(&uniform_color_buffer_data) as u64,
-        usage: vk::BufferUsageFlags::UNIFORM_BUFFER,
-        sharing_mode: vk::SharingMode::EXCLUSIVE,
-        ..Default::default()
-    };
-    let uniform_color_buffer =
-        unsafe { base.device.create_buffer(&uniform_color_buffer_info, None) }.unwrap();
-    let uniform_color_buffer_memory_req = unsafe {
-        base.device
-            .get_buffer_memory_requirements(uniform_color_buffer)
-    };
-    let uniform_color_buffer_memory_index = VulkanBase::find_memorytype_index(
-        &uniform_color_buffer_memory_req,
-        &base.device_memory_properties,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    )
-    .expect("Unable to find suitable memorytype for the vertex buffer.");
-
-    let uniform_color_buffer_allocate_info = vk::MemoryAllocateInfo {
-        allocation_size: uniform_color_buffer_memory_req.size,
-        memory_type_index: uniform_color_buffer_memory_index,
-        ..Default::default()
-    };
-    let uniform_color_buffer_memory = unsafe {
-        base.device
-            .allocate_memory(&uniform_color_buffer_allocate_info, None)
-    }
-    .unwrap();
-    let uniform_ptr = unsafe {
-        base.device.map_memory(
-            uniform_color_buffer_memory,
-            0,
-            uniform_color_buffer_memory_req.size,
-            vk::MemoryMapFlags::empty(),
-        )
-    }
-    .unwrap();
-    let mut uniform_aligned_slice = unsafe {
-        Align::new(
-            uniform_ptr,
-            align_of::<Vector3>() as u64,
-            uniform_color_buffer_memory_req.size,
-        )
-    };
-    uniform_aligned_slice.copy_from_slice(&[uniform_color_buffer_data]);
-    unsafe { base.device.unmap_memory(uniform_color_buffer_memory) };
-    unsafe {
-        base.device
-            .bind_buffer_memory(uniform_color_buffer, uniform_color_buffer_memory, 0)
-    }
-    .unwrap();
+    let (uniform_color_buffer, uniform_color_buffer_memory) =
+        allocate_and_copy_to_uniform_color_buffer(base, uniform_color_buffer_data);
 
     let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
         .unwrap()
         .to_rgba8();
+
     let (width, height) = image.dimensions();
     let image_extent = vk::Extent2D { width, height };
     let image_data = image.into_raw();
-    let image_buffer_info = vk::BufferCreateInfo {
-        size: (std::mem::size_of::<u8>() * image_data.len()) as u64,
-        usage: vk::BufferUsageFlags::TRANSFER_SRC,
-        sharing_mode: vk::SharingMode::EXCLUSIVE,
-        ..Default::default()
-    };
-    let image_buffer = unsafe { base.device.create_buffer(&image_buffer_info, None) }.unwrap();
-    let image_buffer_memory_req =
-        unsafe { base.device.get_buffer_memory_requirements(image_buffer) };
-    let image_buffer_memory_index = VulkanBase::find_memorytype_index(
-        &image_buffer_memory_req,
-        &base.device_memory_properties,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    )
-    .expect("Unable to find suitable memorytype for the vertex buffer.");
+    let (image_buffer, image_buffer_memory) =
+        allocate_and_copy_to_image_data_buffer(base, image_data);
 
-    let image_buffer_allocate_info = vk::MemoryAllocateInfo {
-        allocation_size: image_buffer_memory_req.size,
-        memory_type_index: image_buffer_memory_index,
-        ..Default::default()
-    };
-    let image_buffer_memory = unsafe {
-        base.device
-            .allocate_memory(&image_buffer_allocate_info, None)
-    }
-    .unwrap();
-    let image_ptr = unsafe {
-        base.device.map_memory(
-            image_buffer_memory,
-            0,
-            image_buffer_memory_req.size,
-            vk::MemoryMapFlags::empty(),
-        )
-    }
-    .unwrap();
-    let mut image_slice = unsafe {
-        Align::new(
-            image_ptr,
-            std::mem::align_of::<u8>() as u64,
-            image_buffer_memory_req.size,
-        )
-    };
-    image_slice.copy_from_slice(&image_data);
-    unsafe { base.device.unmap_memory(image_buffer_memory) };
-    unsafe {
-        base.device
-            .bind_buffer_memory(image_buffer, image_buffer_memory, 0)
-    }
-    .unwrap();
-
-    let texture_create_info = vk::ImageCreateInfo {
-        image_type: vk::ImageType::TYPE_2D,
-        format: vk::Format::R8G8B8A8_UNORM,
-        extent: image_extent.into(),
-        mip_levels: 1,
-        array_layers: 1,
-        samples: vk::SampleCountFlags::TYPE_1,
-        tiling: vk::ImageTiling::OPTIMAL,
-        usage: vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
-        sharing_mode: vk::SharingMode::EXCLUSIVE,
-        ..Default::default()
-    };
-    let texture_image = unsafe { base.device.create_image(&texture_create_info, None) }.unwrap();
-    let texture_memory_req = unsafe { base.device.get_image_memory_requirements(texture_image) };
-    let texture_memory_index = VulkanBase::find_memorytype_index(
-        &texture_memory_req,
-        &base.device_memory_properties,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    )
-    .expect("Unable to find suitable memory index for depth image.");
-
-    let texture_allocate_info = vk::MemoryAllocateInfo {
-        allocation_size: texture_memory_req.size,
-        memory_type_index: texture_memory_index,
-        ..Default::default()
-    };
-    let texture_memory =
-        unsafe { base.device.allocate_memory(&texture_allocate_info, None) }.unwrap();
-    unsafe {
-        base.device
-            .bind_image_memory(texture_image, texture_memory, 0)
-    }
-    .expect("Unable to bind depth image memory");
+    let (texture_create_info, texture_image, texture_memory) =
+        allocate_texture_buffer(base, image_extent);
 
     VulkanBase::record_submit_commandbuffer(
         &base.device,
@@ -645,12 +518,164 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
     }
 }
 
-fn allocate_and_update_vertex_buffer(
-    vertices: &[Vertex],
+fn allocate_texture_buffer(
     base: &mut VulkanBase,
+    image_extent: vk::Extent2D,
+) -> (vk::ImageCreateInfo, vk::Image, vk::DeviceMemory) {
+    let texture_create_info = vk::ImageCreateInfo {
+        image_type: vk::ImageType::TYPE_2D,
+        format: vk::Format::R8G8B8A8_UNORM,
+        extent: image_extent.into(),
+        mip_levels: 1,
+        array_layers: 1,
+        samples: vk::SampleCountFlags::TYPE_1,
+        tiling: vk::ImageTiling::OPTIMAL,
+        usage: vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+        sharing_mode: vk::SharingMode::EXCLUSIVE,
+        ..Default::default()
+    };
+    let texture_image = unsafe { base.device.create_image(&texture_create_info, None) }.unwrap();
+    let texture_memory_req = unsafe { base.device.get_image_memory_requirements(texture_image) };
+    let texture_memory_index = VulkanBase::find_memorytype_index(
+        &texture_memory_req,
+        &base.device_memory_properties,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )
+    .expect("Unable to find suitable memory index for depth image.");
+    let texture_allocate_info = vk::MemoryAllocateInfo {
+        allocation_size: texture_memory_req.size,
+        memory_type_index: texture_memory_index,
+        ..Default::default()
+    };
+    let texture_memory =
+        unsafe { base.device.allocate_memory(&texture_allocate_info, None) }.unwrap();
+    unsafe {
+        base.device
+            .bind_image_memory(texture_image, texture_memory, 0)
+    }
+    .expect("Unable to bind depth image memory");
+    (texture_create_info, texture_image, texture_memory)
+}
+
+fn allocate_and_copy_to_image_data_buffer(
+    base: &mut VulkanBase,
+    image_data: Vec<u8>,
+) -> (vk::Buffer, vk::DeviceMemory) {
+    let image_buffer_info = vk::BufferCreateInfo {
+        size: (std::mem::size_of::<u8>() * image_data.len()) as u64,
+        usage: vk::BufferUsageFlags::TRANSFER_SRC,
+        sharing_mode: vk::SharingMode::EXCLUSIVE,
+        ..Default::default()
+    };
+    let image_buffer = unsafe { base.device.create_buffer(&image_buffer_info, None) }.unwrap();
+    let image_buffer_memory_req =
+        unsafe { base.device.get_buffer_memory_requirements(image_buffer) };
+    let image_buffer_memory_index = VulkanBase::find_memorytype_index(
+        &image_buffer_memory_req,
+        &base.device_memory_properties,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    )
+    .expect("Unable to find suitable memorytype for the vertex buffer.");
+    let image_buffer_allocate_info = vk::MemoryAllocateInfo {
+        allocation_size: image_buffer_memory_req.size,
+        memory_type_index: image_buffer_memory_index,
+        ..Default::default()
+    };
+    let image_buffer_memory = unsafe {
+        base.device
+            .allocate_memory(&image_buffer_allocate_info, None)
+    }
+    .unwrap();
+    let image_ptr = unsafe {
+        base.device.map_memory(
+            image_buffer_memory,
+            0,
+            image_buffer_memory_req.size,
+            vk::MemoryMapFlags::empty(),
+        )
+    }
+    .unwrap();
+    let mut image_slice = unsafe {
+        Align::new(
+            image_ptr,
+            std::mem::align_of::<u8>() as u64,
+            image_buffer_memory_req.size,
+        )
+    };
+    image_slice.copy_from_slice(&image_data);
+    unsafe { base.device.unmap_memory(image_buffer_memory) };
+    unsafe {
+        base.device
+            .bind_buffer_memory(image_buffer, image_buffer_memory, 0)
+    }
+    .unwrap();
+    (image_buffer, image_buffer_memory)
+}
+
+fn allocate_and_copy_to_uniform_color_buffer(
+    base: &mut VulkanBase,
+    uniform_color_buffer_data: Vector3,
+) -> (vk::Buffer, vk::DeviceMemory) {
+    let uniform_color_buffer_info = vk::BufferCreateInfo {
+        size: std::mem::size_of_val(&uniform_color_buffer_data) as u64,
+        usage: vk::BufferUsageFlags::UNIFORM_BUFFER,
+        sharing_mode: vk::SharingMode::EXCLUSIVE,
+        ..Default::default()
+    };
+    let uniform_color_buffer =
+        unsafe { base.device.create_buffer(&uniform_color_buffer_info, None) }.unwrap();
+    let uniform_color_buffer_memory_req = unsafe {
+        base.device
+            .get_buffer_memory_requirements(uniform_color_buffer)
+    };
+    let uniform_color_buffer_memory_index = VulkanBase::find_memorytype_index(
+        &uniform_color_buffer_memory_req,
+        &base.device_memory_properties,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    )
+    .expect("Unable to find suitable memorytype for the vertex buffer.");
+    let uniform_color_buffer_allocate_info = vk::MemoryAllocateInfo {
+        allocation_size: uniform_color_buffer_memory_req.size,
+        memory_type_index: uniform_color_buffer_memory_index,
+        ..Default::default()
+    };
+    let uniform_color_buffer_memory = unsafe {
+        base.device
+            .allocate_memory(&uniform_color_buffer_allocate_info, None)
+    }
+    .unwrap();
+    let uniform_ptr = unsafe {
+        base.device.map_memory(
+            uniform_color_buffer_memory,
+            0,
+            uniform_color_buffer_memory_req.size,
+            vk::MemoryMapFlags::empty(),
+        )
+    }
+    .unwrap();
+    let mut uniform_aligned_slice = unsafe {
+        Align::new(
+            uniform_ptr,
+            align_of::<Vector3>() as u64,
+            uniform_color_buffer_memory_req.size,
+        )
+    };
+    uniform_aligned_slice.copy_from_slice(&[uniform_color_buffer_data]);
+    unsafe { base.device.unmap_memory(uniform_color_buffer_memory) };
+    unsafe {
+        base.device
+            .bind_buffer_memory(uniform_color_buffer, uniform_color_buffer_memory, 0)
+    }
+    .unwrap();
+    (uniform_color_buffer, uniform_color_buffer_memory)
+}
+
+fn allocate_and_copy_to_vertex_buffer(
+    base: &mut VulkanBase,
+    vertices: &[Vertex],
 ) -> (vk::Buffer, vk::DeviceMemory) {
     let vertex_input_buffer_info = vk::BufferCreateInfo {
-        size: std::mem::size_of_val(&vertices) as u64,
+        size: std::mem::size_of_val(vertices) as u64,
         usage: vk::BufferUsageFlags::VERTEX_BUFFER,
         sharing_mode: vk::SharingMode::EXCLUSIVE,
         ..Default::default()
@@ -706,8 +731,8 @@ fn allocate_and_update_vertex_buffer(
 }
 
 fn allocate_and_update_index_buffer(
-    index_buffer_data: &[u32],
     base: &mut VulkanBase,
+    index_buffer_data: &[u32],
 ) -> (vk::Buffer, vk::DeviceMemory) {
     let index_buffer_info = vk::BufferCreateInfo {
         size: std::mem::size_of_val(index_buffer_data) as u64,
@@ -747,7 +772,7 @@ fn allocate_and_update_index_buffer(
             index_buffer_memory_req.size,
         )
     };
-    index_slice.copy_from_slice(index_buffer_data);
+    index_slice.copy_from_slice(&index_buffer_data);
     unsafe { base.device.unmap_memory(index_buffer_memory) };
     unsafe {
         base.device
@@ -882,7 +907,7 @@ struct Renderer {
     vertex_shader_module: vk::ShaderModule,
     fragment_shader_module: vk::ShaderModule,
     index_buffer: vk::Buffer,
-    index_buffer_data: Vec<u32>,
+    index_buffer_data: [u32; 6],
     viewports: Vec<vk::Viewport>,
     scissors: Vec<vk::Rect2D>,
     image_buffer_memory: vk::DeviceMemory,

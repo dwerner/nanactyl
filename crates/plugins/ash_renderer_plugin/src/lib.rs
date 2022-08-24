@@ -7,10 +7,10 @@ use render::{Presenter, RenderState, VulkanBase};
 impl Presenter for Renderer {
     fn present(&self, base: &mut VulkanBase) {
         //println!("presented something... Ha HAA");
-        present(self, base);
+        present(self, base).unwrap();
     }
     fn drop_resources(&self, base: &mut VulkanBase) {
-        drop_resources(base, self);
+        drop_resources(base, self).unwrap();
     }
 }
 
@@ -96,10 +96,15 @@ impl<'a> AttachmentsModifier<'a> {
 // TODO: lift into VulkanBaseExt/ VulkanBaseWrap
 fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
 
+    // input data
     let index_buffer_data = [0u32, 1, 2, 2, 3, 0];
     let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
         .unwrap()
         .to_rgba8();
+
+    let (width, height) = image.dimensions();
+    let image_extent = vk::Extent2D { width, height };
+    let image_data = image.into_raw();
     let uniform_color_buffer_data = [Vector3 {
         x: 1.0,
         y: 1.0,
@@ -124,32 +129,29 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
             uv: [1.0, 0.0],
         },
     ];
+    // end of input data
 
     let (attachments, color, depth) = { VulkanBaseWrap(base).attachments() };
     let renderpass = { VulkanBaseWrap(base).renderpass(attachments.all(), &color, &depth) };
-    let framebuffers: Vec<vk::Framebuffer> = { VulkanBaseWrap(base).framebuffers(renderpass) };
-
+    let framebuffers: Vec<vk::Framebuffer> =
+        { VulkanBaseWrap(base).framebuffers(renderpass) }.unwrap();
 
     let (index_buffer, index_buffer_memory) =
         init_buffer_with(base, vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data).unwrap();
-
     let (vertex_input_buffer, vertex_input_buffer_memory) =
         init_buffer_with(base, vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data).unwrap();
-
-    let (uniform_color_buffer, uniform_color_buffer_memory) =
-        init_buffer_with(base, vk::BufferUsageFlags::UNIFORM_BUFFER, &uniform_color_buffer_data).unwrap();
-
-    let (width, height) = image.dimensions();
-    let image_extent = vk::Extent2D { width, height };
-    let image_data = image.into_raw();
-
-    let (image_buffer, image_buffer_memory) = init_buffer_with(
-        base, vk::BufferUsageFlags::TRANSFER_SRC, &image_data
-    ).unwrap();
-
+    let (uniform_color_buffer, uniform_color_buffer_memory) = init_buffer_with(
+        base,
+        vk::BufferUsageFlags::UNIFORM_BUFFER,
+        &uniform_color_buffer_data,
+    )
+    .unwrap();
+    let (image_buffer, image_buffer_memory) =
+        init_buffer_with(base, vk::BufferUsageFlags::TRANSFER_SRC, &image_data).unwrap();
     let (texture_create_info, texture_image, texture_memory) =
-        init_texture_destination_buffer(base, image_extent);
+        init_texture_destination_buffer(base, image_extent).unwrap();
 
+    // copy texture from cpu buffer to device by submitting a command buffer
     VulkanBase::record_submit_commandbuffer(
         &base.device,
         base.setup_command_buffer,
@@ -228,6 +230,8 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
         },
     );
 
+
+    // start preparing shader related structures
     let sampler_info = vk::SamplerCreateInfo {
         mag_filter: vk::Filter::LINEAR,
         min_filter: vk::Filter::LINEAR,
@@ -241,7 +245,9 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
         ..Default::default()
     };
 
-    let sampler = unsafe { base.device.create_sampler(&sampler_info, None) }.unwrap();
+    let sampler = unsafe { base.device.create_sampler(&sampler_info, None) }
+        .map_err(VulkanError::VkResult)
+        .unwrap();
 
     let tex_image_view_info = vk::ImageViewCreateInfo {
         view_type: vk::ImageViewType::TYPE_2D,
@@ -261,8 +267,9 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
         image: texture_image,
         ..Default::default()
     };
-    let tex_image_view =
-        unsafe { base.device.create_image_view(&tex_image_view_info, None) }.unwrap();
+    let tex_image_view = unsafe { base.device.create_image_view(&tex_image_view_info, None) }
+        .map_err(VulkanError::VkResult)
+        .unwrap();
     let descriptor_sizes = [
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::UNIFORM_BUFFER,
@@ -280,7 +287,9 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
     let descriptor_pool = unsafe {
         base.device
             .create_descriptor_pool(&descriptor_pool_info, None)
-    }.map_err(VulkanError::VkResult).unwrap();
+    }
+    .map_err(VulkanError::VkResult)
+    .unwrap();
 
     let desc_layout_bindings = [
         vk::DescriptorSetLayoutBinding {
@@ -304,18 +313,21 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
         base.device
             .create_descriptor_set_layout(&descriptor_info, None)
     }
-    .map_err(VulkanError::VkResult).unwrap()];
+    .map_err(VulkanError::VkResult)
+    .unwrap()];
 
     let desc_alloc_info = vk::DescriptorSetAllocateInfo::builder()
         .descriptor_pool(descriptor_pool)
         .set_layouts(&desc_set_layouts);
-    let descriptor_sets =
-        unsafe { base.device.allocate_descriptor_sets(&desc_alloc_info) }.unwrap();
+
+    let descriptor_sets = unsafe { base.device.allocate_descriptor_sets(&desc_alloc_info) }
+        .map_err(VulkanError::VkResult)
+        .unwrap();
 
     let uniform_color_buffer_descriptor = vk::DescriptorBufferInfo {
         buffer: uniform_color_buffer,
         offset: 0,
-        range: std::mem::size_of_val(&uniform_color_buffer_data) as u64,
+        range: (uniform_color_buffer_data.len() * std::mem::size_of::<Vector3>()) as u64,
     };
 
     let tex_descriptor = vk::DescriptorImageInfo {
@@ -368,7 +380,9 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
     let pipeline_layout = unsafe {
         base.device
             .create_pipeline_layout(&layout_create_info, None)
-    }.map_err(VulkanError::VkResult).unwrap();
+    }
+    .map_err(VulkanError::VkResult)
+    .unwrap();
 
     let shader_entry_name = unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") };
     let shader_stage_create_infos = [
@@ -490,7 +504,8 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
             None,
         )
     }
-    .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result)).unwrap();
+    .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))
+    .unwrap();
 
     Renderer {
         graphics_pipelines,
@@ -538,13 +553,15 @@ fn init_texture_destination_buffer(
         sharing_mode: vk::SharingMode::EXCLUSIVE,
         ..Default::default()
     };
-    let texture_image = unsafe { base.device.create_image(&texture_create_info, None) }.map_err(VulkanError::VkResult)?;
+    let texture_image = unsafe { base.device.create_image(&texture_create_info, None) }
+        .map_err(VulkanError::VkResult)?;
     let texture_memory_req = unsafe { base.device.get_image_memory_requirements(texture_image) };
     let texture_memory_index = VulkanBase::find_memorytype_index(
         &texture_memory_req,
         &base.device_memory_properties,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    ).ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
+    )
+    .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
 
     let texture_allocate_info = vk::MemoryAllocateInfo {
         allocation_size: texture_memory_req.size,
@@ -552,13 +569,14 @@ fn init_texture_destination_buffer(
         ..Default::default()
     };
 
-    let texture_memory =
-        unsafe { base.device.allocate_memory(&texture_allocate_info, None) }.map_err(VulkanError::VkResult)?;
+    let texture_memory = unsafe { base.device.allocate_memory(&texture_allocate_info, None) }
+        .map_err(VulkanError::VkResult)?;
 
     unsafe {
         base.device
             .bind_image_memory(texture_image, texture_memory, 0)
-    }.map_err(VulkanError::VkResult)?;
+    }
+    .map_err(VulkanError::VkResult)?;
 
     Ok((texture_create_info, texture_image, texture_memory))
 }
@@ -581,7 +599,10 @@ pub fn init_buffer_with<T>(
     base: &mut VulkanBase,
     usage: vk::BufferUsageFlags,
     data: &[T],
-) -> Result<(vk::Buffer, vk::DeviceMemory), VulkanError> where T: Copy {
+) -> Result<(vk::Buffer, vk::DeviceMemory), VulkanError>
+where
+    T: Copy,
+{
     let buffer_info = vk::BufferCreateInfo {
         size: (data.len() * std::mem::size_of::<T>()) as u64,
         usage,
@@ -590,25 +611,21 @@ pub fn init_buffer_with<T>(
     };
     let buffer =
         unsafe { base.device.create_buffer(&buffer_info, None) }.map_err(VulkanError::VkResult)?;
-    let buffer_memory_req = unsafe {
-        base.device
-            .get_buffer_memory_requirements(buffer)
-    };
+    let buffer_memory_req = unsafe { base.device.get_buffer_memory_requirements(buffer) };
     let buffer_memory_index = VulkanBase::find_memorytype_index(
         &buffer_memory_req,
         &base.device_memory_properties,
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    ).ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
+    )
+    .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
 
     let allocate_info = vk::MemoryAllocateInfo {
         allocation_size: buffer_memory_req.size,
         memory_type_index: buffer_memory_index,
         ..Default::default()
     };
-    let buffer_memory = unsafe {
-        base.device
-            .allocate_memory(&allocate_info, None)
-    }.map_err(VulkanError::VkResult)?;
+    let buffer_memory = unsafe { base.device.allocate_memory(&allocate_info, None) }
+        .map_err(VulkanError::VkResult)?;
 
     let ptr = unsafe {
         base.device.map_memory(
@@ -617,46 +634,19 @@ pub fn init_buffer_with<T>(
             buffer_memory_req.size,
             vk::MemoryMapFlags::empty(),
         )
-    }.map_err(VulkanError::VkResult)?;
+    }
+    .map_err(VulkanError::VkResult)?;
 
-    let mut slice = unsafe {
-        Align::new(
-            ptr,
-            align_of::<T>() as u64,
-            buffer_memory_req.size,
-        )
-    };
+    let mut slice = unsafe { Align::new(ptr, align_of::<T>() as u64, buffer_memory_req.size) };
     slice.copy_from_slice(data);
     unsafe { base.device.unmap_memory(buffer_memory) };
-    unsafe {
-        base.device
-            .bind_buffer_memory(buffer, buffer_memory, 0)
-    }.map_err(VulkanError::VkResult)?;
+    unsafe { base.device.bind_buffer_memory(buffer, buffer_memory, 0) }
+        .map_err(VulkanError::VkResult)?;
     Ok((buffer, buffer_memory))
 }
-
-pub trait VulkanBaseExt {
-    fn attachments(
-        &mut self,
-    ) -> (
-        Attachments,
-        Vec<vk::AttachmentReference>,
-        vk::AttachmentReference,
-    );
-
-    fn renderpass(
-        &mut self,
-        all_attachments: &[vk::AttachmentDescription],
-        color_attachment_refs: &[vk::AttachmentReference],
-        depth_attachment_ref: &vk::AttachmentReference,
-    ) -> vk::RenderPass;
-
-    fn framebuffers(&mut self, renderpass: vk::RenderPass) -> Vec<vk::Framebuffer>;
-}
-
 struct VulkanBaseWrap<'a>(&'a mut VulkanBase);
 
-impl<'a> VulkanBaseExt for VulkanBaseWrap<'a> {
+impl<'a> VulkanBaseWrap<'a> {
     /// Create attachments for renderpass construction
     fn attachments(
         &mut self,
@@ -727,27 +717,29 @@ impl<'a> VulkanBaseExt for VulkanBaseWrap<'a> {
     }
 
     /// Consume the renderpass and hand back framebuffers
-    fn framebuffers(&mut self, renderpass: vk::RenderPass) -> Vec<vk::Framebuffer> {
-        self.0
-            .present_image_views
-            .iter()
-            .map(|&present_image_view| {
-                let framebuffer_attachments = [present_image_view, self.0.depth_image_view];
-                let frame_buffer_create_info = vk::FramebufferCreateInfo::builder()
-                    .render_pass(renderpass)
-                    .attachments(&framebuffer_attachments)
-                    .width(self.0.surface_resolution.width)
-                    .height(self.0.surface_resolution.height)
-                    .layers(1);
+    fn framebuffers(
+        &mut self,
+        renderpass: vk::RenderPass,
+    ) -> Result<Vec<vk::Framebuffer>, VulkanError> {
+        let mut framebuffers = Vec::new();
+        for present_image_view in self.0.present_image_views.iter() {
+            let framebuffer_attachments = [*present_image_view, self.0.depth_image_view];
+            let frame_buffer_create_info = vk::FramebufferCreateInfo::builder()
+                .render_pass(renderpass)
+                .attachments(&framebuffer_attachments)
+                .width(self.0.surface_resolution.width)
+                .height(self.0.surface_resolution.height)
+                .layers(1);
 
-                unsafe {
-                    self.0
-                        .device
-                        .create_framebuffer(&frame_buffer_create_info, None)
-                }
-                .unwrap()
-            })
-            .collect()
+            let framebuffer = unsafe {
+                self.0
+                    .device
+                    .create_framebuffer(&frame_buffer_create_info, None)
+            }
+            .map_err(VulkanError::VkResult)?;
+            framebuffers.push(framebuffer);
+        }
+        Ok(framebuffers)
     }
 }
 
@@ -778,7 +770,7 @@ struct Renderer {
     sampler: vk::Sampler,
 }
 
-fn present(renderer: &Renderer, base: &mut VulkanBase) {
+fn present(renderer: &Renderer, base: &mut VulkanBase) -> Result<(), VulkanError> {
     let (present_index, _) = unsafe {
         base.swapchain_loader.acquire_next_image(
             base.swapchain,
@@ -787,7 +779,8 @@ fn present(renderer: &Renderer, base: &mut VulkanBase) {
             vk::Fence::null(),
         )
     }
-    .unwrap();
+    .map_err(VulkanError::VkResult)?;
+
     let clear_values = [
         vk::ClearValue {
             color: vk::ClearColorValue {
@@ -806,8 +799,7 @@ fn present(renderer: &Renderer, base: &mut VulkanBase) {
         .render_pass(renderer.renderpass)
         .framebuffer(renderer.framebuffers[present_index as usize])
         .render_area(base.surface_resolution.into())
-        .clear_values(&clear_values)
-        .build();
+        .clear_values(&clear_values);
 
     VulkanBase::record_submit_commandbuffer(
         &base.device,
@@ -865,7 +857,7 @@ fn present(renderer: &Renderer, base: &mut VulkanBase) {
             };
         },
     );
-    //let mut present_info_err = mem::zeroed();
+
     let present_info = vk::PresentInfoKHR {
         wait_semaphore_count: 1,
         p_wait_semaphores: &base.rendering_complete_semaphore,
@@ -874,19 +866,21 @@ fn present(renderer: &Renderer, base: &mut VulkanBase) {
         p_image_indices: &present_index,
         ..Default::default()
     };
+
     unsafe {
         base.swapchain_loader
             .queue_present(base.present_queue, &present_info)
     }
-    .unwrap();
+    .map_err(VulkanError::VkResult)?;
+
+    Ok(())
 }
 
-fn drop_resources(
-    base: &mut VulkanBase,
-    renderer: &Renderer,
-) {
+fn drop_resources(base: &mut VulkanBase, renderer: &Renderer) -> Result<(), VulkanError> {
     unsafe {
-        base.device.device_wait_idle().unwrap();
+        base.device
+            .device_wait_idle()
+            .map_err(VulkanError::VkResult)?;
         for pipeline in renderer.graphics_pipelines.iter() {
             base.device.destroy_pipeline(*pipeline, None);
         }
@@ -923,13 +917,13 @@ fn drop_resources(
             base.device.destroy_framebuffer(*framebuffer, None);
         }
         base.device.destroy_render_pass(renderer.renderpass, None);
+        Ok(())
     }
 }
 
 #[no_mangle]
 pub extern "C" fn load(state: &mut RenderState) {
     println!("loaded ash_renderer_plugin");
-    println!("set up some vulkan state!");
 
     let mut base = VulkanBase::new(state.win_ptr.clone());
     state.vulkan.presenter = Some(Box::pin(setup_renderer_from_base(&mut base)));

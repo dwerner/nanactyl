@@ -4,6 +4,7 @@ members = [
     "crates/core_executor",
     "crates/input",
     "crates/model",
+    "crates/network",
     "crates/obj-parser",
     "crates/plugin_loader",
     "crates/render",

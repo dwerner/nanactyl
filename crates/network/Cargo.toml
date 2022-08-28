@@ -1,0 +1,18 @@
+[package]
+name = "network"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-net = "1.7.0"
+async-io = "1.8.0"
+histogram = "0.6.9"
+bitvec = { version = "1.0.1" }
+bytemuck = { version = "1.12.1", features = ["derive", "extern_crate_std"] }
+smol = "1.2.5"
+smol-potat = "1.1.2"
+futures-lite = "1.12.0"
+futures-util = "0.3.23"
+thiserror = "1.0.32"

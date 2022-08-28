@@ -201,6 +201,46 @@ impl Drop for ThreadExecutorSpawner {
     }
 }
 
+pub struct Bichannel<S, R> {
+    send: async_channel::Sender<S>,
+    recv: async_channel::Receiver<R>,
+}
+
+impl<S, R> Bichannel<S, R> {
+    /// Simple bi-directional channel on top of async_channel.
+    /// Send and receive can be different types.
+    pub fn bounded(cap: usize) -> (Bichannel<R, S>, Bichannel<S, R>) {
+        let (left_send, left_recv) = async_channel::bounded::<S>(cap);
+        let (right_send, right_recv) = async_channel::bounded::<R>(cap);
+        (
+            Bichannel {
+                recv: left_recv,
+                send: right_send,
+            },
+            Bichannel {
+                recv: right_recv,
+                send: left_send,
+            },
+        )
+    }
+
+    pub async fn send(&self, msg: S) -> Result<(), async_channel::SendError<S>> {
+        self.send.send(msg).await
+    }
+
+    pub async fn recv(&self) -> Result<R, async_channel::RecvError> {
+        self.recv.recv().await
+    }
+
+    pub fn send_blocking(&self, msg: S) -> Result<(), async_channel::SendError<S>> {
+        self.send.send_blocking(msg)
+    }
+
+    pub async fn recv_blocking(&self) -> Result<R, async_channel::RecvError> {
+        self.recv.recv_blocking()
+    }
+}
+
 pub struct TaskShutdown {
     should_break: async_channel::Receiver<()>,
     confirm_sender: async_channel::Sender<()>,
@@ -262,6 +302,28 @@ mod tests {
     use super::*;
     use async_executor::LocalExecutor;
     use futures_lite::{future, FutureExt};
+
+    #[test]
+    fn test_bichannel() {
+        let exec = CoreAffinityExecutor::new(2);
+        let left_spawner = &mut exec.spawners()[0];
+        let right_spawner = &mut exec.spawners()[1];
+
+        let (left, right): (Bichannel<(), i16>, Bichannel<i16, ()>) = Bichannel::bounded(1);
+
+        let left_task = left_spawner.spawn(Box::pin(async move {
+            left.send(()).await.unwrap();
+            left.recv().await.unwrap()
+        }));
+        let right_task = right_spawner.spawn(Box::pin(async move {
+            right.recv().await.unwrap();
+            right.send(42).await.unwrap()
+        }));
+        let (left_result, right_result) =
+            future::block_on(futures_util::future::join(left_task, right_task));
+        assert_eq!(left_result, Ok(42));
+        assert_eq!(right_result, Ok(()));
+    }
 
     #[test]
     fn test_core_executor() {

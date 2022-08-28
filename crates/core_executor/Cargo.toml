@@ -11,3 +11,4 @@ core_affinity = "0.5.10"
 futures-lite = "1.12"
 
 [dev-dependencies]
+futures-util = "0.3.23"

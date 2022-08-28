@@ -3,6 +3,7 @@ use std::{
     time::Duration,
 };
 
+use network::Peer;
 use thing::{CameraFacet, HealthFacet, ModelInstanceFacet, PhysicalFacet, Thing, ThingBuilder};
 
 pub mod thing;
@@ -43,6 +44,7 @@ pub struct World {
     facets: WorldFacets,
     pub updates: u64,
     pub run_life: Duration,
+    network_peers: Vec<Peer>,
 }
 
 impl World {

@@ -503,6 +503,7 @@ dependencies = [
  "async-oneshot",
  "core_affinity",
  "futures-lite",
+ "futures-util",
 ]
 
 [[package]]
@@ -1636,6 +1637,7 @@ version = "0.1.0"
 dependencies = [
  "model",
  "nalgebra",
+ "network",
 ]
 
 [[package]]

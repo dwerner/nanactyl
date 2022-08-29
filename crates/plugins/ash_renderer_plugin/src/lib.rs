@@ -71,11 +71,11 @@ impl<'a> AttachmentsModifier<'a> {
     ) -> vk::AttachmentReference {
         let index = self.attachments.descriptions.len();
         self.attachments.descriptions.push(description);
-        let reference = vk::AttachmentReference {
+        
+        vk::AttachmentReference {
             attachment: index as u32,
             layout: ref_layout,
-        };
-        reference
+        }
     }
 
     pub fn add_attachment(
@@ -697,7 +697,7 @@ impl<'a> VulkanBaseWrap<'a> {
             .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
             .build()];
         let subpass = vk::SubpassDescription::builder()
-            .color_attachments(&color_attachment_refs)
+            .color_attachments(color_attachment_refs)
             .depth_stencil_attachment(depth_attachment_ref)
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
             .build();
@@ -707,13 +707,13 @@ impl<'a> VulkanBaseWrap<'a> {
             .subpasses(&subpasses)
             .dependencies(&dependencies)
             .build();
-        let renderpass = unsafe {
+        
+        unsafe {
             self.0
                 .device
                 .create_render_pass(&renderpass_create_info, None)
         }
-        .unwrap();
-        renderpass
+        .unwrap()
     }
 
     /// Consume the renderpass and hand back framebuffers
@@ -925,7 +925,7 @@ fn drop_resources(base: &mut VulkanBase, renderer: &Renderer) -> Result<(), Vulk
 pub extern "C" fn load(state: &mut RenderState) {
     println!("loaded ash_renderer_plugin");
 
-    let mut base = VulkanBase::new(state.win_ptr.clone());
+    let mut base = VulkanBase::new(state.win_ptr);
     state.vulkan.presenter = Some(Box::pin(setup_renderer_from_base(&mut base)));
     state.vulkan.base = Some(base);
 }

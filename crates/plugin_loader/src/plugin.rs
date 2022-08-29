@@ -349,15 +349,15 @@ mod tests {
     fn generate_plugin_for_test(global_scope: &str, operation: &str) -> String {
         [
             "use std::time::Duration;",
-            &global_scope,
+            global_scope,
             "#[no_mangle] pub extern \"C\" fn load(state: &mut i32) {",
-            &operation,
+            operation,
             "}",
             "#[no_mangle] pub extern \"C\" fn update(state: &mut i32, _dt: &Duration) {",
-            &operation,
+            operation,
             "}",
             "#[no_mangle] pub extern \"C\" fn unload(state: &mut i32) {",
-            &operation,
+            operation,
             "}",
         ]
         .join("\n")
@@ -366,7 +366,7 @@ mod tests {
     // actually compile the generated source using rustc as a dylib
     fn compile_lib(tempdir: &TempDir, plugin_source: &str) -> PathBuf {
         let mut source_file_path = tempdir.path().to_path_buf();
-        source_file_path.push(format!("test_plugin_source.rs"));
+        source_file_path.push("test_plugin_source.rs".to_string());
         let mut dest_file_path = tempdir.path().to_path_buf();
         dest_file_path.push("test_plugin.plugin");
 

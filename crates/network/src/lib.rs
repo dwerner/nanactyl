@@ -120,7 +120,7 @@ impl Peer {
         let mut ack_bits = 0u32;
         let bits = ack_bits.view_bits_mut::<bitvec::prelude::Lsb0>();
         for n in 0..MAX_UNACKED_PACKETS {
-            if !(ack >= n as u16) {
+            if ack < n as u16 {
                 continue;
             }
             if self
@@ -244,7 +244,7 @@ where
     }
 
     pub fn try_ref(&self) -> Result<&T, RpcError> {
-        bytemuck::try_from_bytes(&self.bytes).map_err(RpcError::FromBytes)
+        bytemuck::try_from_bytes(self.bytes).map_err(RpcError::FromBytes)
     }
 
     pub fn to_owned(&self) -> Result<Typed<T>, RpcError> {
@@ -321,9 +321,9 @@ mod tests {
                 let mut p1 = Peer::bind("127.0.0.1:8082", "127.0.0.1:8083")
                     .await
                     .unwrap();
-                for x in 0..100 {
+                for _x in 0..100 {
                     for _ in 0..10 {
-                        let seq = p1.send(b"hello world").await.unwrap();
+                        let _seq = p1.send(b"hello world").await.unwrap();
                     }
                     let recvd = match p1.recv().await {
                         Ok(msg_recvd) => msg_recvd,
@@ -348,7 +348,7 @@ mod tests {
                 let mut p2 = Peer::bind("127.0.0.1:8083", "127.0.0.1:8082")
                     .await
                     .unwrap();
-                for x in 0..200 {
+                for _x in 0..200 {
                     p2.send(b"hey there guy").await.unwrap();
                     let recvd = match p2.recv().await {
                         Ok(msg_recvd) => msg_recvd,

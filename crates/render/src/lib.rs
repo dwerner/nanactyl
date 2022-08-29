@@ -357,7 +357,7 @@ impl VulkanBase {
             instance,
             device,
             queue_family_index,
-            physical_device: physical_device.clone(),
+            physical_device: *physical_device,
             device_memory_properties,
             surface_loader,
             surface_format,

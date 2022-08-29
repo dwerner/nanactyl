@@ -136,7 +136,7 @@ where
 {
     let plugin = Arc::clone(plugin);
     let state = Arc::clone(state);
-    let dt = dt.clone();
+    let dt = *dt;
     Box::pin(async move {
         plugin
             .lock()

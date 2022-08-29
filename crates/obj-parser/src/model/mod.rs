@@ -240,7 +240,7 @@ f 2/1/1 4/4/1 3/2/1";
         assert_eq!(o.objects[0].faces.len(), 2);
         assert_eq!(interleaved.v_vt_vn.len(), 4);
 
-        for (v, vt, vn) in interleaved.v_vt_vn {
+        for (_v, vt, _vn) in interleaved.v_vt_vn {
             assert!(vt.0 >= 0.0);
             assert!(vt.1 >= 0.0);
         }

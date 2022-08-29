@@ -367,7 +367,7 @@ mod tests {
         assert_eq!(b, ObjLine::SmoothShading("off".to_string()));
     }
 
-    const CUBE_MODEL: &'static str = "
+    const CUBE_MODEL: &str = "
 # Blender v3.78 (sub 0) OBJ File: 'untitled.blend'
 # www.blender.org
 mtllib cube.mtl

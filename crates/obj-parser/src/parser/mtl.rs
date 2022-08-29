@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(b, MtlLine::SpecularColor(1.0, 1.0, 1.0));
     }
 
-    const MTL_FILE: &'static str = "
+    const MTL_FILE: &str = "
 # Blender MTL File: 'None'
 # Material Count: 1
 

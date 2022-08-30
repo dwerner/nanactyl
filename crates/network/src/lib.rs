@@ -43,7 +43,7 @@ pub struct Peer {
     rtt: Histogram,
     send_queue: VecDeque<(u16, Instant, bool)>,
     recv_queue: VecDeque<(u16, Instant, bool)>,
-    final_ackd_sequences: Vec<u16>,
+    own_final_ackd_sequences: Vec<u16>,
 }
 
 impl Peer {
@@ -62,7 +62,7 @@ impl Peer {
             rtt: Histogram::new(),
             send_queue: VecDeque::new(),
             recv_queue: VecDeque::new(),
-            final_ackd_sequences: Vec::new(),
+            own_final_ackd_sequences: Vec::new(),
         })
     }
 
@@ -70,17 +70,26 @@ impl Peer {
         self.seq = advance_maybe_wrap(self.seq);
     }
 
-    pub async fn recv(&mut self) -> Result<Typed<Message>, RpcError> {
+    async fn recv_with_optional_timeout(
+        &mut self,
+        maybe_timeout_duration: Option<Duration>,
+    ) -> Result<Typed<Message>, RpcError> {
         let mut buf = vec![0; MSG_LEN];
-        let num_bytes = self
-            .socket
-            .recv(&mut buf)
-            .or(async {
-                Timer::after(Duration::from_millis(1000)).await;
-                Err(io::ErrorKind::TimedOut.into())
-            })
-            .await
-            .map_err(RpcError::Receive)?;
+
+        let recv_future = self.socket.recv(&mut buf);
+
+        let num_bytes = match maybe_timeout_duration {
+            Some(timeout_duration) => {
+                recv_future
+                    .or(async {
+                        Timer::after(timeout_duration).await;
+                        Err(io::ErrorKind::TimedOut.into())
+                    })
+                    .await
+            }
+            None => recv_future.await,
+        }
+        .map_err(RpcError::Receive)?;
 
         let bytes = buf[..num_bytes].to_vec();
         let msg_wrap = Typed::new(bytes);
@@ -98,6 +107,20 @@ impl Peer {
         Ok(msg_wrap)
     }
 
+    /// Wait forever to receive a datagram.
+    pub async fn recv(&mut self) -> Result<Typed<Message>, RpcError> {
+        self.recv_with_optional_timeout(None).await
+    }
+
+    /// Receive a datagram or timeout.
+    pub async fn recv_with_timeout(
+        &mut self,
+        timeout_duration: Duration,
+    ) -> Result<Typed<Message>, RpcError> {
+        self.recv_with_optional_timeout(Some(timeout_duration))
+            .await
+    }
+
     fn handle_message_acks(&mut self, msg: &Message) -> Result<(), RpcError> {
         let ack_bits = msg.ack_bits.view_bits::<bitvec::prelude::Lsb0>();
         for (index, bit) in ack_bits.iter().enumerate() {
@@ -107,7 +130,7 @@ impl Peer {
             if let Some((seq, req_start, ackd @ false)) = self.send_queue.get_mut(index) {
                 let elapsed_micros = req_start.elapsed().as_micros();
                 *ackd = *bit;
-                self.final_ackd_sequences.push(*seq);
+                self.own_final_ackd_sequences.push(*seq);
                 self.rtt
                     .increment(elapsed_micros as u64)
                     .map_err(RpcError::Histogram)?;
@@ -190,9 +213,9 @@ impl Peer {
                     if *ackd { 1 } else { 0 }
                 ))
                 .collect::<Vec<_>>(),
-            self.final_ackd_sequences.len(),
-            self.seq - self.final_ackd_sequences.len() as u16,
-            self.final_ackd_sequences,
+            self.own_final_ackd_sequences.len(),
+            self.seq - self.own_final_ackd_sequences.len() as u16,
+            self.own_final_ackd_sequences,
         );
     }
 }
@@ -325,10 +348,10 @@ mod tests {
                     for _ in 0..10 {
                         let _seq = p1.send(b"hello world").await.unwrap();
                     }
-                    let recvd = match p1.recv().await {
+                    let recvd = match p1.recv_with_timeout(Duration::from_secs(1)).await {
                         Ok(msg_recvd) => msg_recvd,
                         Err(err) => {
-                            println!("failed to send {err:?}");
+                            println!("p1 failed to recv {err:?}");
                             continue;
                         }
                     };
@@ -348,12 +371,12 @@ mod tests {
                 let mut p2 = Peer::bind("127.0.0.1:8083", "127.0.0.1:8082")
                     .await
                     .unwrap();
-                for _x in 0..200 {
-                    p2.send(b"hey there guy").await.unwrap();
-                    let recvd = match p2.recv().await {
+                for _x in 0..100 {
+                    // p2.send(b"hey there guy").await.unwrap();
+                    let recvd = match p2.recv_with_timeout(Duration::from_secs(1)).await {
                         Ok(msg_recvd) => msg_recvd,
                         Err(err) => {
-                            println!("failed to send, error: {err:?}");
+                            println!("p2 failed to receive, error: {err:?}");
                             continue;
                         }
                     };
@@ -404,7 +427,7 @@ mod tests {
             let recvd = match p2.recv().await {
                 Ok(msg_recvd) => msg_recvd,
                 Err(err) => {
-                    println!("failed to send {err:?}");
+                    println!("failed to recv {err:?}");
                     continue;
                 }
             };
@@ -431,7 +454,7 @@ mod tests {
                     );
                 }
                 Err(err) => {
-                    println!("p1 did not receive ack for {x} {err:?}")
+                    println!("did not receive ack for {x} {err:?}")
                 }
             }
         }

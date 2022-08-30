@@ -8,12 +8,12 @@ use std::{
 
 use async_io::Timer;
 use bitvec::view::BitView;
-use bytemuck::{AnyBitPattern, NoUninit, PodCastError};
+use bytemuck::{AnyBitPattern, NoUninit, Pod, PodCastError, Zeroable};
 use futures_lite::FutureExt;
 use histogram::Histogram;
 
-const MAX_PAYLOAD_LEN: usize = 16;
 const MSG_LEN: usize = size_of::<Message>();
+const PAYLOAD_LEN: usize = 256;
 const MAX_UNACKED_PACKETS: usize = 32;
 
 #[derive(thiserror::Error, Debug)]
@@ -30,6 +30,8 @@ pub enum RpcError {
     Histogram(&'static str),
     #[error("request timed out")]
     Timeout,
+    #[error("payload too large at {0} bytes")]
+    PayloadTooLarge(usize),
 }
 
 pub struct Peer {
@@ -77,7 +79,6 @@ impl Peer {
         let mut buf = vec![0; MSG_LEN];
 
         let recv_future = self.socket.recv(&mut buf);
-
         let num_bytes = match maybe_timeout_duration {
             Some(timeout_duration) => {
                 recv_future
@@ -92,6 +93,12 @@ impl Peer {
         .map_err(RpcError::Receive)?;
 
         let bytes = buf[..num_bytes].to_vec();
+
+        #[cfg(test)]
+        {
+            println!("recvd: {}", hex::encode(&bytes));
+        }
+
         let msg_wrap = Typed::new(bytes);
         let msg: &Message = msg_wrap.try_ref()?;
 
@@ -128,28 +135,27 @@ impl Peer {
                 continue;
             }
             if let Some((seq, req_start, ackd @ false)) = self.send_queue.get_mut(index) {
-                let elapsed_micros = req_start.elapsed().as_micros();
                 *ackd = *bit;
                 self.own_final_ackd_sequences.push(*seq);
                 self.rtt
-                    .increment(elapsed_micros as u64)
+                    .increment(req_start.elapsed().as_micros() as u64)
                     .map_err(RpcError::Histogram)?;
             }
         }
         Ok(())
     }
 
-    pub fn recvd_ack_bits(&self, ack: u16) -> u32 {
+    pub fn recvd_ack_bits(&self, latest_ack: u16) -> u32 {
         let mut ack_bits = 0u32;
         let bits = ack_bits.view_bits_mut::<bitvec::prelude::Lsb0>();
         for n in 0..MAX_UNACKED_PACKETS {
-            if ack < n as u16 {
+            if latest_ack < n as u16 {
                 continue;
             }
             if self
                 .recv_queue
                 .iter()
-                .any(|(seq, _, _)| *seq == ack - n as u16)
+                .any(|(seq, _, _)| *seq == latest_ack - n as u16)
             {
                 bits.set(n, true);
             }
@@ -158,6 +164,9 @@ impl Peer {
     }
 
     pub async fn send(&mut self, payload: &[u8]) -> Result<u16, RpcError> {
+        if payload.len() > PAYLOAD_LEN {
+            return Err(RpcError::PayloadTooLarge(payload.len()));
+        }
         let msg = Message::new(
             self.seq,
             self.remote_seq,
@@ -275,13 +284,13 @@ where
     }
 }
 
-#[derive(bytemuck::Pod, bytemuck::Zeroable, Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(bytemuck::Pod, bytemuck::Zeroable, Copy, Clone, PartialEq, Debug)]
 #[repr(C)]
 pub struct Message {
     seq: u16,
     ack: u16,
     ack_bits: u32,
-    payload: [u8; MAX_PAYLOAD_LEN],
+    payload: [u8; PAYLOAD_LEN],
 }
 
 fn advance_maybe_wrap(seq: u16) -> u16 {
@@ -320,7 +329,7 @@ pub fn next_seq(current: u16) -> u16 {
 
 impl Message {
     pub fn new(seq: u16, ack: u16, ack_bits: u32, bytes: &[u8]) -> Self {
-        let mut payload = [0; MAX_PAYLOAD_LEN];
+        let mut payload = [0; PAYLOAD_LEN];
         payload[..bytes.len()].copy_from_slice(bytes);
         Self {
             seq,
@@ -336,6 +345,91 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn assert_size_limit() {
+        let size = size_of::<Message>();
+        assert!(size < 265, "Message is too large at {} bytes.", size);
+    }
+
+    #[smol_potat::test]
+    async fn test_send_queue() {
+        let mut p1 = Peer::bind("127.0.0.1:8084", "127.0.0.1:8085")
+            .await
+            .unwrap();
+        let mut p2 = Peer::bind("127.0.0.1:8085", "127.0.0.1:8084")
+            .await
+            .unwrap();
+
+        let mut mirrored_queue = Vec::new();
+        for _ in 0..5 {
+            mirrored_queue.push(p1.send(b"hello").await.unwrap());
+        }
+
+        for n in mirrored_queue.iter() {
+            let msg = p2.recv().await.unwrap();
+            let msg = msg.try_ref().unwrap();
+            assert!(mirrored_queue.contains(&msg.seq));
+
+            let ack_bits = p2.recvd_ack_bits(dbg!(p2.remote_seq));
+            println!("n{}: {:#034b}", n, ack_bits);
+            println!("recv queue {}", p2.recv_queue.len());
+        }
+
+        // Simulate sender side sending 10 more msgs, but none are recvd
+        println!("simulating 10 sent messages that are not received.");
+        for n in 5..15 {
+            // simulate a send
+            p1.push_send_queue(n);
+            p1.next_seq();
+
+            // print out the ack_bits we would get at this seqence number
+            let ack_bits = p2.recvd_ack_bits(dbg!(n));
+            println!("n{}: {:#034b}", n, ack_bits);
+        }
+
+        // send 10 more messages
+        for _ in 0..10 {
+            mirrored_queue.push(p1.send(b"hello").await.unwrap());
+        }
+
+        for n in 15..25 {
+            let msg = p2.recv().await.unwrap();
+            let msg = msg.try_ref().unwrap();
+            assert!(mirrored_queue.contains(&msg.seq));
+
+            let ack_bits = p2.recvd_ack_bits(dbg!(n));
+            println!("n{}: {:#034b}", n, ack_bits);
+            println!("recv queue {}", p2.recv_queue.len());
+        }
+
+        // Ack bits are shifted from lsb to msb as items are ack'd
+        // so this bitvec shows the first 5 followed by a gap of 10
+        // followed by another 10 acks.
+        let expected_ack_bits = 0b00000001111100000000001111111111;
+
+        // receive side only saw 20 packets
+        assert_eq!(p2.recvd_ack_bits(24), expected_ack_bits);
+        assert_eq!(
+            p2.recv_queue.len(),
+            15,
+            "unexpected number of items in recv queue"
+        );
+
+        // whereas sender side thinks that it sent 30 total
+        assert_eq!(p1.send_queue.len(), 25);
+
+        // a single response needs to be sent, which now contains up to 32 acks.
+        p2.send(b"hello").await.unwrap();
+        p1.recv().await.unwrap();
+
+        // finally, we walk each bit and ensure that it matches the sender's queue.
+        let expected_ack_bits = expected_ack_bits.view_bits::<bitvec::prelude::Lsb0>();
+        for (index, bit) in expected_ack_bits[..p1.send_queue.len()].iter().enumerate() {
+            let (_, _, ackd) = p1.send_queue[index];
+            assert_eq!(bit, ackd, "ack bit not matched for index {}", index);
+        }
+    }
+
     #[smol_potat::test]
     async fn playing_with_udp1() {
         let start = Instant::now();
@@ -345,10 +439,9 @@ mod tests {
                     .await
                     .unwrap();
                 for _x in 0..100 {
-                    for _ in 0..10 {
-                        let _seq = p1.send(b"hello world").await.unwrap();
-                    }
-                    let recvd = match p1.recv_with_timeout(Duration::from_secs(1)).await {
+                    let _seq = p1.send(b"hello world").await.unwrap();
+
+                    let recvd = match p1.recv_with_timeout(Duration::from_millis(16)).await {
                         Ok(msg_recvd) => msg_recvd,
                         Err(err) => {
                             println!("p1 failed to recv {err:?}");
@@ -357,11 +450,14 @@ mod tests {
                     };
                     let msg = recvd.try_ref().unwrap();
                     assert_eq!(
-                        &Message::new(msg.seq, msg.ack, msg.ack_bits, b"hey there guy"),
+                        &Message::new(msg.seq, msg.ack, msg.ack_bits, b"hey there"),
                         msg
                     );
-                    async_io::Timer::after(Duration::from_millis(10)).await;
+                    async_io::Timer::after(Duration::from_millis(16)).await;
                 }
+                p1.send(b"done").await.unwrap();
+                p1.recv().await.unwrap();
+
                 p1.log_status();
                 p1
             })
@@ -371,9 +467,9 @@ mod tests {
                 let mut p2 = Peer::bind("127.0.0.1:8083", "127.0.0.1:8082")
                     .await
                     .unwrap();
-                for _x in 0..100 {
-                    // p2.send(b"hey there guy").await.unwrap();
-                    let recvd = match p2.recv_with_timeout(Duration::from_secs(1)).await {
+                for x in 0..101 {
+                    p2.send(b"hey there").await.unwrap();
+                    let recvd = match p2.recv().await {
                         Ok(msg_recvd) => msg_recvd,
                         Err(err) => {
                             println!("p2 failed to receive, error: {err:?}");
@@ -381,12 +477,16 @@ mod tests {
                         }
                     };
                     let msg = recvd.try_ref().unwrap();
+                    if let b"done" = &msg.payload[..4] {
+                        break;
+                    }
                     assert_eq!(
                         &Message::new(msg.seq, msg.ack, msg.ack_bits, b"hello world"),
                         msg
                     );
                     async_io::Timer::after(Duration::from_millis(20)).await;
                 }
+                println!("p2 done");
                 p2.log_status();
                 p2
             })
@@ -436,11 +536,11 @@ mod tests {
                     x,
                     recvd.try_ref().unwrap().ack,
                     p1.recvd_ack_bits(p1.remote_seq),
-                    b"hello world"
+                    b"hello world",
                 ),
                 recvd.try_ref().unwrap(),
             );
-            p2.send(b"hey there guy").await.unwrap();
+            p2.send(b"hey there").await.unwrap();
             match p1.recv().await {
                 Ok(ack) => {
                     assert_eq!(
@@ -448,7 +548,7 @@ mod tests {
                             x,
                             ack.try_ref().unwrap().ack,
                             p2.recvd_ack_bits(p2.remote_seq),
-                            b"hey there guy"
+                            b"hey there"
                         ),
                         ack.try_ref().unwrap()
                     );

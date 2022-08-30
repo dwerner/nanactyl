@@ -71,7 +71,7 @@ impl<'a> AttachmentsModifier<'a> {
     ) -> vk::AttachmentReference {
         let index = self.attachments.descriptions.len();
         self.attachments.descriptions.push(description);
-        
+
         vk::AttachmentReference {
             attachment: index as u32,
             layout: ref_layout,
@@ -95,7 +95,6 @@ impl<'a> AttachmentsModifier<'a> {
 
 // TODO: lift into VulkanBaseExt/ VulkanBaseWrap
 fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
-
     // input data
     let index_buffer_data = [0u32, 1, 2, 2, 3, 0];
     let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
@@ -229,7 +228,6 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
             };
         },
     );
-
 
     // start preparing shader related structures
     let sampler_info = vk::SamplerCreateInfo {
@@ -707,7 +705,7 @@ impl<'a> VulkanBaseWrap<'a> {
             .subpasses(&subpasses)
             .dependencies(&dependencies)
             .build();
-        
+
         unsafe {
             self.0
                 .device

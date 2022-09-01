@@ -184,15 +184,8 @@ impl ThreadExecutorSpawner {
     }
 
     fn block_and_kill_tasks(&mut self) {
-        for channel::TaskShutdownHandle {
-            kill_send,
-            kill_confirmation,
-        } in self.task_killers.drain(..)
-        {
-            kill_send.send_blocking(()).expect("unable to kill task");
-            kill_confirmation
-                .recv_blocking()
-                .expect("error during confirm");
+        for kill_send in self.task_killers.drain(..) {
+            kill_send.shutdown_blocking().expect("unable to kill task");
         }
     }
 }
@@ -203,11 +196,12 @@ impl Drop for ThreadExecutorSpawner {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
 
     use std::pin::Pin;
+
+    use crate::channel::Bichannel;
 
     use super::*;
     use async_executor::LocalExecutor;

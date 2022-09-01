@@ -15,6 +15,7 @@ members = [
     "crates/plugins/ash_renderer_plugin",
     "crates/plugins/tui_renderer_plugin",
     "crates/plugins/world_update_plugin",
+    "crates/plugins/world_render_update_plugin",
 
     # binaries
     "crates/bin/nshell",

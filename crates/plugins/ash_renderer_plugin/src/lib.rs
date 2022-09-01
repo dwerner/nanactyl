@@ -94,7 +94,7 @@ impl<'a> AttachmentsModifier<'a> {
 }
 
 // TODO: lift into VulkanBaseExt/ VulkanBaseWrap
-fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
+fn setup_renderer_from_base(base: &mut VulkanBase) -> Result<Renderer, VulkanError> {
     // input data
     let index_buffer_data = [0u32, 1, 2, 2, 3, 0];
     let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
@@ -130,200 +130,29 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
     ];
     // end of input data
 
-    let (attachments, color, depth) = { VulkanBaseWrap(base).attachments() };
-    let renderpass = { VulkanBaseWrap(base).renderpass(attachments.all(), &color, &depth) };
-    let framebuffers: Vec<vk::Framebuffer> =
-        { VulkanBaseWrap(base).framebuffers(renderpass) }.unwrap();
-
-    let (index_buffer, index_buffer_memory) =
-        init_buffer_with(base, vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data).unwrap();
-    let (vertex_input_buffer, vertex_input_buffer_memory) =
-        init_buffer_with(base, vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data).unwrap();
-    let (uniform_color_buffer, uniform_color_buffer_memory) = init_buffer_with(
-        base,
+    let mut v = VulkanBaseWrap(base);
+    let (attachments, color, depth) = v.attachments();
+    let renderpass = v.renderpass(attachments.all(), &color, &depth);
+    let framebuffers: Vec<vk::Framebuffer> = v.framebuffers(renderpass)?;
+    let index = v.buffer_with_data(vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data)?;
+    let index_with_data = BufferWithData::new(index, index_buffer_data);
+    let vertex_input = v.buffer_with_data(vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data)?;
+    let uniform_color = v.buffer_with_data(
         vk::BufferUsageFlags::UNIFORM_BUFFER,
         &uniform_color_buffer_data,
-    )
-    .unwrap();
-    let (image_buffer, image_buffer_memory) =
-        init_buffer_with(base, vk::BufferUsageFlags::TRANSFER_SRC, &image_data).unwrap();
-    let (texture_create_info, texture_image, texture_memory) =
-        init_texture_destination_buffer(base, image_extent).unwrap();
+    )?;
+    let image = v.buffer_with_data(vk::BufferUsageFlags::TRANSFER_SRC, &image_data)?;
+    let texture = v.texture_dest_buffer(image_extent)?;
+    v.upload_texture(&texture, image_extent, &image);
+    let sampler = v.sampler()?;
+    let tex_image_view = v.image_view(&texture)?;
+    let descriptor_pool = v.descriptor_pool()?;
+    let desc_set_layouts = v.descriptor_set_layouts()?;
+    let descriptor_sets = v.descriptor_sets(descriptor_pool, &desc_set_layouts)?;
 
-    // copy texture from cpu buffer to device by submitting a command buffer
-    VulkanBase::record_submit_commandbuffer(
-        &base.device,
-        base.setup_command_buffer,
-        base.setup_commands_reuse_fence,
-        base.present_queue,
-        &[],
-        &[],
-        &[],
-        |device, texture_command_buffer| {
-            let texture_barrier = vk::ImageMemoryBarrier {
-                dst_access_mask: vk::AccessFlags::TRANSFER_WRITE,
-                new_layout: vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                image: texture_image,
-                subresource_range: vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    level_count: 1,
-                    layer_count: 1,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            unsafe {
-                device.cmd_pipeline_barrier(
-                    texture_command_buffer,
-                    vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[texture_barrier],
-                )
-            };
-            let buffer_copy_regions = vk::BufferImageCopy::builder()
-                .image_subresource(
-                    vk::ImageSubresourceLayers::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR)
-                        .layer_count(1)
-                        .build(),
-                )
-                .image_extent(image_extent.into());
-
-            unsafe {
-                device.cmd_copy_buffer_to_image(
-                    texture_command_buffer,
-                    image_buffer,
-                    texture_image,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    &[buffer_copy_regions.build()],
-                )
-            };
-            let texture_barrier_end = vk::ImageMemoryBarrier {
-                src_access_mask: vk::AccessFlags::TRANSFER_WRITE,
-                dst_access_mask: vk::AccessFlags::SHADER_READ,
-                old_layout: vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                new_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                image: texture_image,
-                subresource_range: vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    level_count: 1,
-                    layer_count: 1,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            unsafe {
-                device.cmd_pipeline_barrier(
-                    texture_command_buffer,
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::PipelineStageFlags::FRAGMENT_SHADER,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[texture_barrier_end],
-                )
-            };
-        },
-    );
-
-    // start preparing shader related structures
-    let sampler_info = vk::SamplerCreateInfo {
-        mag_filter: vk::Filter::LINEAR,
-        min_filter: vk::Filter::LINEAR,
-        mipmap_mode: vk::SamplerMipmapMode::LINEAR,
-        address_mode_u: vk::SamplerAddressMode::MIRRORED_REPEAT,
-        address_mode_v: vk::SamplerAddressMode::MIRRORED_REPEAT,
-        address_mode_w: vk::SamplerAddressMode::MIRRORED_REPEAT,
-        max_anisotropy: 1.0,
-        border_color: vk::BorderColor::FLOAT_OPAQUE_WHITE,
-        compare_op: vk::CompareOp::NEVER,
-        ..Default::default()
-    };
-
-    let sampler = unsafe { base.device.create_sampler(&sampler_info, None) }
-        .map_err(VulkanError::VkResult)
-        .unwrap();
-
-    let tex_image_view_info = vk::ImageViewCreateInfo {
-        view_type: vk::ImageViewType::TYPE_2D,
-        format: texture_create_info.format,
-        components: vk::ComponentMapping {
-            r: vk::ComponentSwizzle::R,
-            g: vk::ComponentSwizzle::G,
-            b: vk::ComponentSwizzle::B,
-            a: vk::ComponentSwizzle::A,
-        },
-        subresource_range: vk::ImageSubresourceRange {
-            aspect_mask: vk::ImageAspectFlags::COLOR,
-            level_count: 1,
-            layer_count: 1,
-            ..Default::default()
-        },
-        image: texture_image,
-        ..Default::default()
-    };
-    let tex_image_view = unsafe { base.device.create_image_view(&tex_image_view_info, None) }
-        .map_err(VulkanError::VkResult)
-        .unwrap();
-    let descriptor_sizes = [
-        vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 1,
-        },
-        vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            descriptor_count: 1,
-        },
-    ];
-    let descriptor_pool_info = vk::DescriptorPoolCreateInfo::builder()
-        .pool_sizes(&descriptor_sizes)
-        .max_sets(1);
-
-    let descriptor_pool = unsafe {
-        base.device
-            .create_descriptor_pool(&descriptor_pool_info, None)
-    }
-    .map_err(VulkanError::VkResult)
-    .unwrap();
-
-    let desc_layout_bindings = [
-        vk::DescriptorSetLayoutBinding {
-            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 1,
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            ..Default::default()
-        },
-        vk::DescriptorSetLayoutBinding {
-            binding: 1,
-            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            descriptor_count: 1,
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            ..Default::default()
-        },
-    ];
-    let descriptor_info =
-        vk::DescriptorSetLayoutCreateInfo::builder().bindings(&desc_layout_bindings);
-
-    let desc_set_layouts = [unsafe {
-        base.device
-            .create_descriptor_set_layout(&descriptor_info, None)
-    }
-    .map_err(VulkanError::VkResult)
-    .unwrap()];
-
-    let desc_alloc_info = vk::DescriptorSetAllocateInfo::builder()
-        .descriptor_pool(descriptor_pool)
-        .set_layouts(&desc_set_layouts);
-
-    let descriptor_sets = unsafe { base.device.allocate_descriptor_sets(&desc_alloc_info) }
-        .map_err(VulkanError::VkResult)
-        .unwrap();
-
+    // update descriptor sets with uniform buffer and tex_image_view
     let uniform_color_buffer_descriptor = vk::DescriptorBufferInfo {
-        buffer: uniform_color_buffer,
+        buffer: uniform_color.buffer,
         offset: 0,
         range: (uniform_color_buffer_data.len() * std::mem::size_of::<Vector3>()) as u64,
     };
@@ -502,10 +331,11 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
             None,
         )
     }
-    .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))
-    .unwrap();
+    .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))?;
 
-    Renderer {
+    Ok(Renderer {
+        texture,
+        tex_image_view,
         graphics_pipelines,
         renderpass,
         pipeline_layout,
@@ -513,70 +343,16 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
         descriptor_sets,
         vertex_shader_module,
         fragment_shader_module,
-        index_buffer,
-        index_buffer_data,
+        index_with_data,
         viewports: viewports.to_vec(),
         scissors: scissors.to_vec(),
-        image_buffer_memory,
-        image_buffer,
-        texture_memory,
-        tex_image_view,
-        texture_image,
-        index_buffer_memory,
-        uniform_color_buffer_memory,
-        uniform_color_buffer,
-        vertex_input_buffer_memory,
-        vertex_input_buffer,
+        image,
+        uniform_color,
+        vertex_input,
         desc_set_layouts: desc_set_layouts.to_vec(),
         descriptor_pool,
         sampler,
-    }
-}
-
-/// Allocate a destination buffer for a texture based on an Extent2D
-/// TODO: move to VulkanBase
-fn init_texture_destination_buffer(
-    base: &mut VulkanBase,
-    image_extent: vk::Extent2D,
-) -> Result<(vk::ImageCreateInfo, vk::Image, vk::DeviceMemory), VulkanError> {
-    let texture_create_info = vk::ImageCreateInfo {
-        image_type: vk::ImageType::TYPE_2D,
-        format: vk::Format::R8G8B8A8_UNORM,
-        extent: image_extent.into(),
-        mip_levels: 1,
-        array_layers: 1,
-        samples: vk::SampleCountFlags::TYPE_1,
-        tiling: vk::ImageTiling::OPTIMAL,
-        usage: vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
-        sharing_mode: vk::SharingMode::EXCLUSIVE,
-        ..Default::default()
-    };
-    let texture_image = unsafe { base.device.create_image(&texture_create_info, None) }
-        .map_err(VulkanError::VkResult)?;
-    let texture_memory_req = unsafe { base.device.get_image_memory_requirements(texture_image) };
-    let texture_memory_index = VulkanBase::find_memorytype_index(
-        &texture_memory_req,
-        &base.device_memory_properties,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    )
-    .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
-
-    let texture_allocate_info = vk::MemoryAllocateInfo {
-        allocation_size: texture_memory_req.size,
-        memory_type_index: texture_memory_index,
-        ..Default::default()
-    };
-
-    let texture_memory = unsafe { base.device.allocate_memory(&texture_allocate_info, None) }
-        .map_err(VulkanError::VkResult)?;
-
-    unsafe {
-        base.device
-            .bind_image_memory(texture_image, texture_memory, 0)
-    }
-    .map_err(VulkanError::VkResult)?;
-
-    Ok((texture_create_info, texture_image, texture_memory))
+    })
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -591,60 +367,298 @@ pub enum VulkanError {
     FailedToCreatePipeline(Vec<vk::Pipeline>, vk::Result),
 }
 
-/// Allocate a buffer with usage flags
-/// TODO: move to vulkanbase
-pub fn init_buffer_with<T>(
-    base: &mut VulkanBase,
-    usage: vk::BufferUsageFlags,
-    data: &[T],
-) -> Result<(vk::Buffer, vk::DeviceMemory), VulkanError>
-where
-    T: Copy,
-{
-    let buffer_info = vk::BufferCreateInfo {
-        size: (data.len() * std::mem::size_of::<T>()) as u64,
-        usage,
-        sharing_mode: vk::SharingMode::EXCLUSIVE,
-        ..Default::default()
-    };
-    let buffer =
-        unsafe { base.device.create_buffer(&buffer_info, None) }.map_err(VulkanError::VkResult)?;
-    let buffer_memory_req = unsafe { base.device.get_buffer_memory_requirements(buffer) };
-    let buffer_memory_index = VulkanBase::find_memorytype_index(
-        &buffer_memory_req,
-        &base.device_memory_properties,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    )
-    .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
-
-    let allocate_info = vk::MemoryAllocateInfo {
-        allocation_size: buffer_memory_req.size,
-        memory_type_index: buffer_memory_index,
-        ..Default::default()
-    };
-    let buffer_memory = unsafe { base.device.allocate_memory(&allocate_info, None) }
-        .map_err(VulkanError::VkResult)?;
-
-    let ptr = unsafe {
-        base.device.map_memory(
-            buffer_memory,
-            0,
-            buffer_memory_req.size,
-            vk::MemoryMapFlags::empty(),
-        )
-    }
-    .map_err(VulkanError::VkResult)?;
-
-    let mut slice = unsafe { Align::new(ptr, align_of::<T>() as u64, buffer_memory_req.size) };
-    slice.copy_from_slice(data);
-    unsafe { base.device.unmap_memory(buffer_memory) };
-    unsafe { base.device.bind_buffer_memory(buffer, buffer_memory, 0) }
-        .map_err(VulkanError::VkResult)?;
-    Ok((buffer, buffer_memory))
-}
 struct VulkanBaseWrap<'a>(&'a mut VulkanBase);
 
 impl<'a> VulkanBaseWrap<'a> {
+    pub fn descriptor_sets(
+        &mut self,
+        pool: vk::DescriptorPool,
+        layouts: &[vk::DescriptorSetLayout],
+    ) -> Result<Vec<vk::DescriptorSet>, VulkanError> {
+        let desc_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(pool)
+            .set_layouts(layouts);
+        unsafe { self.0.device.allocate_descriptor_sets(&desc_alloc_info) }
+            .map_err(VulkanError::VkResult)
+    }
+    pub fn descriptor_set_layouts(&mut self) -> Result<Vec<vk::DescriptorSetLayout>, VulkanError> {
+        let desc_layout_bindings = [
+            vk::DescriptorSetLayoutBinding {
+                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                ..Default::default()
+            },
+            vk::DescriptorSetLayoutBinding {
+                binding: 1,
+                descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                ..Default::default()
+            },
+        ];
+        let descriptor_info =
+            vk::DescriptorSetLayoutCreateInfo::builder().bindings(&desc_layout_bindings);
+        let layout = unsafe {
+            self.0
+                .device
+                .create_descriptor_set_layout(&descriptor_info, None)
+        }
+        .map_err(VulkanError::VkResult)?;
+        Ok(vec![layout])
+    }
+
+    pub fn descriptor_pool(&mut self) -> Result<vk::DescriptorPool, VulkanError> {
+        let descriptor_sizes = [
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: 1,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: 1,
+            },
+        ];
+        let descriptor_pool_info = vk::DescriptorPoolCreateInfo::builder()
+            .pool_sizes(&descriptor_sizes)
+            .max_sets(1);
+        unsafe {
+            self.0
+                .device
+                .create_descriptor_pool(&descriptor_pool_info, None)
+        }
+        .map_err(VulkanError::VkResult)
+    }
+    pub fn upload_texture(
+        &mut self,
+        texture: &Texture,
+        image_extent: vk::Extent2D,
+        image: &BufferAndMemory,
+    ) {
+        // copy texture from cpu buffer to device by submitting a command buffer
+        VulkanBase::record_submit_commandbuffer(
+            &self.0.device,
+            self.0.setup_command_buffer,
+            self.0.setup_commands_reuse_fence,
+            self.0.present_queue,
+            &[],
+            &[],
+            &[],
+            |device, texture_command_buffer| {
+                let texture_barrier = vk::ImageMemoryBarrier {
+                    dst_access_mask: vk::AccessFlags::TRANSFER_WRITE,
+                    new_layout: vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    image: texture.image,
+                    subresource_range: vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        level_count: 1,
+                        layer_count: 1,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                unsafe {
+                    device.cmd_pipeline_barrier(
+                        texture_command_buffer,
+                        vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                        vk::PipelineStageFlags::TRANSFER,
+                        vk::DependencyFlags::empty(),
+                        &[],
+                        &[],
+                        &[texture_barrier],
+                    )
+                };
+                let buffer_copy_regions = vk::BufferImageCopy::builder()
+                    .image_subresource(
+                        vk::ImageSubresourceLayers::builder()
+                            .aspect_mask(vk::ImageAspectFlags::COLOR)
+                            .layer_count(1)
+                            .build(),
+                    )
+                    .image_extent(image_extent.into());
+
+                unsafe {
+                    device.cmd_copy_buffer_to_image(
+                        texture_command_buffer,
+                        image.buffer,
+                        texture.image,
+                        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                        &[buffer_copy_regions.build()],
+                    )
+                };
+                let texture_barrier_end = vk::ImageMemoryBarrier {
+                    src_access_mask: vk::AccessFlags::TRANSFER_WRITE,
+                    dst_access_mask: vk::AccessFlags::SHADER_READ,
+                    old_layout: vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    new_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                    image: texture.image,
+                    subresource_range: vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        level_count: 1,
+                        layer_count: 1,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                unsafe {
+                    device.cmd_pipeline_barrier(
+                        texture_command_buffer,
+                        vk::PipelineStageFlags::TRANSFER,
+                        vk::PipelineStageFlags::FRAGMENT_SHADER,
+                        vk::DependencyFlags::empty(),
+                        &[],
+                        &[],
+                        &[texture_barrier_end],
+                    )
+                };
+            },
+        );
+    }
+
+    pub fn sampler(&mut self) -> Result<vk::Sampler, VulkanError> {
+        // start preparing shader related structures
+        let sampler_info = vk::SamplerCreateInfo {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            mipmap_mode: vk::SamplerMipmapMode::LINEAR,
+            address_mode_u: vk::SamplerAddressMode::MIRRORED_REPEAT,
+            address_mode_v: vk::SamplerAddressMode::MIRRORED_REPEAT,
+            address_mode_w: vk::SamplerAddressMode::MIRRORED_REPEAT,
+            max_anisotropy: 1.0,
+            border_color: vk::BorderColor::FLOAT_OPAQUE_WHITE,
+            compare_op: vk::CompareOp::NEVER,
+            ..Default::default()
+        };
+        unsafe { self.0.device.create_sampler(&sampler_info, None) }.map_err(VulkanError::VkResult)
+    }
+    pub fn image_view(&mut self, texture: &Texture) -> Result<vk::ImageView, VulkanError> {
+        let base = &mut *self.0;
+        let tex_image_view_info = vk::ImageViewCreateInfo {
+            view_type: vk::ImageViewType::TYPE_2D,
+            format: texture.format,
+            components: vk::ComponentMapping {
+                r: vk::ComponentSwizzle::R,
+                g: vk::ComponentSwizzle::G,
+                b: vk::ComponentSwizzle::B,
+                a: vk::ComponentSwizzle::A,
+            },
+            subresource_range: vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                level_count: 1,
+                layer_count: 1,
+                ..Default::default()
+            },
+            image: texture.image,
+            ..Default::default()
+        };
+        unsafe { base.device.create_image_view(&tex_image_view_info, None) }
+            .map_err(VulkanError::VkResult)
+    }
+    /// Allocate a destination buffer for a texture based on an Extent2D
+    /// TODO: move to VulkanBase
+    pub fn texture_dest_buffer(
+        &mut self,
+        image_extent: vk::Extent2D,
+    ) -> Result<Texture, VulkanError> {
+        let base = &mut *self.0;
+        let texture_create_info = vk::ImageCreateInfo {
+            image_type: vk::ImageType::TYPE_2D,
+            format: vk::Format::R8G8B8A8_UNORM,
+            extent: image_extent.into(),
+            mip_levels: 1,
+            array_layers: 1,
+            samples: vk::SampleCountFlags::TYPE_1,
+            tiling: vk::ImageTiling::OPTIMAL,
+            usage: vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+        let texture_image = unsafe { base.device.create_image(&texture_create_info, None) }
+            .map_err(VulkanError::VkResult)?;
+        let texture_memory_req =
+            unsafe { base.device.get_image_memory_requirements(texture_image) };
+        let texture_memory_index = VulkanBase::find_memorytype_index(
+            &texture_memory_req,
+            &base.device_memory_properties,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )
+        .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
+
+        let texture_allocate_info = vk::MemoryAllocateInfo {
+            allocation_size: texture_memory_req.size,
+            memory_type_index: texture_memory_index,
+            ..Default::default()
+        };
+
+        let texture_memory = unsafe { base.device.allocate_memory(&texture_allocate_info, None) }
+            .map_err(VulkanError::VkResult)?;
+
+        unsafe {
+            base.device
+                .bind_image_memory(texture_image, texture_memory, 0)
+        }
+        .map_err(VulkanError::VkResult)?;
+
+        Ok(Texture::new(
+            texture_create_info.format,
+            texture_image,
+            texture_memory,
+        ))
+    }
+
+    /// Allocate a buffer with usage flags
+    /// TODO: internalize
+    pub fn buffer_with_data<T>(
+        &mut self,
+        usage: vk::BufferUsageFlags,
+        data: &[T],
+    ) -> Result<BufferAndMemory, VulkanError>
+    where
+        T: Copy,
+    {
+        let base = &mut *self.0;
+        let buffer_info = vk::BufferCreateInfo {
+            size: (data.len() * std::mem::size_of::<T>()) as u64,
+            usage,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+        let buffer = unsafe { base.device.create_buffer(&buffer_info, None) }
+            .map_err(VulkanError::VkResult)?;
+        let buffer_memory_req = unsafe { base.device.get_buffer_memory_requirements(buffer) };
+        let buffer_memory_index = VulkanBase::find_memorytype_index(
+            &buffer_memory_req,
+            &base.device_memory_properties,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )
+        .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
+
+        let allocate_info = vk::MemoryAllocateInfo {
+            allocation_size: buffer_memory_req.size,
+            memory_type_index: buffer_memory_index,
+            ..Default::default()
+        };
+        let buffer_memory = unsafe { base.device.allocate_memory(&allocate_info, None) }
+            .map_err(VulkanError::VkResult)?;
+
+        let ptr = unsafe {
+            base.device.map_memory(
+                buffer_memory,
+                0,
+                buffer_memory_req.size,
+                vk::MemoryMapFlags::empty(),
+            )
+        }
+        .map_err(VulkanError::VkResult)?;
+
+        let mut slice = unsafe { Align::new(ptr, align_of::<T>() as u64, buffer_memory_req.size) };
+        slice.copy_from_slice(data);
+        unsafe { base.device.unmap_memory(buffer_memory) };
+        unsafe { base.device.bind_buffer_memory(buffer, buffer_memory, 0) }
+            .map_err(VulkanError::VkResult)?;
+        Ok(BufferAndMemory::new(buffer, buffer_memory))
+    }
+
     /// Create attachments for renderpass construction
     fn attachments(
         &mut self,
@@ -749,23 +763,56 @@ struct Renderer {
     descriptor_sets: Vec<vk::DescriptorSet>,
     vertex_shader_module: vk::ShaderModule,
     fragment_shader_module: vk::ShaderModule,
-    index_buffer: vk::Buffer,
-    index_buffer_data: [u32; 6],
+    index_with_data: BufferWithData<[u32; 6]>,
     viewports: Vec<vk::Viewport>,
     scissors: Vec<vk::Rect2D>,
-    image_buffer_memory: vk::DeviceMemory,
-    image_buffer: vk::Buffer,
-    texture_memory: vk::DeviceMemory,
+
+    texture: Texture,
     tex_image_view: vk::ImageView,
-    texture_image: vk::Image,
-    index_buffer_memory: vk::DeviceMemory,
-    uniform_color_buffer_memory: vk::DeviceMemory,
-    uniform_color_buffer: vk::Buffer,
-    vertex_input_buffer_memory: vk::DeviceMemory,
-    vertex_input_buffer: vk::Buffer,
     desc_set_layouts: Vec<vk::DescriptorSetLayout>,
     descriptor_pool: vk::DescriptorPool,
     sampler: vk::Sampler,
+    image: BufferAndMemory,
+    uniform_color: BufferAndMemory,
+    vertex_input: BufferAndMemory,
+}
+
+struct BufferWithData<T> {
+    data: T,
+    buffer: BufferAndMemory,
+}
+
+impl<T> BufferWithData<T> {
+    pub fn new(buffer: BufferAndMemory, data: T) -> Self {
+        Self { buffer, data }
+    }
+}
+
+pub struct BufferAndMemory {
+    buffer: vk::Buffer,
+    memory: vk::DeviceMemory,
+}
+
+impl BufferAndMemory {
+    pub fn new(buffer: vk::Buffer, memory: vk::DeviceMemory) -> Self {
+        Self { buffer, memory }
+    }
+}
+
+struct Texture {
+    format: vk::Format,
+    image: vk::Image,
+    memory: vk::DeviceMemory,
+}
+
+impl Texture {
+    pub fn new(format: vk::Format, image: vk::Image, memory: vk::DeviceMemory) -> Self {
+        Self {
+            image,
+            format,
+            memory,
+        }
+    }
 }
 
 fn present(renderer: &Renderer, base: &mut VulkanBase) -> Result<(), VulkanError> {
@@ -832,18 +879,18 @@ fn present(renderer: &Renderer, base: &mut VulkanBase) -> Result<(), VulkanError
                 device.cmd_bind_vertex_buffers(
                     draw_command_buffer,
                     0,
-                    &[renderer.vertex_input_buffer],
+                    &[renderer.vertex_input.buffer],
                     &[0],
                 );
                 device.cmd_bind_index_buffer(
                     draw_command_buffer,
-                    renderer.index_buffer,
+                    renderer.index_with_data.buffer.buffer,
                     0,
                     vk::IndexType::UINT32,
                 );
                 device.cmd_draw_indexed(
                     draw_command_buffer,
-                    renderer.index_buffer_data.len() as u32,
+                    renderer.index_with_data.data.len() as u32,
                     1,
                     0,
                     0,
@@ -888,22 +935,22 @@ fn drop_resources(base: &mut VulkanBase, renderer: &Renderer) -> Result<(), Vulk
             .destroy_shader_module(renderer.vertex_shader_module, None);
         base.device
             .destroy_shader_module(renderer.fragment_shader_module, None);
-        base.device.free_memory(renderer.image_buffer_memory, None);
-        base.device.destroy_buffer(renderer.image_buffer, None);
-        base.device.free_memory(renderer.texture_memory, None);
+        base.device.free_memory(renderer.image.memory, None);
+        base.device.destroy_buffer(renderer.image.buffer, None);
+        base.device.free_memory(renderer.texture.memory, None);
         base.device
             .destroy_image_view(renderer.tex_image_view, None);
-        base.device.destroy_image(renderer.texture_image, None);
-        base.device.free_memory(renderer.index_buffer_memory, None);
-        base.device.destroy_buffer(renderer.index_buffer, None);
+        base.device.destroy_image(renderer.texture.image, None);
         base.device
-            .free_memory(renderer.uniform_color_buffer_memory, None);
+            .free_memory(renderer.index_with_data.buffer.memory, None);
         base.device
-            .destroy_buffer(renderer.uniform_color_buffer, None);
+            .destroy_buffer(renderer.index_with_data.buffer.buffer, None);
+        base.device.free_memory(renderer.uniform_color.memory, None);
         base.device
-            .free_memory(renderer.vertex_input_buffer_memory, None);
+            .destroy_buffer(renderer.uniform_color.buffer, None);
+        base.device.free_memory(renderer.vertex_input.memory, None);
         base.device
-            .destroy_buffer(renderer.vertex_input_buffer, None);
+            .destroy_buffer(renderer.vertex_input.buffer, None);
         for &descriptor_set_layout in renderer.desc_set_layouts.iter() {
             base.device
                 .destroy_descriptor_set_layout(descriptor_set_layout, None);
@@ -924,15 +971,18 @@ pub extern "C" fn load(state: &mut RenderState) {
     println!("loaded ash_renderer_plugin");
 
     let mut base = VulkanBase::new(state.win_ptr);
-    state.vulkan.presenter = Some(Box::pin(setup_renderer_from_base(&mut base)));
+    state.vulkan.presenter = Some(Box::pin(
+        setup_renderer_from_base(&mut base).expect("unable to setup renderer"),
+    ));
     state.vulkan.base = Some(base);
 }
 
 #[no_mangle]
 pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
     // Call render, buffers are updated etc
+    state.updates += 1;
     if state.updates % 600 == 0 {
-        println!("state: {} dt: {:?}", state.updates, dt);
+        println!("updates: {} dt: {:?}", state.updates, dt);
     }
     if let (Some(present), Some(base)) = (&state.vulkan.presenter, &mut state.vulkan.base) {
         present.present(base);

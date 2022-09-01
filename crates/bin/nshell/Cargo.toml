@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+structopt = "0.3.26"
 plugin_loader = { path = "../../plugin_loader" }
 render = { path = "../../render" }
 input = { path = "../../input" }

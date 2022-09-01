@@ -26,7 +26,7 @@ fn main() {
         &dest_path,
         vec![
             // const_declaration!(TARGET_DIR = target_dir),
-            const_declaration!(RELATIVE_TARGET_DIR = relative_target_dir),
+            const_declaration!(pub RELATIVE_TARGET_DIR = relative_target_dir),
         ]
         .join("\n"),
     )

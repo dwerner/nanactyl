@@ -1,6 +1,6 @@
 mod plugin;
 
-pub use plugin::{Plugin, PluginCheck, PluginError};
+pub use plugin::{Plugin, PluginCheck, PluginError, RELATIVE_TARGET_DIR};
 
 #[cfg(target_os = "linux")]
 pub mod linux;

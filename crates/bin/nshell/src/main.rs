@@ -16,7 +16,18 @@ use world::World;
 
 const FRAME_LENGTH_MS: u64 = 16;
 
+#[derive(structopt::StructOpt, Debug)]
+struct CliOpts {
+    #[structopt(long, default_value = plugin_loader::RELATIVE_TARGET_DIR)]
+    plugin_dir: String,
+}
+
 fn main() {
+    println!("{:?}", std::env::current_dir().unwrap());
+
+    let opts: CliOpts = structopt::StructOpt::from_args();
+
+    std::env::set_var("RUST_BACKTRACE", "1");
     plugin_loader::register_tls_dtor_hook!();
 
     let executor = CoreAffinityExecutor::new(8);
@@ -48,11 +59,11 @@ fn main() {
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();
 
         let ash_renderer_plugin =
-            Plugin::<RenderState>::open_from_target_dir(spawners[0].clone(), "ash_renderer_plugin")
+            Plugin::<RenderState>::open_from_target_dir(spawners[0].clone(), &opts.plugin_dir, "ash_renderer_plugin")
                 .unwrap()
                 .into_shared();
         let world_update_plugin =
-            Plugin::<World>::open_from_target_dir(spawners[0].clone(), "world_update_plugin")
+            Plugin::<World>::open_from_target_dir(spawners[0].clone(), &opts.plugin_dir, "world_update_plugin")
                 .unwrap()
                 .into_shared();
 

@@ -121,12 +121,13 @@ where
     /// Opens a plugin from the project target directory. Note that `check` must be called subsequently in order to invoke callbacks on the plugin.
     pub fn open_from_target_dir(
         spawner: ThreadExecutorSpawner,
+        plugin_dir: &str,
         plugin_name: &str,
     ) -> Result<Self, PluginError> {
         let filename = if cfg!(windows) {
-            format!("{}/{}.dll", RELATIVE_TARGET_DIR, plugin_name)
+            format!("{}/{}.dll", plugin_dir, plugin_name)
         } else {
-            format!("{}/lib{}.so", RELATIVE_TARGET_DIR, plugin_name)
+            format!("{}/lib{}.so", plugin_dir, plugin_name)
         };
         let path = PathBuf::from(filename);
         Self::open_at(spawner, path, plugin_name, 120)

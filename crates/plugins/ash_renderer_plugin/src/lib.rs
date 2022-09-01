@@ -135,18 +135,18 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
     let framebuffers: Vec<vk::Framebuffer> =
         { VulkanBaseWrap(base).framebuffers(renderpass) }.unwrap();
 
-    let (index_buffer, index_buffer_memory) =
+    let index =
         init_buffer_with(base, vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data).unwrap();
-    let (vertex_input_buffer, vertex_input_buffer_memory) =
+    let index_with_data = BufferWithData::new(index, index_buffer_data);
+    let vertex_input =
         init_buffer_with(base, vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data).unwrap();
-    let (uniform_color_buffer, uniform_color_buffer_memory) = init_buffer_with(
+    let uniform_color = init_buffer_with(
         base,
         vk::BufferUsageFlags::UNIFORM_BUFFER,
         &uniform_color_buffer_data,
     )
     .unwrap();
-    let (image_buffer, image_buffer_memory) =
-        init_buffer_with(base, vk::BufferUsageFlags::TRANSFER_SRC, &image_data).unwrap();
+    let image = init_buffer_with(base, vk::BufferUsageFlags::TRANSFER_SRC, &image_data).unwrap();
     let (texture_create_info, texture_image, texture_memory) =
         init_texture_destination_buffer(base, image_extent).unwrap();
 
@@ -195,7 +195,7 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
             unsafe {
                 device.cmd_copy_buffer_to_image(
                     texture_command_buffer,
-                    image_buffer,
+                    image.buffer,
                     texture_image,
                     vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                     &[buffer_copy_regions.build()],
@@ -323,7 +323,7 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
         .unwrap();
 
     let uniform_color_buffer_descriptor = vk::DescriptorBufferInfo {
-        buffer: uniform_color_buffer,
+        buffer: uniform_color.buffer,
         offset: 0,
         range: (uniform_color_buffer_data.len() * std::mem::size_of::<Vector3>()) as u64,
     };
@@ -513,20 +513,15 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
         descriptor_sets,
         vertex_shader_module,
         fragment_shader_module,
-        index_buffer,
-        index_buffer_data,
+        index_with_data,
         viewports: viewports.to_vec(),
         scissors: scissors.to_vec(),
-        image_buffer_memory,
-        image_buffer,
+        image,
         texture_memory,
         tex_image_view,
         texture_image,
-        index_buffer_memory,
-        uniform_color_buffer_memory,
-        uniform_color_buffer,
-        vertex_input_buffer_memory,
-        vertex_input_buffer,
+        uniform_color,
+        vertex_input,
         desc_set_layouts: desc_set_layouts.to_vec(),
         descriptor_pool,
         sampler,
@@ -597,7 +592,7 @@ pub fn init_buffer_with<T>(
     base: &mut VulkanBase,
     usage: vk::BufferUsageFlags,
     data: &[T],
-) -> Result<(vk::Buffer, vk::DeviceMemory), VulkanError>
+) -> Result<BufferAndMemory, VulkanError>
 where
     T: Copy,
 {
@@ -640,7 +635,7 @@ where
     unsafe { base.device.unmap_memory(buffer_memory) };
     unsafe { base.device.bind_buffer_memory(buffer, buffer_memory, 0) }
         .map_err(VulkanError::VkResult)?;
-    Ok((buffer, buffer_memory))
+    Ok(BufferAndMemory::new(buffer, buffer_memory))
 }
 struct VulkanBaseWrap<'a>(&'a mut VulkanBase);
 
@@ -749,23 +744,56 @@ struct Renderer {
     descriptor_sets: Vec<vk::DescriptorSet>,
     vertex_shader_module: vk::ShaderModule,
     fragment_shader_module: vk::ShaderModule,
-    index_buffer: vk::Buffer,
-    index_buffer_data: [u32; 6],
+    index_with_data: BufferWithData<[u32; 6]>,
     viewports: Vec<vk::Viewport>,
     scissors: Vec<vk::Rect2D>,
-    image_buffer_memory: vk::DeviceMemory,
-    image_buffer: vk::Buffer,
+    image: BufferAndMemory,
     texture_memory: vk::DeviceMemory,
     tex_image_view: vk::ImageView,
     texture_image: vk::Image,
-    index_buffer_memory: vk::DeviceMemory,
-    uniform_color_buffer_memory: vk::DeviceMemory,
-    uniform_color_buffer: vk::Buffer,
-    vertex_input_buffer_memory: vk::DeviceMemory,
-    vertex_input_buffer: vk::Buffer,
+    uniform_color: BufferAndMemory,
+    vertex_input: BufferAndMemory,
     desc_set_layouts: Vec<vk::DescriptorSetLayout>,
     descriptor_pool: vk::DescriptorPool,
     sampler: vk::Sampler,
+}
+
+struct BufferWithData<T> {
+    data: T,
+    buffer: BufferAndMemory,
+}
+
+impl<T> BufferWithData<T> {
+    pub fn new(buffer: BufferAndMemory, data: T) -> Self {
+        Self { buffer, data }
+    }
+}
+
+pub struct BufferAndMemory {
+    buffer: vk::Buffer,
+    memory: vk::DeviceMemory,
+}
+
+impl BufferAndMemory {
+    pub fn new(buffer: vk::Buffer, memory: vk::DeviceMemory) -> Self {
+        Self { buffer, memory }
+    }
+}
+
+struct Texture {
+    image: vk::Image,
+    image_view: vk::ImageView,
+    memory: vk::DeviceMemory,
+}
+
+impl Texture {
+    pub fn new(image: vk::Image, image_view: vk::ImageView, memory: vk::DeviceMemory) -> Self {
+        Self {
+            image,
+            image_view,
+            memory,
+        }
+    }
 }
 
 fn present(renderer: &Renderer, base: &mut VulkanBase) -> Result<(), VulkanError> {
@@ -832,18 +860,18 @@ fn present(renderer: &Renderer, base: &mut VulkanBase) -> Result<(), VulkanError
                 device.cmd_bind_vertex_buffers(
                     draw_command_buffer,
                     0,
-                    &[renderer.vertex_input_buffer],
+                    &[renderer.vertex_input.buffer],
                     &[0],
                 );
                 device.cmd_bind_index_buffer(
                     draw_command_buffer,
-                    renderer.index_buffer,
+                    renderer.index_with_data.buffer.buffer,
                     0,
                     vk::IndexType::UINT32,
                 );
                 device.cmd_draw_indexed(
                     draw_command_buffer,
-                    renderer.index_buffer_data.len() as u32,
+                    renderer.index_with_data.data.len() as u32,
                     1,
                     0,
                     0,
@@ -888,22 +916,22 @@ fn drop_resources(base: &mut VulkanBase, renderer: &Renderer) -> Result<(), Vulk
             .destroy_shader_module(renderer.vertex_shader_module, None);
         base.device
             .destroy_shader_module(renderer.fragment_shader_module, None);
-        base.device.free_memory(renderer.image_buffer_memory, None);
-        base.device.destroy_buffer(renderer.image_buffer, None);
+        base.device.free_memory(renderer.image.memory, None);
+        base.device.destroy_buffer(renderer.image.buffer, None);
         base.device.free_memory(renderer.texture_memory, None);
         base.device
             .destroy_image_view(renderer.tex_image_view, None);
         base.device.destroy_image(renderer.texture_image, None);
-        base.device.free_memory(renderer.index_buffer_memory, None);
-        base.device.destroy_buffer(renderer.index_buffer, None);
         base.device
-            .free_memory(renderer.uniform_color_buffer_memory, None);
+            .free_memory(renderer.index_with_data.buffer.memory, None);
         base.device
-            .destroy_buffer(renderer.uniform_color_buffer, None);
+            .destroy_buffer(renderer.index_with_data.buffer.buffer, None);
+        base.device.free_memory(renderer.uniform_color.memory, None);
         base.device
-            .free_memory(renderer.vertex_input_buffer_memory, None);
+            .destroy_buffer(renderer.uniform_color.buffer, None);
+        base.device.free_memory(renderer.vertex_input.memory, None);
         base.device
-            .destroy_buffer(renderer.vertex_input_buffer, None);
+            .destroy_buffer(renderer.vertex_input.buffer, None);
         for &descriptor_set_layout in renderer.desc_set_layouts.iter() {
             base.device
                 .destroy_descriptor_set_layout(descriptor_set_layout, None);

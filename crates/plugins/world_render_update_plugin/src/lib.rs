@@ -14,7 +14,9 @@ pub extern "C" fn load(state: &mut WorldRenderState) {
 }
 
 #[no_mangle]
-pub extern "C" fn update(state: &mut WorldRenderState, dt: &Duration) {}
+pub extern "C" fn update(state: &mut WorldRenderState, dt: &Duration) {
+    let render_state = state.render_state();
+}
 
 #[no_mangle]
 pub extern "C" fn unload(state: &mut WorldRenderState) {

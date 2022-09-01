@@ -94,7 +94,7 @@ impl<'a> AttachmentsModifier<'a> {
 }
 
 // TODO: lift into VulkanBaseExt/ VulkanBaseWrap
-fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
+fn setup_renderer_from_base(base: &mut VulkanBase) -> Result<Renderer, VulkanError> {
     // input data
     let index_buffer_data = [0u32, 1, 2, 2, 3, 0];
     let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
@@ -133,36 +133,22 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
     let mut v = VulkanBaseWrap(base);
     let (attachments, color, depth) = v.attachments();
     let renderpass = v.renderpass(attachments.all(), &color, &depth);
-    let framebuffers: Vec<vk::Framebuffer> = v.framebuffers(renderpass).unwrap();
-
-    let index = v
-        .buffer_with_data(vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data)
-        .unwrap();
+    let framebuffers: Vec<vk::Framebuffer> = v.framebuffers(renderpass)?;
+    let index = v.buffer_with_data(vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data)?;
     let index_with_data = BufferWithData::new(index, index_buffer_data);
-    let vertex_input = v
-        .buffer_with_data(vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data)
-        .unwrap();
-    let uniform_color = v
-        .buffer_with_data(
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            &uniform_color_buffer_data,
-        )
-        .unwrap();
-    let image = v
-        .buffer_with_data(vk::BufferUsageFlags::TRANSFER_SRC, &image_data)
-        .unwrap();
-    let texture = v.texture_dest_buffer(image_extent).unwrap();
+    let vertex_input = v.buffer_with_data(vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data)?;
+    let uniform_color = v.buffer_with_data(
+        vk::BufferUsageFlags::UNIFORM_BUFFER,
+        &uniform_color_buffer_data,
+    )?;
+    let image = v.buffer_with_data(vk::BufferUsageFlags::TRANSFER_SRC, &image_data)?;
+    let texture = v.texture_dest_buffer(image_extent)?;
     v.upload_texture(&texture, image_extent, &image);
-
-    let sampler = v.sampler().unwrap();
-    let tex_image_view = v.image_view(&texture).unwrap();
-
-    let descriptor_pool = v.descriptor_pool().unwrap();
-    let desc_set_layouts = v.descriptor_set_layouts().unwrap();
-
-    let descriptor_sets = v
-        .descriptor_sets(descriptor_pool, &desc_set_layouts)
-        .unwrap();
+    let sampler = v.sampler()?;
+    let tex_image_view = v.image_view(&texture)?;
+    let descriptor_pool = v.descriptor_pool()?;
+    let desc_set_layouts = v.descriptor_set_layouts()?;
+    let descriptor_sets = v.descriptor_sets(descriptor_pool, &desc_set_layouts)?;
 
     // update descriptor sets with uniform buffer and tex_image_view
     let uniform_color_buffer_descriptor = vk::DescriptorBufferInfo {
@@ -345,10 +331,9 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
             None,
         )
     }
-    .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))
-    .unwrap();
+    .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))?;
 
-    Renderer {
+    Ok(Renderer {
         texture,
         tex_image_view,
         graphics_pipelines,
@@ -367,7 +352,7 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Renderer {
         desc_set_layouts: desc_set_layouts.to_vec(),
         descriptor_pool,
         sampler,
-    }
+    })
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -622,7 +607,7 @@ impl<'a> VulkanBaseWrap<'a> {
     }
 
     /// Allocate a buffer with usage flags
-    /// TODO: move to vulkanbase
+    /// TODO: internalize
     pub fn buffer_with_data<T>(
         &mut self,
         usage: vk::BufferUsageFlags,
@@ -986,7 +971,9 @@ pub extern "C" fn load(state: &mut RenderState) {
     println!("loaded ash_renderer_plugin");
 
     let mut base = VulkanBase::new(state.win_ptr);
-    state.vulkan.presenter = Some(Box::pin(setup_renderer_from_base(&mut base)));
+    state.vulkan.presenter = Some(Box::pin(
+        setup_renderer_from_base(&mut base).expect("unable to setup renderer"),
+    ));
     state.vulkan.base = Some(base);
 }
 

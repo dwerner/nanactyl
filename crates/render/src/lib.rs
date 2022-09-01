@@ -1,3 +1,4 @@
+use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::{sync::Arc, time::Duration};
 
@@ -7,6 +8,7 @@ use ash::{
     Device, Entry,
 };
 
+use async_lock::{Mutex, MutexGuardArc};
 use platform::WinPtr;
 use world::World;
 
@@ -34,19 +36,6 @@ impl RenderState {
 
     pub fn into_shared(self) -> Arc<async_lock::Mutex<Self>> {
         Arc::new(async_lock::Mutex::new(self))
-    }
-
-    pub async fn update_from_world(&mut self, _world: &World) {
-        self.updates += 1;
-        // self.entities.clear();
-        // let entities = &mut self.entities;
-        // let time = world.run_life.clone();
-        // for thing in world.get_things() {
-        //     entities.push(Drawable {
-        //         id: thing.identify(),
-        //         rendered: time.clone(),
-        //     })
-        // }
     }
 }
 
@@ -462,5 +451,29 @@ impl Drop for VulkanBase {
             self.surface_loader.destroy_surface(self.surface, None);
             self.instance.destroy_instance(None);
         }
+    }
+}
+
+// TODO: consider a generic version of this?
+/// Acts as a combiner for Mutex, locking both mutexes but also releases both mutexes when dropped.
+pub struct WorldRenderState {
+    render_state: MutexGuardArc<RenderState>,
+    world: MutexGuardArc<World>,
+}
+
+impl WorldRenderState {
+    pub async fn new(world: &Arc<Mutex<World>>, render_state: &Arc<Mutex<RenderState>>) -> Self {
+        let world = Arc::clone(world).lock_arc().await;
+        let render_state = Arc::clone(render_state).lock_arc().await;
+        Self {
+            world,
+            render_state,
+        }
+    }
+    pub fn world(&mut self) -> &World {
+        self.world.deref()
+    }
+    pub fn render_state(&mut self) -> &mut RenderState {
+        self.render_state.deref_mut()
     }
 }

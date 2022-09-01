@@ -931,8 +931,9 @@ pub extern "C" fn load(state: &mut RenderState) {
 #[no_mangle]
 pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
     // Call render, buffers are updated etc
+    state.updates += 1;
     if state.updates % 600 == 0 {
-        println!("state: {} dt: {:?}", state.updates, dt);
+        println!("updates: {} dt: {:?}", state.updates, dt);
     }
     if let (Some(present), Some(base)) = (&state.vulkan.presenter, &mut state.vulkan.base) {
         present.present(base);

@@ -11,6 +11,7 @@ use plugin_loader::Plugin;
 use plugin_loader::PluginCheck;
 use plugin_loader::PluginError;
 use render::RenderState;
+use render::WorldRenderState;
 use smol::lock::Mutex;
 use world::World;
 
@@ -77,12 +78,21 @@ fn main() {
         )
         .unwrap()
         .into_shared();
+        let world_render_update_plugin = Plugin::<render::WorldRenderState>::open_from_target_dir(
+            spawners[0].clone(),
+            &opts.plugin_dir,
+            "world_render_update_plugin",
+        )
+        .unwrap()
+        .into_shared();
 
         // state needs to be dropped on the same thread as it was created
         let render_state = RenderState::new(win_ptr).into_shared();
 
         let mut frame_start;
         let mut last_frame_complete = Instant::now();
+
+        let mut frame = 0u64;
         'frame_loop: loop {
             frame_start = Instant::now();
 
@@ -93,19 +103,31 @@ fn main() {
                 break 'frame_loop;
             }
 
-            spawners[3]
-                .spawn(update_render_state_from_world(&render_state, &world))
-                .await
-                .unwrap();
+            // Essentially, check plugins for updates every 6 seconds
+            if frame % (60 * 6) == 0 {
+                check_plugin(
+                    &mut *world_render_update_plugin.lock().await,
+                    &mut WorldRenderState::new(&world, &render_state).await,
+                );
 
-            // Input owns SDL handles and must be pumped on the main/owning thread.
-            let _check_plugins = futures_util::future::join(
-                spawners[3].spawn(check_plugin_async(&ash_renderer_plugin, &render_state)),
-                spawners[5].spawn(check_plugin_async(&world_update_plugin, &world)),
-            )
-            .await;
+                let _check_plugins = futures_util::future::join(
+                    spawners[3].spawn(check_plugin_async(&ash_renderer_plugin, &render_state)),
+                    spawners[5].spawn(check_plugin_async(&world_update_plugin, &world)),
+                )
+                .await;
+            }
 
             let last_frame_elapsed = last_frame_complete.elapsed();
+
+            let _duration = spawners[2]
+                .spawn(update_render_state_from_world(
+                    &render_state,
+                    &world,
+                    &world_render_update_plugin,
+                    last_frame_elapsed,
+                ))
+                .await
+                .unwrap();
 
             let _join_result = futures_util::future::join(
                 spawners[1].spawn(call_plugin_update_async(
@@ -124,27 +146,26 @@ fn main() {
             let elapsed = frame_start.elapsed();
             let delay = Duration::from_millis(FRAME_LENGTH_MS).saturating_sub(elapsed);
             last_frame_complete = Instant::now();
-            if render_state.lock().await.updates % 60 == 0 {
-                println!("{:?}", elapsed);
-            }
             smol::Timer::after(delay).await;
+
+            frame += 1;
         }
     });
     log::info!("nshell closed");
 }
 
-fn update_render_state_from_world<'a>(
+fn update_render_state_from_world(
     render_state: &Arc<Mutex<RenderState>>,
     world: &Arc<Mutex<World>>,
-) -> Pin<Box<impl Future<Output = ()> + Send + Sync>> {
+    plugin: &Arc<Mutex<Plugin<render::WorldRenderState>>>,
+    dt: Duration,
+) -> Pin<Box<impl Future<Output = Result<Duration, PluginError>> + Send + Sync>> {
     let render_state = Arc::clone(render_state);
     let world = Arc::clone(world);
+    let plugin = Arc::clone(plugin);
     Box::pin(async move {
-        render_state
-            .lock()
-            .await
-            .update_from_world(&mut *world.lock().await)
-            .await;
+        let mut state = render::WorldRenderState::new(&world, &render_state).await;
+        plugin.lock().await.call_update(&mut state, &dt).await
     })
 }
 

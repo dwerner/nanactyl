@@ -153,7 +153,7 @@ where
         if ENABLE_PLUGIN_MAPPING_CHECK {
             // TODO: move this into the plugin's interface - rely on the caller to delegate the work.
             let plugin_name = name.clone();
-            spawner.spawn_with_shutdown(move |shutdown| {
+            spawner.spawn_with_shutdown(move |mut shutdown| {
                 Box::pin(async move {
                     loop {
                         let mappings = crate::linux::distinct_plugins_mapped(&plugin_name);
@@ -494,7 +494,11 @@ mod tests {
     #[test]
     fn should_fail_to_load_lib_that_doesnt_exist() {
         let ThreadExecutor { ref spawner, .. } = ThreadExecutor::new(0);
-        let load = Plugin::<u32>::open_from_target_dir(spawner.clone(), "mod_unknown");
+        let load = Plugin::<u32>::open_from_target_dir(
+            spawner.clone(),
+            plugin_loader::RELATIVE_TARGET_DIR,
+            "mod_unknown",
+        );
         assert!(matches!(load, Err(PluginError::MetadataIo { .. })))
     }
 }

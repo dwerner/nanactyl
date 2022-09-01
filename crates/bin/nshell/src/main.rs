@@ -20,14 +20,19 @@ const FRAME_LENGTH_MS: u64 = 16;
 struct CliOpts {
     #[structopt(long, default_value = plugin_loader::RELATIVE_TARGET_DIR)]
     plugin_dir: String,
+
+    #[structopt(long)]
+    backtrace: bool,
 }
 
 fn main() {
-    println!("{:?}", std::env::current_dir().unwrap());
-
     let opts: CliOpts = structopt::StructOpt::from_args();
+    if opts.backtrace {
+        println!("Setting RUST_BACKTRACE=1 to enable stack traces.");
+        std::env::set_var("RUST_BACKTRACE", "1");
+        println!("PWD: {:?}", std::env::current_dir().unwrap());
+    }
 
-    std::env::set_var("RUST_BACKTRACE", "1");
     plugin_loader::register_tls_dtor_hook!();
 
     let executor = CoreAffinityExecutor::new(8);
@@ -58,14 +63,20 @@ fn main() {
 
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();
 
-        let ash_renderer_plugin =
-            Plugin::<RenderState>::open_from_target_dir(spawners[0].clone(), &opts.plugin_dir, "ash_renderer_plugin")
-                .unwrap()
-                .into_shared();
-        let world_update_plugin =
-            Plugin::<World>::open_from_target_dir(spawners[0].clone(), &opts.plugin_dir, "world_update_plugin")
-                .unwrap()
-                .into_shared();
+        let ash_renderer_plugin = Plugin::<RenderState>::open_from_target_dir(
+            spawners[0].clone(),
+            &opts.plugin_dir,
+            "ash_renderer_plugin",
+        )
+        .unwrap()
+        .into_shared();
+        let world_update_plugin = Plugin::<World>::open_from_target_dir(
+            spawners[0].clone(),
+            &opts.plugin_dir,
+            "world_update_plugin",
+        )
+        .unwrap()
+        .into_shared();
 
         // state needs to be dropped on the same thread as it was created
         let render_state = RenderState::new(win_ptr).into_shared();

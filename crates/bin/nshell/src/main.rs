@@ -164,13 +164,13 @@ fn handle_input_events(events: &[EngineEvent]) -> Option<EngineEvent> {
             match event {
                 EngineEvent::Continue => log::debug!("nothing event"),
                 EngineEvent::InputDevice(input_device_event) => {
-                    log::info!("input device event {:?}", input_device_event);
+                    println!("input device event {:?}", input_device_event);
                 }
                 EngineEvent::Input(input_event) => {
-                    log::info!("input event {:?}", input_event);
+                    println!("input event {:?}", input_event);
                 }
                 ret @ EngineEvent::ExitToDesktop => {
-                    log::info!("Got {:?}", ret);
+                    println!("Got {:?}", ret);
                     return Some(ret.clone());
                 }
             }

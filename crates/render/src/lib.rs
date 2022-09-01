@@ -411,8 +411,11 @@ impl VulkanBase {
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
             .build();
         unsafe { device.begin_command_buffer(command_buffer, &command_buffer_begin_info) }.unwrap();
+
         command_buffer_fn(device, command_buffer);
+
         unsafe { device.end_command_buffer(command_buffer) }.unwrap();
+
         let command_buffers = vec![command_buffer];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)

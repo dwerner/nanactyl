@@ -9,6 +9,24 @@ use ash::{util::Align, vk};
 
 use render::{Presenter, RenderState, VulkanBase};
 
+#[derive(thiserror::Error, Debug)]
+pub enum VulkanError {
+    #[error("Unable to find suitable memorytype for the buffer")]
+    UnableToFindMemoryTypeForBuffer,
+
+    #[error("vk result")]
+    VkResult(vk::Result),
+
+    #[error("failed to create pipeline")]
+    FailedToCreatePipeline(Vec<vk::Pipeline>, vk::Result),
+
+    #[error("invalid CString from &'static str")]
+    InvalidCString(NulError),
+
+    #[error("image error {0:?}")]
+    Image(image::ImageError),
+}
+
 impl Presenter for Renderer {
     fn present(&self, base: &mut VulkanBase) {
         //println!("presented something... Ha HAA");
@@ -98,170 +116,155 @@ impl<'a> AttachmentsModifier<'a> {
     }
 }
 
-// TODO: lift into VulkanBase
-fn setup_renderer_from_base(base: &mut VulkanBase) -> Result<Renderer, VulkanError> {
-    let mut v = VulkanBaseWrapper(base);
-
-    let index_with_data = {
-        let index_buffer_data = vec![0u32, 1, 2, 2, 3, 0];
-        let index = v.init_buffer(vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data)?;
-        BufferWithData::new(index, index_buffer_data)
-    };
-
-    let vertex_input = {
-        let vertex_data = [
-            Vertex {
-                pos: [-1.0, -1.0, 0.0, 1.0],
-                uv: [0.0, 0.0],
-            },
-            Vertex {
-                pos: [-1.0, 1.0, 0.0, 1.0],
-                uv: [0.0, 1.0],
-            },
-            Vertex {
-                pos: [1.0, 1.0, 0.0, 1.0],
-                uv: [1.0, 1.0],
-            },
-            Vertex {
-                pos: [1.0, -1.0, 0.0, 1.0],
-                uv: [1.0, 0.0],
-            },
-        ];
-        v.init_buffer(vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data)?
-    };
-
-    let uniform_color_with_data = {
-        let uniform_color_buffer_data = vec![Vector3 {
-            x: 1.0,
-            y: 1.0,
-            z: 1.0,
-            _pad: 0.0,
-        }];
-        let uniform_color = v.init_buffer(
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            &uniform_color_buffer_data,
-        )?;
-        BufferWithData::new(uniform_color, uniform_color_buffer_data)
-    };
-    // end of input data
-
-    let (attachments, color, depth) = v.attachments();
-    let render_pass = v.renderpass(attachments.all(), &color, &depth);
-    let framebuffers: Vec<vk::Framebuffer> = v.framebuffers(render_pass)?;
-
-    let (image, texture) = {
-        let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
-            .map_err(VulkanError::Image)?
-            .to_rgba8();
-        let (width, height) = image.dimensions();
-        let image_extent = vk::Extent2D { width, height };
-        let image_data = image.into_raw();
-        let transfer_src = v.init_buffer(vk::BufferUsageFlags::TRANSFER_SRC, &image_data)?;
-        let texture = v.allocate_texture_dest_buffer(image_extent)?;
-        v.upload_texture(&texture, image_extent, &transfer_src);
-        (transfer_src, texture)
-    };
-
-    let sampler = v.sampler()?;
-    let tex_image_view = v.image_view(&texture)?;
-    let descriptor_pool = v.descriptor_pool()?;
-    let desc_set_layouts = v.descriptor_set_layouts()?;
-    let descriptor_sets = v.descriptor_sets(descriptor_pool, &desc_set_layouts)?;
-    v.update_descriptor_set(
-        descriptor_sets[0],
-        &uniform_color_with_data,
-        tex_image_view,
-        sampler,
-    );
-    let pipeline_layout = v.pipeline_layout(&desc_set_layouts)?;
-
-    let viewports = v.viewports();
-    let scissors = v.scissors();
-
-    let mut shader_stages = ShaderStages::new();
-    let mut vertex_spv_file =
-        Cursor::new(&include_bytes!("../../../../assets/shaders/vert.spv")[..]);
-    let mut frag_spv_file = Cursor::new(&include_bytes!("../../../../assets/shaders/frag.spv")[..]);
-
-    shader_stages.add_shader(
-        &mut v,
-        &mut vertex_spv_file,
-        "main",
-        vk::ShaderStageFlags::VERTEX,
-    )?;
-    shader_stages.add_shader(
-        &mut v,
-        &mut frag_spv_file,
-        "main",
-        vk::ShaderStageFlags::FRAGMENT,
-    )?;
-
-    let mut vertex_input_assembly = VertexInputAssembly::new(vk::PrimitiveTopology::TRIANGLE_LIST);
-    vertex_input_assembly.add_binding_description::<Vertex>(0, vk::VertexInputRate::VERTEX);
-    vertex_input_assembly.add_attribute_description(
-        0,
-        0,
-        vk::Format::R32G32B32A32_SFLOAT,
-        offset_of!(Vertex, pos) as u32,
-    );
-    vertex_input_assembly.add_attribute_description(
-        1,
-        0,
-        vk::Format::R32G32_SFLOAT,
-        offset_of!(Vertex, uv) as u32,
-    );
-
-    let graphics_pipelines = v.graphics_pipelines(
-        &viewports,
-        &scissors,
-        pipeline_layout,
-        render_pass,
-        &shader_stages.shader_stage_defs,
-        &vertex_input_assembly,
-    )?;
-
-    Ok(Renderer {
-        desc_set_layouts,
-        descriptor_pool,
-        descriptor_sets,
-        framebuffers,
-        graphics_pipelines,
-        image,
-        index_with_data,
-        pipeline_layout,
-        renderpass: render_pass,
-        texture,
-        tex_image_view,
-        sampler,
-        scissors,
-        shader_stages,
-        vertex_input,
-        viewports,
-        uniform_color_with_data,
-    })
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum VulkanError {
-    #[error("Unable to find suitable memorytype for the buffer")]
-    UnableToFindMemoryTypeForBuffer,
-
-    #[error("vk result")]
-    VkResult(vk::Result),
-
-    #[error("failed to create pipeline")]
-    FailedToCreatePipeline(Vec<vk::Pipeline>, vk::Result),
-
-    #[error("invalid CString from &'static str")]
-    InvalidCString(NulError),
-
-    #[error("image error {0:?}")]
-    Image(image::ImageError),
-}
-
 pub struct VulkanBaseWrapper<'a>(&'a mut VulkanBase);
 
 impl<'a> VulkanBaseWrapper<'a> {
+    pub fn new(base: &'a mut VulkanBase) -> Self {
+        Self(base)
+    }
+
+    pub fn create_renderer(&mut self) -> Result<Renderer, VulkanError> {
+        let index_with_data = {
+            let index_buffer_data = vec![0u32, 1, 2, 2, 3, 0];
+            let index = self.init_buffer(vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data)?;
+            BufferWithData::new(index, index_buffer_data)
+        };
+
+        let vertex_input = {
+            let vertex_data = [
+                Vertex {
+                    pos: [-1.0, -1.0, 0.0, 1.0],
+                    uv: [0.0, 0.0],
+                },
+                Vertex {
+                    pos: [-1.0, 1.0, 0.0, 1.0],
+                    uv: [0.0, 1.0],
+                },
+                Vertex {
+                    pos: [1.0, 1.0, 0.0, 1.0],
+                    uv: [1.0, 1.0],
+                },
+                Vertex {
+                    pos: [1.0, -1.0, 0.0, 1.0],
+                    uv: [1.0, 0.0],
+                },
+            ];
+            self.init_buffer(vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data)?
+        };
+
+        let uniform_color_with_data = {
+            let uniform_color_buffer_data = vec![Vector3 {
+                x: 1.0,
+                y: 1.0,
+                z: 1.0,
+                _pad: 0.0,
+            }];
+            let uniform_color = self.init_buffer(
+                vk::BufferUsageFlags::UNIFORM_BUFFER,
+                &uniform_color_buffer_data,
+            )?;
+            BufferWithData::new(uniform_color, uniform_color_buffer_data)
+        };
+        // end of input data
+
+        let (attachments, color, depth) = self.attachments();
+        let render_pass = self.render_pass(attachments.all(), &color, &depth);
+        let framebuffers: Vec<vk::Framebuffer> = self.framebuffers(render_pass)?;
+
+        let (image, texture) = {
+            let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
+                .map_err(VulkanError::Image)?
+                .to_rgba8();
+            let (width, height) = image.dimensions();
+            let image_extent = vk::Extent2D { width, height };
+            let image_data = image.into_raw();
+            let image = self.init_buffer(vk::BufferUsageFlags::TRANSFER_SRC, &image_data)?;
+            let texture = self.texture_dest_buffer(image_extent)?;
+            self.upload_texture(&texture, image_extent, &image);
+            (image, texture)
+        };
+
+        let sampler = self.sampler()?;
+        let tex_image_view = self.image_view(&texture)?;
+        let descriptor_pool = self.descriptor_pool()?;
+        let desc_set_layouts = self.descriptor_set_layouts()?;
+        let descriptor_sets = self.descriptor_sets(descriptor_pool, &desc_set_layouts)?;
+        self.update_descriptor_set(
+            descriptor_sets[0],
+            &uniform_color_with_data,
+            tex_image_view,
+            sampler,
+        );
+        let pipeline_layout = self.pipeline_layout(&desc_set_layouts)?;
+
+        let viewports = self.viewports();
+        let scissors = self.scissors();
+
+        let mut shader_stages = ShaderStages::new();
+        let mut vertex_spv_file =
+            Cursor::new(&include_bytes!("../../../../assets/shaders/vert.spv")[..]);
+        let mut frag_spv_file =
+            Cursor::new(&include_bytes!("../../../../assets/shaders/frag.spv")[..]);
+
+        shader_stages.add_shader(
+            self,
+            &mut vertex_spv_file,
+            "main",
+            vk::ShaderStageFlags::VERTEX,
+        )?;
+        shader_stages.add_shader(
+            self,
+            &mut frag_spv_file,
+            "main",
+            vk::ShaderStageFlags::FRAGMENT,
+        )?;
+
+        let mut vertex_input_assembly =
+            VertexInputAssembly::new(vk::PrimitiveTopology::TRIANGLE_LIST);
+        vertex_input_assembly.add_binding_description::<Vertex>(0, vk::VertexInputRate::VERTEX);
+        vertex_input_assembly.add_attribute_description(
+            0,
+            0,
+            vk::Format::R32G32B32A32_SFLOAT,
+            offset_of!(Vertex, pos) as u32,
+        );
+        vertex_input_assembly.add_attribute_description(
+            1,
+            0,
+            vk::Format::R32G32_SFLOAT,
+            offset_of!(Vertex, uv) as u32,
+        );
+
+        let graphics_pipelines = self.graphics_pipelines(
+            &viewports,
+            &scissors,
+            pipeline_layout,
+            render_pass,
+            &shader_stages.shader_stage_defs,
+            &vertex_input_assembly,
+        )?;
+
+        Ok(Renderer {
+            desc_set_layouts,
+            descriptor_pool,
+            descriptor_sets,
+            framebuffers,
+            graphics_pipelines,
+            image,
+            index_with_data,
+            pipeline_layout,
+            render_pass,
+            texture,
+            tex_image_view,
+            sampler,
+            scissors,
+            shader_stages,
+            vertex_input,
+            viewports,
+            uniform_color_with_data,
+        })
+    }
+
     pub fn read_shader_module<R>(&self, reader: &mut R) -> Result<vk::ShaderModule, VulkanError>
     where
         R: io::Read + io::Seek,
@@ -281,6 +284,7 @@ impl<'a> VulkanBaseWrapper<'a> {
     pub fn scissors(&self) -> Vec<vk::Rect2D> {
         vec![self.0.surface_resolution.into()]
     }
+
     pub fn viewports(&self) -> Vec<vk::Viewport> {
         vec![vk::Viewport {
             x: 0.0,
@@ -291,6 +295,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             max_depth: 1.0,
         }]
     }
+
     pub fn graphics_pipelines(
         &mut self,
         viewports: &[vk::Viewport],
@@ -379,6 +384,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         }
         .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))
     }
+
     pub fn pipeline_layout(
         &mut self,
         desc_set_layouts: &[vk::DescriptorSetLayout],
@@ -392,6 +398,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         }
         .map_err(VulkanError::VkResult)
     }
+
     // update descriptor sets with uniform buffer and tex_image_view
     pub fn update_descriptor_set(
         &mut self,
@@ -439,6 +446,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         unsafe { self.0.device.allocate_descriptor_sets(&desc_alloc_info) }
             .map_err(VulkanError::VkResult)
     }
+
     pub fn descriptor_set_layouts(&mut self) -> Result<Vec<vk::DescriptorSetLayout>, VulkanError> {
         let desc_layout_bindings = [
             vk::DescriptorSetLayoutBinding {
@@ -487,6 +495,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         }
         .map_err(VulkanError::VkResult)
     }
+
     pub fn upload_texture(
         &mut self,
         texture: &Texture,
@@ -589,6 +598,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         };
         unsafe { self.0.device.create_sampler(&sampler_info, None) }.map_err(VulkanError::VkResult)
     }
+
     pub fn image_view(&mut self, texture: &Texture) -> Result<vk::ImageView, VulkanError> {
         let base = &mut *self.0;
         let tex_image_view_info = vk::ImageViewCreateInfo {
@@ -613,7 +623,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             .map_err(VulkanError::VkResult)
     }
 
-    pub fn allocate_texture_dest_buffer(
+    pub fn texture_dest_buffer(
         &mut self,
         image_extent: vk::Extent2D,
     ) -> Result<Texture, VulkanError> {
@@ -663,7 +673,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         ))
     }
 
-    /// Allocate a buffer with usage flags
+    /// Allocate a buffer with usage flags, initialize with data.
     /// TODO: internalize
     pub fn init_buffer<T>(
         &mut self,
@@ -674,6 +684,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         T: Copy,
     {
         let base = &mut *self.0;
+
         let buffer_info = vk::BufferCreateInfo {
             size: (data.len() * std::mem::size_of::<T>()) as u64,
             usage,
@@ -682,6 +693,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         };
         let buffer = unsafe { base.device.create_buffer(&buffer_info, None) }
             .map_err(VulkanError::VkResult)?;
+
         let buffer_memory_req = unsafe { base.device.get_buffer_memory_requirements(buffer) };
         let buffer_memory_index = VulkanBase::find_memorytype_index(
             &buffer_memory_req,
@@ -695,6 +707,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             memory_type_index: buffer_memory_index,
             ..Default::default()
         };
+
         let buffer_memory = unsafe { base.device.allocate_memory(&allocate_info, None) }
             .map_err(VulkanError::VkResult)?;
 
@@ -710,9 +723,11 @@ impl<'a> VulkanBaseWrapper<'a> {
 
         let mut slice = unsafe { Align::new(ptr, align_of::<T>() as u64, buffer_memory_req.size) };
         slice.copy_from_slice(data);
+
         unsafe { base.device.unmap_memory(buffer_memory) };
         unsafe { base.device.bind_buffer_memory(buffer, buffer_memory, 0) }
             .map_err(VulkanError::VkResult)?;
+
         Ok(BufferAndMemory::new(buffer, buffer_memory))
     }
 
@@ -751,7 +766,7 @@ impl<'a> VulkanBaseWrapper<'a> {
     }
 
     /// Create a renderpass with attachments
-    fn renderpass(
+    fn render_pass(
         &mut self,
         all_attachments: &[vk::AttachmentDescription],
         color_attachment_refs: &[vk::AttachmentReference],
@@ -788,13 +803,13 @@ impl<'a> VulkanBaseWrapper<'a> {
     /// Consume the renderpass and hand back framebuffers
     fn framebuffers(
         &mut self,
-        renderpass: vk::RenderPass,
+        render_pass: vk::RenderPass,
     ) -> Result<Vec<vk::Framebuffer>, VulkanError> {
         let mut framebuffers = Vec::new();
         for present_image_view in self.0.present_image_views.iter() {
             let framebuffer_attachments = [*present_image_view, self.0.depth_image_view];
             let frame_buffer_create_info = vk::FramebufferCreateInfo::builder()
-                .render_pass(renderpass)
+                .render_pass(render_pass)
                 .attachments(&framebuffer_attachments)
                 .width(self.0.surface_resolution.width)
                 .height(self.0.surface_resolution.height)
@@ -812,7 +827,7 @@ impl<'a> VulkanBaseWrapper<'a> {
     }
 }
 
-struct Renderer {
+pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
     desc_set_layouts: Vec<vk::DescriptorSetLayout>,
@@ -821,7 +836,7 @@ struct Renderer {
     index_with_data: BufferWithData<u32>,
     graphics_pipelines: Vec<vk::Pipeline>,
     pipeline_layout: vk::PipelineLayout,
-    renderpass: vk::RenderPass,
+    render_pass: vk::RenderPass,
     sampler: vk::Sampler,
     scissors: Vec<vk::Rect2D>,
     texture: Texture,
@@ -1012,7 +1027,7 @@ fn present(renderer: &Renderer, base: &mut VulkanBase) -> Result<(), VulkanError
     ];
 
     let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-        .render_pass(renderer.renderpass)
+        .render_pass(renderer.render_pass)
         .framebuffer(renderer.framebuffers[present_index as usize])
         .render_area(base.surface_resolution.into())
         .clear_values(&clear_values);
@@ -1132,7 +1147,7 @@ fn drop_resources(base: &mut VulkanBase, renderer: &mut Renderer) -> Result<(), 
         for framebuffer in renderer.framebuffers.iter() {
             base.device.destroy_framebuffer(*framebuffer, None);
         }
-        base.device.destroy_render_pass(renderer.renderpass, None);
+        base.device.destroy_render_pass(renderer.render_pass, None);
         Ok(())
     }
 }
@@ -1143,7 +1158,9 @@ pub extern "C" fn load(state: &mut RenderState) {
 
     let mut base = VulkanBase::new(state.win_ptr);
     state.vulkan.presenter = Some(Box::pin(
-        setup_renderer_from_base(&mut base).expect("unable to setup renderer"),
+        VulkanBaseWrapper::new(&mut base)
+            .create_renderer()
+            .expect("unable to setup renderer"),
     ));
     state.vulkan.base = Some(base);
 }

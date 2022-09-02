@@ -72,6 +72,7 @@ name = "ash_renderer_plugin"
 version = "0.1.0"
 dependencies = [
  "ash",
+ "cstr",
  "image",
  "platform",
  "render",

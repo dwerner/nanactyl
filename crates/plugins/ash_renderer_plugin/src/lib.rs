@@ -1,4 +1,9 @@
-use std::{ffi::CStr, io::Cursor, mem::align_of, time::Duration};
+use std::{
+    ffi::{CStr, CString, NulError},
+    io::{self, Cursor, Read},
+    mem::align_of,
+    time::Duration,
+};
 
 use ash::{util::Align, vk};
 
@@ -9,7 +14,7 @@ impl Presenter for Renderer {
         //println!("presented something... Ha HAA");
         present(self, base).unwrap();
     }
-    fn drop_resources(&self, base: &mut VulkanBase) {
+    fn drop_resources(&mut self, base: &mut VulkanBase) {
         drop_resources(base, self).unwrap();
     }
 }
@@ -93,58 +98,70 @@ impl<'a> AttachmentsModifier<'a> {
     }
 }
 
-// TODO: lift into VulkanBaseExt/ VulkanBaseWrap
+// TODO: lift into VulkanBase
 fn setup_renderer_from_base(base: &mut VulkanBase) -> Result<Renderer, VulkanError> {
-    // input data
-    let index_buffer_data = vec![0u32, 1, 2, 2, 3, 0];
-    let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
-        .unwrap()
-        .to_rgba8();
+    let mut v = VulkanBaseWrapper(base);
 
-    let (width, height) = image.dimensions();
-    let image_extent = vk::Extent2D { width, height };
-    let image_data = image.into_raw();
-    let uniform_color_buffer_data = vec![Vector3 {
-        x: 1.0,
-        y: 1.0,
-        z: 1.0,
-        _pad: 0.0,
-    }];
-    let vertex_data = [
-        Vertex {
-            pos: [-1.0, -1.0, 0.0, 1.0],
-            uv: [0.0, 0.0],
-        },
-        Vertex {
-            pos: [-1.0, 1.0, 0.0, 1.0],
-            uv: [0.0, 1.0],
-        },
-        Vertex {
-            pos: [1.0, 1.0, 0.0, 1.0],
-            uv: [1.0, 1.0],
-        },
-        Vertex {
-            pos: [1.0, -1.0, 0.0, 1.0],
-            uv: [1.0, 0.0],
-        },
-    ];
+    let index_with_data = {
+        let index_buffer_data = vec![0u32, 1, 2, 2, 3, 0];
+        let index = v.init_buffer(vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data)?;
+        BufferWithData::new(index, index_buffer_data)
+    };
+
+    let vertex_input = {
+        let vertex_data = [
+            Vertex {
+                pos: [-1.0, -1.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+            Vertex {
+                pos: [-1.0, 1.0, 0.0, 1.0],
+                uv: [0.0, 1.0],
+            },
+            Vertex {
+                pos: [1.0, 1.0, 0.0, 1.0],
+                uv: [1.0, 1.0],
+            },
+            Vertex {
+                pos: [1.0, -1.0, 0.0, 1.0],
+                uv: [1.0, 0.0],
+            },
+        ];
+        v.init_buffer(vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data)?
+    };
+
+    let uniform_color_with_data = {
+        let uniform_color_buffer_data = vec![Vector3 {
+            x: 1.0,
+            y: 1.0,
+            z: 1.0,
+            _pad: 0.0,
+        }];
+        let uniform_color = v.init_buffer(
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            &uniform_color_buffer_data,
+        )?;
+        BufferWithData::new(uniform_color, uniform_color_buffer_data)
+    };
     // end of input data
 
-    let mut v = VulkanBaseWrap(base);
     let (attachments, color, depth) = v.attachments();
-    let renderpass = v.renderpass(attachments.all(), &color, &depth);
-    let framebuffers: Vec<vk::Framebuffer> = v.framebuffers(renderpass)?;
-    let index = v.buffer_with_data(vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data)?;
-    let index_with_data = BufferWithData::new(index, index_buffer_data);
-    let vertex_input = v.buffer_with_data(vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data)?;
-    let uniform_color = v.buffer_with_data(
-        vk::BufferUsageFlags::UNIFORM_BUFFER,
-        &uniform_color_buffer_data,
-    )?;
-    let uniform_color_with_data = BufferWithData::new(uniform_color, uniform_color_buffer_data);
-    let image = v.buffer_with_data(vk::BufferUsageFlags::TRANSFER_SRC, &image_data)?;
-    let texture = v.texture_dest_buffer(image_extent)?;
-    v.upload_texture(&texture, image_extent, &image);
+    let render_pass = v.renderpass(attachments.all(), &color, &depth);
+    let framebuffers: Vec<vk::Framebuffer> = v.framebuffers(render_pass)?;
+
+    let (image, texture) = {
+        let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
+            .map_err(VulkanError::Image)?
+            .to_rgba8();
+        let (width, height) = image.dimensions();
+        let image_extent = vk::Extent2D { width, height };
+        let image_data = image.into_raw();
+        let transfer_src = v.init_buffer(vk::BufferUsageFlags::TRANSFER_SRC, &image_data)?;
+        let texture = v.allocate_texture_dest_buffer(image_extent)?;
+        v.upload_texture(&texture, image_extent, &transfer_src);
+        (transfer_src, texture)
+    };
+
     let sampler = v.sampler()?;
     let tex_image_view = v.image_view(&texture)?;
     let descriptor_pool = v.descriptor_pool()?;
@@ -156,177 +173,71 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Result<Renderer, VulkanErr
         tex_image_view,
         sampler,
     );
+    let pipeline_layout = v.pipeline_layout(&desc_set_layouts)?;
 
+    let viewports = v.viewports();
+    let scissors = v.scissors();
+
+    let mut shader_stages = ShaderStages::new();
     let mut vertex_spv_file =
         Cursor::new(&include_bytes!("../../../../assets/shaders/vert.spv")[..]);
     let mut frag_spv_file = Cursor::new(&include_bytes!("../../../../assets/shaders/frag.spv")[..]);
 
-    let vertex_code =
-        ash::util::read_spv(&mut vertex_spv_file).expect("Failed to read vertex shader spv file");
-    let vertex_shader_info = vk::ShaderModuleCreateInfo::builder().code(&vertex_code);
+    shader_stages.add_shader(
+        &mut v,
+        &mut vertex_spv_file,
+        "main",
+        vk::ShaderStageFlags::VERTEX,
+    )?;
+    shader_stages.add_shader(
+        &mut v,
+        &mut frag_spv_file,
+        "main",
+        vk::ShaderStageFlags::FRAGMENT,
+    )?;
 
-    let frag_code =
-        ash::util::read_spv(&mut frag_spv_file).expect("Failed to read fragment shader spv file");
-    let frag_shader_info = vk::ShaderModuleCreateInfo::builder().code(&frag_code);
+    let mut vertex_input_assembly = VertexInputAssembly::new(vk::PrimitiveTopology::TRIANGLE_LIST);
+    vertex_input_assembly.add_binding_description::<Vertex>(0, vk::VertexInputRate::VERTEX);
+    vertex_input_assembly.add_attribute_description(
+        0,
+        0,
+        vk::Format::R32G32B32A32_SFLOAT,
+        offset_of!(Vertex, pos) as u32,
+    );
+    vertex_input_assembly.add_attribute_description(
+        1,
+        0,
+        vk::Format::R32G32_SFLOAT,
+        offset_of!(Vertex, uv) as u32,
+    );
 
-    let vertex_shader_module =
-        unsafe { base.device.create_shader_module(&vertex_shader_info, None) }
-            .expect("Vertex shader module error");
-
-    let fragment_shader_module =
-        unsafe { base.device.create_shader_module(&frag_shader_info, None) }
-            .expect("Fragment shader module error");
-
-    let layout_create_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(&desc_set_layouts);
-
-    let pipeline_layout = unsafe {
-        base.device
-            .create_pipeline_layout(&layout_create_info, None)
-    }
-    .map_err(VulkanError::VkResult)
-    .unwrap();
-
-    let shader_entry_name = unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") };
-    let shader_stage_create_infos = [
-        vk::PipelineShaderStageCreateInfo {
-            module: vertex_shader_module,
-            p_name: shader_entry_name.as_ptr(),
-            stage: vk::ShaderStageFlags::VERTEX,
-            ..Default::default()
-        },
-        vk::PipelineShaderStageCreateInfo {
-            module: fragment_shader_module,
-            p_name: shader_entry_name.as_ptr(),
-            stage: vk::ShaderStageFlags::FRAGMENT,
-            ..Default::default()
-        },
-    ];
-    let vertex_input_binding_descriptions = [vk::VertexInputBindingDescription {
-        binding: 0,
-        stride: std::mem::size_of::<Vertex>() as u32,
-        input_rate: vk::VertexInputRate::VERTEX,
-    }];
-    let vertex_input_attribute_descriptions = [
-        vk::VertexInputAttributeDescription {
-            location: 0,
-            binding: 0,
-            format: vk::Format::R32G32B32A32_SFLOAT,
-            offset: offset_of!(Vertex, pos) as u32,
-        },
-        vk::VertexInputAttributeDescription {
-            location: 1,
-            binding: 0,
-            format: vk::Format::R32G32_SFLOAT,
-            offset: offset_of!(Vertex, uv) as u32,
-        },
-    ];
-    let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo::builder()
-        .vertex_attribute_descriptions(&vertex_input_attribute_descriptions)
-        .vertex_binding_descriptions(&vertex_input_binding_descriptions);
-
-    let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
-        topology: vk::PrimitiveTopology::TRIANGLE_LIST,
-        ..Default::default()
-    };
-    let viewports = [vk::Viewport {
-        x: 0.0,
-        y: 0.0,
-        width: base.surface_resolution.width as f32,
-        height: base.surface_resolution.height as f32,
-        min_depth: 0.0,
-        max_depth: 1.0,
-    }];
-    let scissors = [base.surface_resolution.into()];
-    let viewport_state_info = vk::PipelineViewportStateCreateInfo::builder()
-        .scissors(&scissors)
-        .viewports(&viewports);
-
-    let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
-        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
-        line_width: 1.0,
-        polygon_mode: vk::PolygonMode::FILL,
-        ..Default::default()
-    };
-
-    let multisample_state_info = vk::PipelineMultisampleStateCreateInfo::builder()
-        .rasterization_samples(vk::SampleCountFlags::TYPE_1);
-
-    let noop_stencil_state = vk::StencilOpState {
-        fail_op: vk::StencilOp::KEEP,
-        pass_op: vk::StencilOp::KEEP,
-        depth_fail_op: vk::StencilOp::KEEP,
-        compare_op: vk::CompareOp::ALWAYS,
-        ..Default::default()
-    };
-    let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
-        depth_test_enable: 1,
-        depth_write_enable: 1,
-        depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
-        front: noop_stencil_state,
-        back: noop_stencil_state,
-        max_depth_bounds: 1.0,
-        ..Default::default()
-    };
-
-    let color_blend_attachment_states = [vk::PipelineColorBlendAttachmentState {
-        blend_enable: 0,
-        src_color_blend_factor: vk::BlendFactor::SRC_COLOR,
-        dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_DST_COLOR,
-        color_blend_op: vk::BlendOp::ADD,
-        src_alpha_blend_factor: vk::BlendFactor::ZERO,
-        dst_alpha_blend_factor: vk::BlendFactor::ZERO,
-        alpha_blend_op: vk::BlendOp::ADD,
-        color_write_mask: vk::ColorComponentFlags::RGBA,
-    }];
-    let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
-        .logic_op(vk::LogicOp::CLEAR)
-        .attachments(&color_blend_attachment_states);
-
-    let dynamic_state = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
-    let dynamic_state_info =
-        vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_state);
-
-    let graphic_pipeline_infos = vk::GraphicsPipelineCreateInfo::builder()
-        .stages(&shader_stage_create_infos)
-        .vertex_input_state(&vertex_input_state_info)
-        .input_assembly_state(&vertex_input_assembly_state_info)
-        .viewport_state(&viewport_state_info)
-        .rasterization_state(&rasterization_info)
-        .multisample_state(&multisample_state_info)
-        .depth_stencil_state(&depth_state_info)
-        .color_blend_state(&color_blend_state)
-        .dynamic_state(&dynamic_state_info)
-        .layout(pipeline_layout)
-        .render_pass(renderpass);
-
-    let graphics_pipelines = unsafe {
-        base.device.create_graphics_pipelines(
-            vk::PipelineCache::null(),
-            &[graphic_pipeline_infos.build()],
-            None,
-        )
-    }
-    .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))?;
+    let graphics_pipelines = v.graphics_pipelines(
+        &viewports,
+        &scissors,
+        pipeline_layout,
+        render_pass,
+        &shader_stages.shader_stage_defs,
+        &vertex_input_assembly,
+    )?;
 
     Ok(Renderer {
+        desc_set_layouts,
+        descriptor_pool,
+        descriptor_sets,
+        framebuffers,
+        graphics_pipelines,
+        image,
+        index_with_data,
+        pipeline_layout,
+        renderpass: render_pass,
         texture,
         tex_image_view,
-        graphics_pipelines,
-        renderpass,
-        pipeline_layout,
-        framebuffers,
-        descriptor_sets,
-        vertex_shader_module,
-        fragment_shader_module,
-        index_with_data,
-        viewports: viewports.to_vec(),
-        scissors: scissors.to_vec(),
-        image,
-        uniform_color_with_data,
-        vertex_input,
-        desc_set_layouts: desc_set_layouts.to_vec(),
-        descriptor_pool,
         sampler,
+        scissors,
+        shader_stages,
+        vertex_input,
+        viewports,
+        uniform_color_with_data,
     })
 }
 
@@ -340,11 +251,147 @@ pub enum VulkanError {
 
     #[error("failed to create pipeline")]
     FailedToCreatePipeline(Vec<vk::Pipeline>, vk::Result),
+
+    #[error("invalid CString from &'static str")]
+    InvalidCString(NulError),
+
+    #[error("image error {0:?}")]
+    Image(image::ImageError),
 }
 
-struct VulkanBaseWrap<'a>(&'a mut VulkanBase);
+pub struct VulkanBaseWrapper<'a>(&'a mut VulkanBase);
 
-impl<'a> VulkanBaseWrap<'a> {
+impl<'a> VulkanBaseWrapper<'a> {
+    pub fn read_shader_module<R>(&self, reader: &mut R) -> Result<vk::ShaderModule, VulkanError>
+    where
+        R: io::Read + io::Seek,
+    {
+        // TODO: convert to VulkanError
+        let shader_code = ash::util::read_spv(reader).expect("Failed to read shader spv data");
+
+        let shader_create_info = vk::ShaderModuleCreateInfo::builder().code(&shader_code);
+        unsafe {
+            self.0
+                .device
+                .create_shader_module(&shader_create_info, None)
+        }
+        .map_err(VulkanError::VkResult)
+    }
+
+    pub fn scissors(&self) -> Vec<vk::Rect2D> {
+        vec![self.0.surface_resolution.into()]
+    }
+    pub fn viewports(&self) -> Vec<vk::Viewport> {
+        vec![vk::Viewport {
+            x: 0.0,
+            y: 0.0,
+            width: self.0.surface_resolution.width as f32,
+            height: self.0.surface_resolution.height as f32,
+            min_depth: 0.0,
+            max_depth: 1.0,
+        }]
+    }
+    pub fn graphics_pipelines(
+        &mut self,
+        viewports: &[vk::Viewport],
+        scissors: &[vk::Rect2D],
+        pipeline_layout: vk::PipelineLayout,
+        render_pass: vk::RenderPass,
+        shader_stage_defs: &[ShaderStage],
+        vertex_input_assembly: &VertexInputAssembly,
+    ) -> Result<Vec<vk::Pipeline>, VulkanError> {
+        let shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo> = shader_stage_defs
+            .iter()
+            .map(ShaderStage::create_info)
+            .collect();
+
+        let viewport_state_info = vk::PipelineViewportStateCreateInfo::builder()
+            .scissors(scissors)
+            .viewports(viewports);
+
+        let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
+            front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+            line_width: 1.0,
+            polygon_mode: vk::PolygonMode::FILL,
+            ..Default::default()
+        };
+
+        let multisample_state_info = vk::PipelineMultisampleStateCreateInfo::builder()
+            .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+
+        let noop_stencil_state = vk::StencilOpState {
+            fail_op: vk::StencilOp::KEEP,
+            pass_op: vk::StencilOp::KEEP,
+            depth_fail_op: vk::StencilOp::KEEP,
+            compare_op: vk::CompareOp::ALWAYS,
+            ..Default::default()
+        };
+        let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
+            depth_test_enable: 1,
+            depth_write_enable: 1,
+            depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
+            front: noop_stencil_state,
+            back: noop_stencil_state,
+            max_depth_bounds: 1.0,
+            ..Default::default()
+        };
+
+        let color_blend_attachment_states = [vk::PipelineColorBlendAttachmentState {
+            blend_enable: 0,
+            src_color_blend_factor: vk::BlendFactor::SRC_COLOR,
+            dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_DST_COLOR,
+            color_blend_op: vk::BlendOp::ADD,
+            src_alpha_blend_factor: vk::BlendFactor::ZERO,
+            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
+            alpha_blend_op: vk::BlendOp::ADD,
+            color_write_mask: vk::ColorComponentFlags::RGBA,
+        }];
+        let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
+            .logic_op(vk::LogicOp::CLEAR)
+            .attachments(&color_blend_attachment_states);
+
+        let dynamic_state = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+        let dynamic_state_info =
+            vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_state);
+
+        let vertex_input_state_info = vertex_input_assembly.input_state_info();
+        let vertex_input_assembly_state_info = vertex_input_assembly.assembly_state_info();
+
+        let graphic_pipeline_infos = vk::GraphicsPipelineCreateInfo::builder()
+            .stages(&shader_stage_create_infos)
+            .vertex_input_state(&vertex_input_state_info)
+            .input_assembly_state(&vertex_input_assembly_state_info)
+            .viewport_state(&viewport_state_info)
+            .rasterization_state(&rasterization_info)
+            .multisample_state(&multisample_state_info)
+            .depth_stencil_state(&depth_state_info)
+            .color_blend_state(&color_blend_state)
+            .dynamic_state(&dynamic_state_info)
+            .layout(pipeline_layout)
+            .render_pass(render_pass);
+
+        unsafe {
+            self.0.device.create_graphics_pipelines(
+                vk::PipelineCache::null(),
+                &[graphic_pipeline_infos.build()],
+                None,
+            )
+        }
+        .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))
+    }
+    pub fn pipeline_layout(
+        &mut self,
+        desc_set_layouts: &[vk::DescriptorSetLayout],
+    ) -> Result<vk::PipelineLayout, VulkanError> {
+        let layout_create_info =
+            vk::PipelineLayoutCreateInfo::builder().set_layouts(desc_set_layouts);
+        unsafe {
+            self.0
+                .device
+                .create_pipeline_layout(&layout_create_info, None)
+        }
+        .map_err(VulkanError::VkResult)
+    }
     // update descriptor sets with uniform buffer and tex_image_view
     pub fn update_descriptor_set(
         &mut self,
@@ -565,9 +612,8 @@ impl<'a> VulkanBaseWrap<'a> {
         unsafe { base.device.create_image_view(&tex_image_view_info, None) }
             .map_err(VulkanError::VkResult)
     }
-    /// Allocate a destination buffer for a texture based on an Extent2D
-    /// TODO: move to VulkanBase
-    pub fn texture_dest_buffer(
+
+    pub fn allocate_texture_dest_buffer(
         &mut self,
         image_extent: vk::Extent2D,
     ) -> Result<Texture, VulkanError> {
@@ -619,7 +665,7 @@ impl<'a> VulkanBaseWrap<'a> {
 
     /// Allocate a buffer with usage flags
     /// TODO: internalize
-    pub fn buffer_with_data<T>(
+    pub fn init_buffer<T>(
         &mut self,
         usage: vk::BufferUsageFlags,
         data: &[T],
@@ -767,27 +813,26 @@ impl<'a> VulkanBaseWrap<'a> {
 }
 
 struct Renderer {
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_sets: Vec<vk::DescriptorSet>,
+    desc_set_layouts: Vec<vk::DescriptorSetLayout>,
+    framebuffers: Vec<vk::Framebuffer>,
+    image: BufferAndMemory,
+    index_with_data: BufferWithData<u32>,
     graphics_pipelines: Vec<vk::Pipeline>,
     pipeline_layout: vk::PipelineLayout,
     renderpass: vk::RenderPass,
-    framebuffers: Vec<vk::Framebuffer>,
-    descriptor_sets: Vec<vk::DescriptorSet>,
-    vertex_shader_module: vk::ShaderModule,
-    fragment_shader_module: vk::ShaderModule,
-    index_with_data: BufferWithData<u32>,
-    viewports: Vec<vk::Viewport>,
+    sampler: vk::Sampler,
     scissors: Vec<vk::Rect2D>,
     texture: Texture,
     tex_image_view: vk::ImageView,
-    desc_set_layouts: Vec<vk::DescriptorSetLayout>,
-    descriptor_pool: vk::DescriptorPool,
-    sampler: vk::Sampler,
-    image: BufferAndMemory,
     uniform_color_with_data: BufferWithData<Vector3>,
     vertex_input: BufferAndMemory,
+    viewports: Vec<vk::Viewport>,
+    shader_stages: ShaderStages,
 }
 
-struct BufferWithData<T> {
+pub struct BufferWithData<T> {
     data: Vec<T>,
     buffer: BufferAndMemory,
 }
@@ -809,7 +854,7 @@ impl BufferAndMemory {
     }
 }
 
-struct Texture {
+pub struct Texture {
     format: vk::Format,
     image: vk::Image,
     memory: vk::DeviceMemory,
@@ -822,6 +867,122 @@ impl Texture {
             format,
             memory,
         }
+    }
+}
+
+pub struct ShaderStages {
+    modules: Vec<vk::ShaderModule>,
+    pub shader_stage_defs: Vec<ShaderStage>,
+}
+
+impl ShaderStages {
+    pub fn new() -> Self {
+        Self {
+            modules: Vec::new(),
+            shader_stage_defs: Vec::new(),
+        }
+    }
+    pub fn add_shader<R>(
+        &mut self,
+        v: &mut VulkanBaseWrapper,
+        reader: &mut R,
+        entry_point_name: &'static str,
+        stage: vk::ShaderStageFlags,
+    ) -> Result<(), VulkanError>
+    where
+        R: io::Read + io::Seek,
+    {
+        let module = v.read_shader_module(reader)?;
+        let idx = self.modules.len();
+        self.modules.push(module);
+        let shader_stage = ShaderStage::new(self.modules[idx], entry_point_name, stage)?;
+        self.shader_stage_defs.push(shader_stage);
+        Ok(())
+    }
+}
+
+pub struct VertexInputAssembly {
+    pub topology: vk::PrimitiveTopology,
+    pub binding_descriptions: Vec<vk::VertexInputBindingDescription>,
+    pub attribute_descriptions: Vec<vk::VertexInputAttributeDescription>,
+}
+
+impl VertexInputAssembly {
+    pub fn new(topology: vk::PrimitiveTopology) -> Self {
+        Self {
+            topology,
+            binding_descriptions: Vec::new(),
+            attribute_descriptions: Vec::new(),
+        }
+    }
+    pub fn assembly_state_info(&self) -> vk::PipelineInputAssemblyStateCreateInfo {
+        vk::PipelineInputAssemblyStateCreateInfo {
+            topology: self.topology,
+            ..Default::default()
+        }
+    }
+
+    pub fn add_binding_description<T>(&mut self, binding: u32, input_rate: vk::VertexInputRate)
+    where
+        T: Copy,
+    {
+        self.binding_descriptions
+            .push(vk::VertexInputBindingDescription {
+                binding,
+                stride: std::mem::size_of::<T>() as u32,
+                input_rate,
+            });
+    }
+    pub fn add_attribute_description(
+        &mut self,
+        location: u32,
+        binding: u32,
+        format: vk::Format,
+        offset: u32,
+    ) {
+        self.attribute_descriptions
+            .push(vk::VertexInputAttributeDescription {
+                location,
+                binding,
+                format,
+                offset,
+            });
+    }
+
+    pub fn input_state_info(&self) -> vk::PipelineVertexInputStateCreateInfo {
+        vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_attribute_descriptions(&self.attribute_descriptions)
+            .vertex_binding_descriptions(&self.binding_descriptions)
+            .build()
+    }
+}
+
+pub struct ShaderStage {
+    module: vk::ShaderModule,
+    entry_point_name: CString,
+    stage: vk::ShaderStageFlags,
+}
+
+impl ShaderStage {
+    pub fn new(
+        module: vk::ShaderModule,
+        entry_point_name: &'static str,
+        stage: vk::ShaderStageFlags,
+    ) -> Result<Self, VulkanError> {
+        Ok(Self {
+            module,
+            entry_point_name: CString::new(entry_point_name)
+                .map_err(VulkanError::InvalidCString)?,
+            stage,
+        })
+    }
+
+    pub fn create_info(&self) -> vk::PipelineShaderStageCreateInfo {
+        vk::PipelineShaderStageCreateInfo::builder()
+            .module(self.module)
+            .name(self.entry_point_name.as_c_str())
+            .stage(self.stage)
+            .build()
     }
 }
 
@@ -931,7 +1092,7 @@ fn present(renderer: &Renderer, base: &mut VulkanBase) -> Result<(), VulkanError
     Ok(())
 }
 
-fn drop_resources(base: &mut VulkanBase, renderer: &Renderer) -> Result<(), VulkanError> {
+fn drop_resources(base: &mut VulkanBase, renderer: &mut Renderer) -> Result<(), VulkanError> {
     unsafe {
         base.device
             .device_wait_idle()
@@ -941,10 +1102,9 @@ fn drop_resources(base: &mut VulkanBase, renderer: &Renderer) -> Result<(), Vulk
         }
         base.device
             .destroy_pipeline_layout(renderer.pipeline_layout, None);
-        base.device
-            .destroy_shader_module(renderer.vertex_shader_module, None);
-        base.device
-            .destroy_shader_module(renderer.fragment_shader_module, None);
+        for shader_module in renderer.shader_stages.modules.drain(..) {
+            base.device.destroy_shader_module(shader_module, None);
+        }
         base.device.free_memory(renderer.image.memory, None);
         base.device.destroy_buffer(renderer.image.buffer, None);
         base.device.free_memory(renderer.texture.memory, None);
@@ -955,7 +1115,8 @@ fn drop_resources(base: &mut VulkanBase, renderer: &Renderer) -> Result<(), Vulk
             .free_memory(renderer.index_with_data.buffer.memory, None);
         base.device
             .destroy_buffer(renderer.index_with_data.buffer.buffer, None);
-        base.device.free_memory(renderer.uniform_color_with_data.buffer.memory, None);
+        base.device
+            .free_memory(renderer.uniform_color_with_data.buffer.memory, None);
         base.device
             .destroy_buffer(renderer.uniform_color_with_data.buffer.buffer, None);
         base.device.free_memory(renderer.vertex_input.memory, None);

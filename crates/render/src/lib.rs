@@ -47,7 +47,7 @@ pub struct VulkanRendererState {
 
 pub trait Presenter {
     fn present(&self, base: &mut VulkanBase);
-    fn drop_resources(&self, base: &mut VulkanBase);
+    fn drop_resources(&mut self, base: &mut VulkanBase);
 }
 
 pub struct VulkanBase {

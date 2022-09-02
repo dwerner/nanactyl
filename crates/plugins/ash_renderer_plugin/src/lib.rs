@@ -96,7 +96,7 @@ impl<'a> AttachmentsModifier<'a> {
 // TODO: lift into VulkanBaseExt/ VulkanBaseWrap
 fn setup_renderer_from_base(base: &mut VulkanBase) -> Result<Renderer, VulkanError> {
     // input data
-    let index_buffer_data = [0u32, 1, 2, 2, 3, 0];
+    let index_buffer_data = vec![0u32, 1, 2, 2, 3, 0];
     let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
         .unwrap()
         .to_rgba8();
@@ -104,7 +104,7 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Result<Renderer, VulkanErr
     let (width, height) = image.dimensions();
     let image_extent = vk::Extent2D { width, height };
     let image_data = image.into_raw();
-    let uniform_color_buffer_data = [Vector3 {
+    let uniform_color_buffer_data = vec![Vector3 {
         x: 1.0,
         y: 1.0,
         z: 1.0,
@@ -141,6 +141,7 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Result<Renderer, VulkanErr
         vk::BufferUsageFlags::UNIFORM_BUFFER,
         &uniform_color_buffer_data,
     )?;
+    let uniform_color_with_data = BufferWithData::new(uniform_color, uniform_color_buffer_data);
     let image = v.buffer_with_data(vk::BufferUsageFlags::TRANSFER_SRC, &image_data)?;
     let texture = v.texture_dest_buffer(image_extent)?;
     v.upload_texture(&texture, image_extent, &image);
@@ -149,38 +150,12 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Result<Renderer, VulkanErr
     let descriptor_pool = v.descriptor_pool()?;
     let desc_set_layouts = v.descriptor_set_layouts()?;
     let descriptor_sets = v.descriptor_sets(descriptor_pool, &desc_set_layouts)?;
-
-    // update descriptor sets with uniform buffer and tex_image_view
-    let uniform_color_buffer_descriptor = vk::DescriptorBufferInfo {
-        buffer: uniform_color.buffer,
-        offset: 0,
-        range: (uniform_color_buffer_data.len() * std::mem::size_of::<Vector3>()) as u64,
-    };
-
-    let tex_descriptor = vk::DescriptorImageInfo {
-        image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        image_view: tex_image_view,
+    v.update_descriptor_set(
+        descriptor_sets[0],
+        &uniform_color_with_data,
+        tex_image_view,
         sampler,
-    };
-
-    let write_desc_sets = [
-        vk::WriteDescriptorSet {
-            dst_set: descriptor_sets[0],
-            descriptor_count: 1,
-            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-            p_buffer_info: &uniform_color_buffer_descriptor,
-            ..Default::default()
-        },
-        vk::WriteDescriptorSet {
-            dst_set: descriptor_sets[0],
-            dst_binding: 1,
-            descriptor_count: 1,
-            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            p_image_info: &tex_descriptor,
-            ..Default::default()
-        },
-    ];
-    unsafe { base.device.update_descriptor_sets(&write_desc_sets, &[]) };
+    );
 
     let mut vertex_spv_file =
         Cursor::new(&include_bytes!("../../../../assets/shaders/vert.spv")[..]);
@@ -347,7 +322,7 @@ fn setup_renderer_from_base(base: &mut VulkanBase) -> Result<Renderer, VulkanErr
         viewports: viewports.to_vec(),
         scissors: scissors.to_vec(),
         image,
-        uniform_color,
+        uniform_color_with_data,
         vertex_input,
         desc_set_layouts: desc_set_layouts.to_vec(),
         descriptor_pool,
@@ -370,6 +345,42 @@ pub enum VulkanError {
 struct VulkanBaseWrap<'a>(&'a mut VulkanBase);
 
 impl<'a> VulkanBaseWrap<'a> {
+    // update descriptor sets with uniform buffer and tex_image_view
+    pub fn update_descriptor_set(
+        &mut self,
+        descriptor_set: vk::DescriptorSet,
+        uniform_color: &BufferWithData<Vector3>,
+        tex_image_view: vk::ImageView,
+        sampler: vk::Sampler,
+    ) {
+        let uniform_color_buffer_descriptor = vk::DescriptorBufferInfo {
+            buffer: uniform_color.buffer.buffer,
+            offset: 0,
+            range: (uniform_color.data.len() * std::mem::size_of::<Vector3>()) as u64,
+        };
+
+        let tex_descriptor = vk::DescriptorImageInfo {
+            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            image_view: tex_image_view,
+            sampler,
+        };
+
+        let write_desc_sets = [
+            vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_set)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&[uniform_color_buffer_descriptor])
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&[tex_descriptor])
+                .build(),
+        ];
+        unsafe { self.0.device.update_descriptor_sets(&write_desc_sets, &[]) };
+    }
+
     pub fn descriptor_sets(
         &mut self,
         pool: vk::DescriptorPool,
@@ -763,27 +774,26 @@ struct Renderer {
     descriptor_sets: Vec<vk::DescriptorSet>,
     vertex_shader_module: vk::ShaderModule,
     fragment_shader_module: vk::ShaderModule,
-    index_with_data: BufferWithData<[u32; 6]>,
+    index_with_data: BufferWithData<u32>,
     viewports: Vec<vk::Viewport>,
     scissors: Vec<vk::Rect2D>,
-
     texture: Texture,
     tex_image_view: vk::ImageView,
     desc_set_layouts: Vec<vk::DescriptorSetLayout>,
     descriptor_pool: vk::DescriptorPool,
     sampler: vk::Sampler,
     image: BufferAndMemory,
-    uniform_color: BufferAndMemory,
+    uniform_color_with_data: BufferWithData<Vector3>,
     vertex_input: BufferAndMemory,
 }
 
 struct BufferWithData<T> {
-    data: T,
+    data: Vec<T>,
     buffer: BufferAndMemory,
 }
 
 impl<T> BufferWithData<T> {
-    pub fn new(buffer: BufferAndMemory, data: T) -> Self {
+    pub fn new(buffer: BufferAndMemory, data: Vec<T>) -> Self {
         Self { buffer, data }
     }
 }
@@ -945,9 +955,9 @@ fn drop_resources(base: &mut VulkanBase, renderer: &Renderer) -> Result<(), Vulk
             .free_memory(renderer.index_with_data.buffer.memory, None);
         base.device
             .destroy_buffer(renderer.index_with_data.buffer.buffer, None);
-        base.device.free_memory(renderer.uniform_color.memory, None);
+        base.device.free_memory(renderer.uniform_color_with_data.buffer.memory, None);
         base.device
-            .destroy_buffer(renderer.uniform_color.buffer, None);
+            .destroy_buffer(renderer.uniform_color_with_data.buffer.buffer, None);
         base.device.free_memory(renderer.vertex_input.memory, None);
         base.device
             .destroy_buffer(renderer.vertex_input.buffer, None);

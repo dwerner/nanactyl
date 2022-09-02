@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use async_lock::Mutex;
 use core_executor::CoreAffinityExecutor;
 use futures_lite::future;
 use input::EngineEvent;
@@ -12,7 +13,6 @@ use plugin_loader::PluginCheck;
 use plugin_loader::PluginError;
 use render::RenderState;
 use render::WorldRenderState;
-use async_lock::Mutex;
 use world::World;
 
 const FRAME_LENGTH_MS: u64 = 16;

@@ -34,8 +34,8 @@ impl RenderState {
         }
     }
 
-    pub fn into_shared(self) -> Arc<async_lock::Mutex<Self>> {
-        Arc::new(async_lock::Mutex::new(self))
+    pub fn into_shared(self) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(self))
     }
 }
 

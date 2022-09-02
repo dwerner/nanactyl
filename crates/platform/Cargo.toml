@@ -6,10 +6,6 @@ edition = "2021"
 [dependencies]
 sdl2 = { version = "0.35.2", features = ["raw-window-handle"] }
 raw-window-handle = "0.4.2"
-async-channel = "1.7.1"
-async-lock = "2.5.0"
-futures-util = "0.3.23"
-futures-lite = "1.12.0"
 core_executor = { path = "../core_executor" }
 input = { path = "../input" }
 thiserror = "1.0.32"

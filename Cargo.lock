@@ -105,11 +105,12 @@ dependencies = [
 
 [[package]]
 name = "async-fs"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b3ca4f8ff117c37c278a2f7415ce9be55560b846b5bc4412aaa5d29c1c3dae2"
+checksum = "279cf904654eeebfa37ac9bb1598880884924aab82e290aa65c9e77a0e142e06"
 dependencies = [
  "async-lock",
+ "autocfg",
  "blocking",
  "futures-lite",
 ]
@@ -166,11 +167,12 @@ dependencies = [
 
 [[package]]
 name = "async-process"
-version = "1.4.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf2c06e30a24e8c78a3987d07f0930edf76ef35e027e7bdb063fccafdad1f60c"
+checksum = "02111fd8655a613c25069ea89fc8d9bb89331fa77486eb3bc059ee757cfa481c"
 dependencies = [
  "async-io",
+ "autocfg",
  "blocking",
  "cfg-if",
  "event-listener",
@@ -775,14 +777,6 @@ dependencies = [
 [[package]]
 name = "input"
 version = "0.1.0"
-dependencies = [
- "async-channel",
- "core_executor",
- "futures-lite",
- "log",
- "sdl2",
- "smol",
-]
 
 [[package]]
 name = "instant"
@@ -943,10 +937,8 @@ dependencies = [
  "bitvec",
  "bytemuck",
  "futures-lite",
- "futures-util",
  "hex",
  "histogram",
- "smol",
  "smol-potat",
  "thiserror",
 ]
@@ -971,16 +963,15 @@ dependencies = [
 name = "nshell"
 version = "0.1.0"
 dependencies = [
+ "async-lock",
  "core_executor",
  "futures-lite",
  "futures-util",
  "input",
- "log",
  "platform",
  "plugin_loader",
  "render",
  "smol",
- "smol-potat",
  "structopt",
  "world",
 ]
@@ -1100,11 +1091,7 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 name = "platform"
 version = "0.1.0"
 dependencies = [
- "async-channel",
- "async-lock",
  "core_executor",
- "futures-lite",
- "futures-util",
  "input",
  "raw-window-handle",
  "sdl2",

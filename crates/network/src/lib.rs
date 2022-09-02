@@ -8,7 +8,7 @@ use std::{
 
 use async_io::Timer;
 use bitvec::view::BitView;
-use bytemuck::{AnyBitPattern, NoUninit, Pod, PodCastError, Zeroable};
+use bytemuck::{AnyBitPattern, NoUninit, PodCastError};
 use futures_lite::FutureExt;
 use histogram::Histogram;
 
@@ -313,13 +313,6 @@ fn wrapping_sub(seq: u16, maybe_next: u16) -> Option<u16> {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-#[repr(u8)]
-enum MessageType {
-    Rpc = 1,
-    Ack = 2,
-}
-
 pub fn next_seq(current: u16) -> u16 {
     if current == std::u16::MAX {
         return 0;
@@ -435,7 +428,7 @@ mod tests {
         let start = Instant::now();
         let p1_task = std::thread::spawn(|| {
             futures_lite::future::block_on(async move {
-                let mut p1 = Peer::bind("127.0.0.1:8082", "127.0.0.1:8083")
+                let mut p1 = Peer::bind("127.0.0.1:9082", "127.0.0.1:8083")
                     .await
                     .unwrap();
                 for _x in 0..100 {
@@ -464,10 +457,10 @@ mod tests {
         });
         let p2_task = std::thread::spawn(|| {
             futures_lite::future::block_on(async move {
-                let mut p2 = Peer::bind("127.0.0.1:8083", "127.0.0.1:8082")
+                let mut p2 = Peer::bind("127.0.0.1:8083", "127.0.0.1:9082")
                     .await
                     .unwrap();
-                for x in 0..101 {
+                for _ in 0..101 {
                     p2.send(b"hey there").await.unwrap();
                     let recvd = match p2.recv().await {
                         Ok(msg_recvd) => msg_recvd,

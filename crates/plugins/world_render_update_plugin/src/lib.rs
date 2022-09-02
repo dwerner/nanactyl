@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use render::{RenderState, WorldRenderState};
+use render::WorldRenderState;
 
 // The responsibility of this plugin is to update the RenderState struct from the World.
 // This work needs to lock the World and RenderState.

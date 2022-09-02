@@ -12,7 +12,7 @@ use plugin_loader::PluginCheck;
 use plugin_loader::PluginError;
 use render::RenderState;
 use render::WorldRenderState;
-use smol::lock::Mutex;
+use async_lock::Mutex;
 use world::World;
 
 const FRAME_LENGTH_MS: u64 = 16;
@@ -151,7 +151,7 @@ fn main() {
             frame += 1;
         }
     });
-    log::info!("nshell closed");
+    println!("nshell closed");
 }
 
 fn update_render_state_from_world(
@@ -191,10 +191,11 @@ where
 
 fn handle_input_events(events: &[EngineEvent]) -> Option<EngineEvent> {
     if !events.is_empty() {
-        //state::writeln!(state, "Processing {} events", events.len());
         for event in events {
             match event {
-                EngineEvent::Continue => log::debug!("nothing event"),
+                EngineEvent::Continue => {
+                    //println!("nothing event");
+                }
                 EngineEvent::InputDevice(input_device_event) => {
                     println!("input device event {:?}", input_device_event);
                 }
@@ -231,21 +232,21 @@ where
     T: Send + Sync,
 {
     match plugin.check(state) {
-        Ok(PluginCheck::FoundNewVersion) => log::info!(
+        Ok(PluginCheck::FoundNewVersion) => println!(
             "{} plugin found new version {}",
             plugin.name(),
             plugin.version()
         ),
         Ok(PluginCheck::Unchanged) => (),
         Err(m @ PluginError::MetadataIo { .. }) => {
-            log::warn!(
+            println!(
                 "error getting file metadata for plugin {}: {:?}",
                 plugin.name(),
                 m
             );
         }
         Err(o @ PluginError::ErrorOnOpen(_)) => {
-            log::warn!("error opening plugin {}: {:?}", plugin.name(), o);
+            println!("error opening plugin {}: {:?}", plugin.name(), o);
         }
         Err(err) => panic!("unexpected error checking plugin - {:?}", err),
     }

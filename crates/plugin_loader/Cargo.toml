@@ -5,11 +5,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+core_executor = { path = "../core_executor" }
 libloading = "0.7"
 log = "0.4"
 tempdir = "0.3.7"
 thiserror = "1"
-core_executor = { path = "../core_executor" }
 
 [target.'cfg(unix)'.dependencies]
 cstr = "0.2.10"

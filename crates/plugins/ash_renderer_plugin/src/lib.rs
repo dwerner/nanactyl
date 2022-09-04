@@ -1,6 +1,6 @@
 use std::{
-    ffi::{CStr, CString, NulError},
-    io::{self, Cursor, Read},
+    ffi::{CString, NulError},
+    io::{self, Cursor},
     mem::align_of,
     time::Duration,
 };
@@ -165,7 +165,6 @@ impl<'a> VulkanBaseWrapper<'a> {
             )?;
             BufferWithData::new(uniform_color, uniform_color_buffer_data)
         };
-        // end of input data
 
         let (attachments, color, depth) = self.attachments();
         let render_pass = self.render_pass(attachments.all(), &color, &depth);
@@ -201,21 +200,26 @@ impl<'a> VulkanBaseWrapper<'a> {
         let scissors = self.scissors();
 
         let mut shader_stages = ShaderStages::new();
+
         let mut vertex_spv_file =
-            Cursor::new(&include_bytes!("../../../../assets/shaders/vert.spv")[..]);
+            Cursor::new(&include_bytes!("../../../../assets/shaders/vertex_rustgpu.spv")[..]);
+        // let mut vertex_spv_file =
+        //     Cursor::new(&include_bytes!("../../../../assets/shaders/vert.spv")[..]);
         let mut frag_spv_file =
-            Cursor::new(&include_bytes!("../../../../assets/shaders/frag.spv")[..]);
+            Cursor::new(&include_bytes!("../../../../assets/shaders/fragment_rustgpu.spv")[..]);
+        // let mut frag_spv_file =
+        //     Cursor::new(&include_bytes!("../../../../assets/shaders/frag.spv")[..]);
 
         shader_stages.add_shader(
             self,
             &mut vertex_spv_file,
-            "main",
+            "shader_main_long_name",
             vk::ShaderStageFlags::VERTEX,
         )?;
         shader_stages.add_shader(
             self,
             &mut frag_spv_file,
-            "main",
+            "shader_main_longname", //"main",
             vk::ShaderStageFlags::FRAGMENT,
         )?;
 
@@ -450,6 +454,7 @@ impl<'a> VulkanBaseWrapper<'a> {
     pub fn descriptor_set_layouts(&mut self) -> Result<Vec<vk::DescriptorSetLayout>, VulkanError> {
         let desc_layout_bindings = [
             vk::DescriptorSetLayoutBinding {
+                binding: 0,
                 descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
                 descriptor_count: 1,
                 stage_flags: vk::ShaderStageFlags::FRAGMENT,

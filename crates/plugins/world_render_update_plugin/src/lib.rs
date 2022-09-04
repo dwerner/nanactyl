@@ -14,8 +14,10 @@ pub extern "C" fn load(state: &mut WorldRenderState) {
 }
 
 #[no_mangle]
-pub extern "C" fn update(state: &mut WorldRenderState, dt: &Duration) {
-    let render_state = state.render_state();
+pub extern "C" fn update(state: &mut WorldRenderState, _dt: &Duration) {
+
+    // random gdc guy from amd: "Shoud provide a 'more declarative api' rather than hand back buffers"...
+    let _render_state = state.render_state();
 }
 
 #[no_mangle]

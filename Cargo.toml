@@ -19,4 +19,10 @@ members = [
 
     # binaries
     "crates/bin/nshell",
+
 ]
+exclude = [
+    # shaders
+    "assets/shaders",
+]
+

@@ -35,7 +35,7 @@ pub enum RpcError {
 }
 
 pub struct Peer {
-    id: u8,
+    _id: u8,
     seq: u16,
     remote_seq: u16,
     bind: String,
@@ -54,7 +54,7 @@ impl Peer {
             .await
             .map_err(RpcError::Bind)?;
         Ok(Self {
-            id: 123, // TODO think about id
+            _id: 123, // TODO think about id
             seq: 0,
             remote_seq: 0,
             bind: addr.to_string(),

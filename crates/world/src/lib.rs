@@ -44,7 +44,7 @@ pub struct World {
     facets: WorldFacets,
     pub updates: u64,
     pub run_life: Duration,
-    network_peers: Vec<Peer>,
+    _network_peers: Vec<Peer>,
 }
 
 impl World {

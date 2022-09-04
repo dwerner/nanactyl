@@ -1,7 +1,10 @@
+use std::borrow::Cow;
+use std::ffi::{CStr, CString};
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::{sync::Arc, time::Duration};
 
+use ash::extensions::ext;
 use ash::vk;
 use ash::{
     extensions::khr::{Surface, Swapchain},
@@ -84,6 +87,9 @@ pub struct VulkanBase {
 
     pub draw_commands_reuse_fence: vk::Fence,
     pub setup_commands_reuse_fence: vk::Fence,
+
+    pub debug_utils_loader: Option<ext::DebugUtils>,
+    pub debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
 }
 
 impl VulkanBase {
@@ -94,16 +100,49 @@ impl VulkanBase {
             ..Default::default()
         };
 
-        let required_extension_names = ash_window::enumerate_required_extensions(&win_ptr)
+        let mut required_extension_names = ash_window::enumerate_required_extensions(&win_ptr)
             .unwrap()
             .to_vec();
+
+        let layer_names = vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
+        let layers_names_raw: Vec<*const i8> = layer_names
+            .iter()
+            .map(|raw_name| raw_name.as_ptr())
+            .collect();
+
+        required_extension_names.push(ext::DebugUtils::name().as_ptr());
+
         //TODO: setup VK_LAYER_KHRONOS_validation
         let create_info = vk::InstanceCreateInfo::builder()
             .application_info(application_info)
+            .enabled_layer_names(&layers_names_raw)
             .enabled_extension_names(&required_extension_names)
             .build();
 
         let instance = unsafe { entry.create_instance(&create_info, None) }.unwrap();
+
+        let debug_utils_loader = ext::DebugUtils::new(&entry, &instance);
+        let debug_call_back = {
+            let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+                .message_severity(
+                    vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+                        | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
+                        | vk::DebugUtilsMessageSeverityFlagsEXT::INFO,
+                )
+                .message_type(
+                    vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                        | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+                        | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
+                )
+                .pfn_user_callback(Some(vulkan_debug_callback));
+
+            unsafe {
+                debug_utils_loader
+                    .create_debug_utils_messenger(&debug_info, None)
+                    .unwrap()
+            }
+        };
+
         let surface =
             unsafe { ash_window::create_surface(&entry, &instance, &win_ptr, None) }.unwrap();
         let physical_devices = unsafe { instance.enumerate_physical_devices() }.unwrap();
@@ -367,6 +406,8 @@ impl VulkanBase {
             setup_commands_reuse_fence,
             surface,
             depth_image_memory,
+            debug_utils_loader: Some(debug_utils_loader),
+            debug_call_back: Some(debug_call_back),
         }
     }
 
@@ -452,6 +493,12 @@ impl Drop for VulkanBase {
                 .destroy_swapchain(self.swapchain, None);
             self.device.destroy_device(None);
             self.surface_loader.destroy_surface(self.surface, None);
+
+            if let Some((debug_utils, call_back)) =
+                Option::zip(self.debug_utils_loader.take(), self.debug_call_back.take())
+            {
+                debug_utils.destroy_debug_utils_messenger(call_back, None);
+            }
             self.instance.destroy_instance(None);
         }
     }
@@ -479,4 +526,37 @@ impl WorldRenderState {
     pub fn render_state(&mut self) -> &mut RenderState {
         self.render_state.deref_mut()
     }
+}
+
+unsafe extern "system" fn vulkan_debug_callback(
+    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+    message_type: vk::DebugUtilsMessageTypeFlagsEXT,
+    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
+    _user_data: *mut std::os::raw::c_void,
+) -> vk::Bool32 {
+    let callback_data = *p_callback_data;
+    let message_id_number: i32 = callback_data.message_id_number as i32;
+
+    let message_id_name = if callback_data.p_message_id_name.is_null() {
+        Cow::from("")
+    } else {
+        CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
+    };
+
+    let message = if callback_data.p_message.is_null() {
+        Cow::from("")
+    } else {
+        CStr::from_ptr(callback_data.p_message).to_string_lossy()
+    };
+
+    println!(
+        "{:?}:\n{:?} [{} ({})] : {}\n",
+        message_severity,
+        message_type,
+        message_id_name,
+        &message_id_number.to_string(),
+        message,
+    );
+
+    vk::FALSE
 }

@@ -1,5 +1,6 @@
-use spirv_std::image::{Image2d, SampledImage};
+use spirv_std::image::SampledImage;
 
-pub type Img2d = SampledImage<Image2d>;
+pub type Sampler2d = SampledImage<spirv_std::Image!(2D, type=f32, sampled, depth=false)>;
 
-// pub type Img2d = spirv_std::Image!(2D, type=f32, sampled);
+//use spirv_std::image::ImageFormat::
+//pub type Img2d = spirv_std::Image!(2D, type=f32, sampled);

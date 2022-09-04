@@ -20,12 +20,10 @@ pub struct UBO {
 
 #[spirv(fragment)]
 pub fn shader_main_long_name(
-    #[spirv(uniform_constant, descriptor_set = 0, binding = 1)] sampled_image: &hide::Img2d,
     o_uv: Vec2,
     frag_color: &mut Vec4,
-    #[spirv(uniform, descriptor_set = 0, binding = 0)] ubo: &mut UBO,
+    #[spirv(descriptor_set = 0, binding = 1)] sampler: &hide::Sampler2d,
 ) {
-    let _color = ubo.color;
-    let color = unsafe { sampled_image.sample(o_uv) };
+    let color = unsafe { sampler.sample(o_uv) };
     *frag_color = color;
 }

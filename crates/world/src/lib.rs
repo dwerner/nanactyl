@@ -8,6 +8,8 @@ mod scene;
 pub mod thing;
 mod tree;
 
+pub use nalgebra::Matrix4;
+
 /// Identity of a game object. Used to look up game objects (`Thing`s) within a `World`.
 pub type Identity = u32;
 

@@ -41,6 +41,10 @@ fn main() {
 
     let mut world = world::World::new();
 
+    let cube_models = models::Model::load("assets/models/static/cube.obj").unwrap();
+
+    println!("{cube_models:?}");
+
     // initialize some state, in this case a lot of physical entities
     for x in 0..10u32 {
         for y in 0..10u32 {

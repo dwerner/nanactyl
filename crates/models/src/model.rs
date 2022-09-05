@@ -1,28 +1,60 @@
-use std::error::Error;
+use std::fmt::Debug;
 use std::path::Path;
-
-use nalgebra::Matrix4;
+use std::path::PathBuf;
 
 // TODO: still need to refactor nom-obj to take BufReader, among other things
-use obj_parser::model::{Interleaved, Obj};
+use obj_parser::model::{Interleaved, Mtl, MtlError, Obj, ObjError};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Material {
-    pub diffuse_map: image::DynamicImage,
+    pub path: PathBuf,
+    pub diffuse_map: Image,
 }
 
 #[derive(Clone)]
+pub struct Image {
+    pub path: PathBuf,
+    pub image: image::DynamicImage,
+}
+
+impl Debug for Image {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Image")
+            .field("path", &self.path)
+            .field("image", &"[image data..]")
+            .finish()
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ModelLoadError {
+    #[error("model has no vertices")]
+    ModelHasNoVerts,
+    #[error("obj {0:?}")]
+    Obj(ObjError),
+    #[error("Mtl {0:?}")]
+    Mtl(MtlError),
+    #[error("no material provided")]
+    NoMaterial,
+    #[error("no diffuse map provided")]
+    NoDiffuseMap,
+    #[error("unable to load image at {path:?} {err:?}")]
+    UnableToLoadImage {
+        err: image::ImageError,
+        path: PathBuf,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub struct Model {
-    pub filename: String,
-    pub model_mat: Matrix4<f32>,
-    pub world_mat: Matrix4<f32>,
+    pub path: PathBuf,
     pub material: Material,
     pub mesh: Mesh,
 }
 
 impl Model {
-    pub fn load(filename: &str, model_mat: Matrix4<f32>) -> Result<Vec<Self>, Box<dyn Error>> {
-        let obj = Obj::read_file(filename)?;
+    pub fn load(filename: impl AsRef<Path>) -> Result<Vec<Self>, ModelLoadError> {
+        let obj = Obj::load(&filename).map_err(ModelLoadError::Obj)?;
 
         let mut models = Vec::new();
         for o in obj.objects.iter() {
@@ -34,51 +66,50 @@ impl Model {
                 .collect::<Vec<_>>();
 
             if verts.is_empty() {
-                return Err("model has no vertices".into());
+                return Err(ModelLoadError::ModelHasNoVerts);
             }
 
             let indices = idx.iter().map(|x: &usize| *x as u16).collect::<Vec<_>>();
 
-            let diffuse_map_filename = &obj.objects[0]
+            let mtl_file_path = &obj.objects[0]
                 .material
                 .as_ref()
-                .ok_or_else(|| format!("no diffuse map (map_Kd) defined in model {}", filename))?
-                .diffuse_map;
+                .ok_or(ModelLoadError::NoMaterial)?;
 
-            let material_path = Path::new(diffuse_map_filename);
-            let diffuse_map = image::open(material_path)?;
+            let base_filename = filename.as_ref().to_path_buf();
+            let base_path = base_filename.clone().parent().unwrap().to_path_buf();
+            let mut material_path = base_path.clone();
+            material_path.push(mtl_file_path);
+
+            let mtl = Mtl::load(&material_path).map_err(ModelLoadError::Mtl)?;
+            let diffuse_map_stem = mtl
+                .diffuse_map_filename
+                .ok_or(ModelLoadError::NoDiffuseMap)?;
+            let mut diffuse_map_path = base_path.clone();
+            diffuse_map_path.push(diffuse_map_stem);
+            let diffuse_map_data = image::open(&diffuse_map_path).map_err(|err| {
+                ModelLoadError::UnableToLoadImage {
+                    err,
+                    path: diffuse_map_path.clone(),
+                }
+            })?;
+            let diffuse_map = Image {
+                path: Path::new(&diffuse_map_path).to_path_buf(),
+                image: diffuse_map_data,
+            };
 
             models.push(Model {
-                filename: filename.to_string(),
-                model_mat,
-                world_mat: Matrix4::<f32>::identity(),
+                path: base_filename,
                 mesh: Mesh::create(verts, indices),
-                material: Material { diffuse_map },
+                material: Material {
+                    path: material_path,
+                    diffuse_map,
+                },
             })
         }
 
         Ok(models)
     }
-}
-
-#[test]
-#[cfg(test)]
-fn slice_windows_learning() {
-    let vec1 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-    let vec2 = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
-    let vec3 = [10, 11, 12, 13, 14, 15, 16];
-
-    let one = vec1.windows(3);
-    let two = vec2.windows(3);
-    let three = vec3.windows(2);
-
-    for ((a, b), c) in one.zip(two).zip(three) {
-        assert_eq!(a.len(), 3);
-        assert_eq!(b.len(), 3);
-        assert_eq!(c.len(), 2);
-    }
-
-    //let model = Model::create("assets/models/teapot.obj", Matrix4::<f32>::identity());
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -115,10 +146,19 @@ impl Vertex {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u16>,
+}
+
+impl Debug for Mesh {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Mesh")
+            .field("vertices", &self.vertices.len())
+            .field("indices", &self.indices.len())
+            .finish()
+    }
 }
 
 impl Mesh {

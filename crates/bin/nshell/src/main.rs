@@ -48,7 +48,8 @@ fn main() {
                 world
                     .start_thing()
                     .with_physical(x as f32, y as f32, z as f32)
-                    .emplace();
+                    .emplace()
+                    .unwrap();
             }
         }
     }

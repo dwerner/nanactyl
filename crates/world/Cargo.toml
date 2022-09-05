@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-model = { path = "../model" }
+models = { path = "../models" }
 network = { path = "../network" }
 nalgebra = "0.31.1"
+thiserror = "1.0.33"

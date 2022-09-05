@@ -1,19 +1,15 @@
-use std::{
-    sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
-};
+use std::time::Duration;
 
 use network::Peer;
+use scene::Scene;
 use thing::{CameraFacet, HealthFacet, ModelInstanceFacet, PhysicalFacet, Thing, ThingBuilder};
 
+mod scene;
 pub mod thing;
+mod tree;
 
-static GLOBAL_IDENITY_CURSOR: AtomicUsize = AtomicUsize::new(0);
-
-pub type Identity = u64;
-pub fn create_next_identity() -> Identity {
-    GLOBAL_IDENITY_CURSOR.fetch_add(1, Ordering::SeqCst) as Identity
-}
+/// Identity of a game object. Used to look up game objects (`Thing`s) within a `World`.
+pub type Identity = u32;
 
 pub trait Identifyable {
     fn identify(&self) -> Identity;
@@ -42,6 +38,7 @@ impl WorldFacets {
 pub struct World {
     pub things: Vec<Thing>,
     facets: WorldFacets,
+    pub scene: Scene,
     pub updates: u64,
     pub run_life: Duration,
     _network_peers: Vec<Peer>,
@@ -55,7 +52,8 @@ impl World {
     pub fn start_thing(&mut self) -> ThingBuilder {
         ThingBuilder {
             world: self,
-            facets: Vec::new(),
+            facet_indices: Vec::new(),
+            maybe_child_of: None,
         }
     }
 
@@ -67,8 +65,20 @@ impl World {
         }
     }
 
-    pub fn get_things(&self) -> &[Thing] {
+    pub fn things(&self) -> &[Thing] {
         &self.things
+    }
+
+    pub fn things_mut(&mut self) -> &mut [Thing] {
+        &mut self.things
+    }
+
+    pub fn thing_as_ref(&self, id: Identity) -> Option<&Thing> {
+        self.things.get(id as usize)
+    }
+
+    pub fn thing_as_mut(&mut self, id: Identity) -> Option<&mut Thing> {
+        self.things.get_mut(id as usize)
     }
 
     pub fn clear(&mut self) {

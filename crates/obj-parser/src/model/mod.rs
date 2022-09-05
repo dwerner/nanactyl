@@ -50,7 +50,6 @@ pub struct Obj {
 
 impl Obj {
     pub fn load(obj_file: impl AsRef<Path>) -> Result<Self, ObjError> {
-        println!("{:?}", obj_file.as_ref());
         let obj_file = File::open(obj_file).map_err(ObjError::UnableToLoad)?;
         let reader = BufReader::new(obj_file);
         Self::from_reader(reader)

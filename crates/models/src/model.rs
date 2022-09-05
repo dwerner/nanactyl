@@ -21,13 +21,15 @@ impl Debug for Image {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Image")
             .field("path", &self.path)
-            .field("image", &"[image data..]")
+            .field("image", &"[<image data>]")
             .finish()
     }
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum ModelLoadError {
+    #[error("obj has multiple models defined")]
+    ObjHasMultipleModelsDefined,
     #[error("model has no vertices")]
     ModelHasNoVerts,
     #[error("obj {0:?}")]
@@ -53,62 +55,61 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn load(filename: impl AsRef<Path>) -> Result<Vec<Self>, ModelLoadError> {
-        let obj = Obj::load(&filename).map_err(ModelLoadError::Obj)?;
+    pub fn load(filename: impl AsRef<Path>) -> Result<Self, ModelLoadError> {
+        let parsed_obj = Obj::load(&filename).map_err(ModelLoadError::Obj)?;
 
-        let mut models = Vec::new();
-        for o in obj.objects.iter() {
-            let Interleaved { v_vt_vn, idx } = o.interleaved();
+        let obj = parsed_obj
+            .objects
+            .get(0)
+            .ok_or(ModelLoadError::ObjHasMultipleModelsDefined)?;
 
-            let verts = v_vt_vn
-                .iter()
-                .map(|&(v, vt, vn)| Vertex::new((v.0, v.1, v.2), vt, (vn.0, vn.1, vn.2)))
-                .collect::<Vec<_>>();
+        let Interleaved { v_vt_vn, idx } = obj.interleaved();
 
-            if verts.is_empty() {
-                return Err(ModelLoadError::ModelHasNoVerts);
-            }
+        let verts = v_vt_vn
+            .iter()
+            .map(|&(v, vt, vn)| Vertex::new((v.0, v.1, v.2), vt, vn))
+            .collect::<Vec<_>>();
 
-            let indices = idx.iter().map(|x: &usize| *x as u16).collect::<Vec<_>>();
-
-            let mtl_file_path = &obj.objects[0]
-                .material
-                .as_ref()
-                .ok_or(ModelLoadError::NoMaterial)?;
-
-            let base_filename = filename.as_ref().to_path_buf();
-            let base_path = base_filename.clone().parent().unwrap().to_path_buf();
-            let mut material_path = base_path.clone();
-            material_path.push(mtl_file_path);
-
-            let mtl = Mtl::load(&material_path).map_err(ModelLoadError::Mtl)?;
-            let diffuse_map_stem = mtl
-                .diffuse_map_filename
-                .ok_or(ModelLoadError::NoDiffuseMap)?;
-            let mut diffuse_map_path = base_path.clone();
-            diffuse_map_path.push(diffuse_map_stem);
-            let diffuse_map_data = image::open(&diffuse_map_path).map_err(|err| {
-                ModelLoadError::UnableToLoadImage {
-                    err,
-                    path: diffuse_map_path.clone(),
-                }
-            })?;
-            let diffuse_map = Image {
-                path: Path::new(&diffuse_map_path).to_path_buf(),
-                image: diffuse_map_data,
-            };
-
-            models.push(Model {
-                path: base_filename,
-                mesh: Mesh::create(verts, indices),
-                material: Material {
-                    path: material_path,
-                    diffuse_map,
-                },
-            })
+        if verts.is_empty() {
+            return Err(ModelLoadError::ModelHasNoVerts);
         }
 
-        Ok(models)
+        let indices = idx.iter().map(|x: &usize| *x as u16).collect::<Vec<_>>();
+
+        let mtl_file_path = &parsed_obj.objects[0]
+            .material
+            .as_ref()
+            .ok_or(ModelLoadError::NoMaterial)?;
+
+        let base_filename = filename.as_ref().to_path_buf();
+        let base_path = base_filename.clone().parent().unwrap().to_path_buf();
+        let mut material_path = base_path.clone();
+        material_path.push(mtl_file_path);
+
+        let mtl = Mtl::load(&material_path).map_err(ModelLoadError::Mtl)?;
+        let diffuse_map_stem = mtl
+            .diffuse_map_filename
+            .ok_or(ModelLoadError::NoDiffuseMap)?;
+        let mut diffuse_map_path = base_path.clone();
+        diffuse_map_path.push(diffuse_map_stem);
+        let diffuse_map_data =
+            image::open(&diffuse_map_path).map_err(|err| ModelLoadError::UnableToLoadImage {
+                err,
+                path: diffuse_map_path.clone(),
+            })?;
+        let diffuse_map = Image {
+            path: Path::new(&diffuse_map_path).to_path_buf(),
+            image: diffuse_map_data,
+        };
+
+        Ok(Model {
+            path: base_filename,
+            mesh: Mesh::create(verts, indices),
+            material: Material {
+                path: material_path,
+                diffuse_map,
+            },
+        })
     }
 }
 

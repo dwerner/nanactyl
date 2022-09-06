@@ -75,7 +75,7 @@ where
 
 #[derive(Debug, Clone)]
 pub struct Node<V: Clone + Debug> {
-    value: V,
+    pub value: V,
     children: Vec<NodeIndex>,
     parent: Option<NodeIndex>,
 }

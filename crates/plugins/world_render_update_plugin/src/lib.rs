@@ -8,17 +8,21 @@ use render::WorldRenderState;
 #[no_mangle]
 pub extern "C" fn load(state: &mut WorldRenderState) {
     println!(
-        "loaded world render update plugin ({})!\nby design world is readonly, and render_state is mutable",
+        "loaded world render update plugin ({})",
         state.world().updates
     );
+    let camera_idx = state.world().maybe_camera.unwrap();
+    let camera_thing = state.world().thing_as_ref(camera_idx).unwrap();
+    // random gdc guy from amd: "Shoud provide a 'more declarative api' rather than hand back buffers"...
+    let render_state = state.render_state();
+
+    for (id, model) in state.world().facets.models.iter().enumerate() {
+        println!("would need to check/upload model + material {id} {model:?}");
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn update(state: &mut WorldRenderState, _dt: &Duration) {
-
-    // random gdc guy from amd: "Shoud provide a 'more declarative api' rather than hand back buffers"...
-    let _render_state = state.render_state();
-}
+pub extern "C" fn update(state: &mut WorldRenderState, _dt: &Duration) {}
 
 #[no_mangle]
 pub extern "C" fn unload(state: &mut WorldRenderState) {

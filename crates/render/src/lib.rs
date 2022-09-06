@@ -520,12 +520,15 @@ impl WorldRenderState {
             render_state,
         }
     }
+
     pub fn world(&mut self) -> &World {
         self.world.deref()
     }
+
     pub fn render_state(&mut self) -> &mut RenderState {
         self.render_state.deref_mut()
     }
+
 }
 
 unsafe extern "system" fn vulkan_debug_callback(

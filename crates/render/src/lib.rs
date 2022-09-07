@@ -367,7 +367,7 @@ impl VulkanBase {
         let setup_commands_reuse_fence =
             unsafe { device.create_fence(&fence_create_info, None) }.unwrap();
 
-        Self::record_submit_commandbuffer(
+        Self::record_and_submit_commandbuffer(
             &device,
             setup_command_buffer,
             setup_commands_reuse_fence,
@@ -481,7 +481,7 @@ impl VulkanBase {
             })
     }
 
-    pub fn record_submit_commandbuffer<F>(
+    pub fn record_and_submit_commandbuffer<F>(
         device: &Device,
         command_buffer: vk::CommandBuffer,
         command_buffer_reuse_fence: vk::Fence,

@@ -1,6 +1,8 @@
 use ash::vk;
 use models::Vertex;
 
+use crate::VulkanBase;
+
 // Ultimately, do we want this to exist at all? Why keep the source data around at all?
 // If we were to try to use the original data against the new, we'd want a way to diff
 // the two and arrive at a set of operations to write, in order to update the buffer.
@@ -25,6 +27,13 @@ impl BufferAndMemory {
     pub fn new(buffer: vk::Buffer, memory: vk::DeviceMemory) -> Self {
         Self { buffer, memory }
     }
+
+    pub fn deallocate(&self, base: &mut VulkanBase) {
+        unsafe {
+            base.device.free_memory(self.memory, None);
+            base.device.destroy_buffer(self.buffer, None);
+        }
+    }
 }
 
 pub struct UploadedModel {
@@ -43,6 +52,13 @@ impl Texture {
             image,
             format,
             memory,
+        }
+    }
+
+    pub fn deallocate(&self, base: &mut VulkanBase) {
+        unsafe {
+            base.device.free_memory(self.memory, None);
+            base.device.destroy_image(self.image, None);
         }
     }
 }

@@ -5,6 +5,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# TODO: consider async-ffi = "0.4.0"
 core_executor = { path = "../core_executor" }
 libloading = "0.7"
 log = "0.4"

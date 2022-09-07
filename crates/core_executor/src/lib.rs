@@ -1,4 +1,4 @@
-use std::{future::Future, pin::Pin, thread::JoinHandle};
+use std::{future::Future, pin::Pin, process::Output, thread::JoinHandle};
 
 use async_channel::Sender;
 use async_executor::LocalExecutor;
@@ -71,6 +71,8 @@ impl Clone for ThreadExecutorSpawner {
         Self {
             core_id: self.core_id,
             tx: self.tx.clone(),
+            // We DON'T carry forward killers on clone, so only one spawner is responsible for cleanup.
+            // This could be refactored into using Arc...
             task_killers: Vec::new(),
         }
     }
@@ -131,8 +133,7 @@ impl ThreadExecutorSpawner {
     ///
     // TODO: move this into a doctest
     //```
-    //    state.spawn_with_shutdown(|shutdown| {
-    //    Box::pin(async move {
+    //    state.spawn_with_shutdown(|shutdown| async move {
     //        let mut ctr = 0;
     //        loop {
     //            ctr += 1;
@@ -146,14 +147,14 @@ impl ThreadExecutorSpawner {
     //                break;
     //            }
     //        }
-    //    })
-    //  });
+    //    });
     //```
-    pub fn spawn_with_shutdown(
-        &mut self,
-        task_fn: impl FnOnce(channel::TaskShutdown) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>>,
-    ) {
-        let (killer, shutdown) = channel::TaskShutdown::new();
+    pub fn spawn_with_shutdown<T, F>(&mut self, task_fn: T)
+    where
+        F: Future<Output = ()> + Send + Sync + 'static,
+        T: FnOnce(channel::TaskWithShutdown) -> F,
+    {
+        let (killer, shutdown) = channel::TaskWithShutdown::new();
         self.fire(task_fn(shutdown));
         self.task_killers.push(killer);
     }

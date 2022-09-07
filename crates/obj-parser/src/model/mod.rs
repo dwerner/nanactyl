@@ -213,6 +213,7 @@ pub struct Interleaved {
 mod tests {
 
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn cube_format_interleaved() -> Result<(), Box<dyn Error>> {
@@ -223,7 +224,7 @@ mod tests {
         assert_eq!(interleaved.v_vt_vn.len(), 8);
 
         assert!(o.objects[0].material.is_some());
-        let ObjMaterial { diffuse_map } = o.objects[0].material.as_ref().unwrap();
+        let diffuse_map = o.objects[0].material.as_ref().unwrap();
         assert_eq!(diffuse_map, "assets/diffuse_map.png");
         Ok(())
     }

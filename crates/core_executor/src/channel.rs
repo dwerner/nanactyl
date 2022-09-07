@@ -33,13 +33,14 @@ pub struct Bichannel<S, R> {
 impl<S, R> Bichannel<S, R> {
     /// Simple bi-directional channel on top of async_channel.
     /// Send and receive can be different types.
+    /// send from left(send) -> right(recv) -> right(send) -> left(recv)
     pub fn bounded(cap: usize) -> (Bichannel<R, S>, Bichannel<S, R>) {
         let (left_send, left_recv) = async_channel::bounded::<S>(cap);
         let (right_send, right_recv) = async_channel::bounded::<R>(cap);
         (
             Bichannel {
-                recv: left_recv,
                 send: right_send,
+                recv: left_recv,
             },
             Bichannel {
                 recv: right_recv,
@@ -127,17 +128,18 @@ pub struct TaskShutdownHandle {
     kill_send: Hookshot<(), ()>,
 }
 
-pub struct TaskShutdown {
+pub struct TaskWithShutdown {
     kill_confirm: Hookshot<(), ()>,
 }
 
-impl TaskShutdown {
-    pub fn new() -> (TaskShutdownHandle, TaskShutdown) {
+impl TaskWithShutdown {
+    pub fn new() -> (TaskShutdownHandle, TaskWithShutdown) {
         let (kill_send, kill_confirm) = Hookshot::new();
         let handle = TaskShutdownHandle { kill_send };
-        let shutdown = TaskShutdown { kill_confirm };
+        let shutdown = TaskWithShutdown { kill_confirm };
         (handle, shutdown)
     }
+
     pub fn should_exit(&mut self) -> bool {
         if let Ok(()) = self.kill_confirm.try_recv() {
             return true;
@@ -159,7 +161,7 @@ impl TaskShutdownHandle {
     }
 }
 
-impl Drop for TaskShutdown {
+impl Drop for TaskWithShutdown {
     fn drop(&mut self) {
         self.kill_confirm
             .send_blocking(())

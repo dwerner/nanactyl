@@ -28,6 +28,9 @@ struct CliOpts {
 
     #[structopt(long)]
     backtrace: bool,
+
+    #[structopt(long)]
+    enable_validation_layer: bool,
 }
 
 fn main() {
@@ -108,8 +111,14 @@ fn main() {
         .unwrap()
         .into_shared();
 
+        let render_exec = core_executor::CoreAffinityExecutor::new(4);
         // state needs to be dropped on the same thread as it was created
-        let render_state = RenderState::new(win_ptr).into_shared();
+        let render_state = RenderState::new(
+            win_ptr,
+            opts.enable_validation_layer,
+            render_exec.spawners(),
+        )
+        .into_shared();
 
         let mut frame_start;
         let mut last_frame_complete = Instant::now();
@@ -142,7 +151,7 @@ fn main() {
             let last_frame_elapsed = last_frame_complete.elapsed();
 
             let _duration = spawners[2]
-                .spawn(update_render_state_from_world(
+                .spawn(call_world_render_state_update_plugin(
                     &render_state,
                     &world,
                     &world_render_update_plugin,
@@ -176,7 +185,7 @@ fn main() {
     println!("nshell closed");
 }
 
-fn update_render_state_from_world(
+fn call_world_render_state_update_plugin(
     render_state: &Arc<Mutex<RenderState>>,
     world: &Arc<Mutex<World>>,
     plugin: &Arc<Mutex<Plugin<render::WorldRenderState>>>,

@@ -11,6 +11,8 @@ use ash::{
 };
 
 use async_lock::{Mutex, MutexGuardArc};
+use core_executor::channel::Bichannel;
+use core_executor::ThreadExecutorSpawner;
 use platform::WinPtr;
 use world::World;
 
@@ -26,6 +28,8 @@ pub struct Drawable {
 pub enum RenderStateError {
     #[error("plugin error {0:?}")]
     PluginError(Box<dyn std::error::Error + Send + Sync>),
+    #[error("model upload error")]
+    ModelUploadTODO,
 }
 
 pub struct RenderState {
@@ -33,20 +37,59 @@ pub struct RenderState {
     pub updates: u64,
     pub win_ptr: WinPtr,
     vulkan: VulkanRendererState,
+    pub enable_validation_layer: bool,
+    copy_spawners: Vec<ThreadExecutorSpawner>,
+    pub task_spawners: Vec<ThreadExecutorSpawner>,
 }
 
 impl RenderState {
+    pub fn new(
+        win_ptr: WinPtr,
+        enable_validation_layer: bool,
+        spawners: Vec<ThreadExecutorSpawner>,
+    ) -> Self {
+        Self {
+            updates: 0,
+            win_ptr,
+            vulkan: VulkanRendererState::default(),
+            enable_validation_layer,
+            task_spawners: spawners.clone(),
+            copy_spawners: spawners,
+        }
+    }
+
+    pub fn into_shared(self) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(self))
+    }
+
+    // "Declarative" style api attempt - don't expose any renderer details/buffers, instead have RenderState track them
+
+    pub fn upload_and_track_model(
+        &mut self,
+        model: &models::Model,
+    ) -> Result<(), RenderStateError> {
+        Err(RenderStateError::ModelUploadTODO)
+    }
+
+    // Eventually, VulkanBase and VulkanBaseWrapper join together, and this base & presenter pair go away
     pub fn set_base(&mut self, base: VulkanBase) {
         self.vulkan.base = Some(base);
     }
 
-    // Eventually, VulkanBase and VulkanBaseWrapper join together, and this base & presenter pair go away
     pub fn cleanup_base_and_presenter(&mut self) {
         if let (Some(mut presenter), Some(mut base)) =
             (self.vulkan.presenter.take(), self.vulkan.base.take())
         {
             presenter.drop_resources(&mut base);
         }
+    }
+
+    pub fn create_spawners(&mut self) {
+        self.task_spawners = self.copy_spawners.clone();
+    }
+
+    pub fn cleanup_spawners(&mut self) {
+        self.task_spawners.drain(..);
     }
 
     pub fn take_presenter(&mut self) -> Option<Box<dyn Presenter + Send + Sync>> {
@@ -64,32 +107,16 @@ impl RenderState {
         }
         println!("present called with no renderer assigned");
     }
-    // pub fn upload_and_track_model(&mut self, model: &model::Model) -> Result<(), RenderStateError> {
-    // }
+
     pub fn set_presenter(&mut self, presenter: Box<dyn Presenter + Send + Sync>) {
         self.vulkan.presenter = Some(presenter);
-    }
-
-    pub fn create_base(&mut self) -> Result<VulkanBase, RenderStateError> {
-        Ok(VulkanBase::new(self.win_ptr))
-    }
-
-    pub fn new(win_ptr: WinPtr) -> Self {
-        Self {
-            updates: 0,
-            win_ptr,
-            vulkan: VulkanRendererState::default(),
-        }
-    }
-
-    pub fn into_shared(self) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(self))
     }
 }
 
 impl Drop for RenderState {
     fn drop(&mut self) {
         self.cleanup_base_and_presenter();
+        self.cleanup_spawners();
     }
 }
 
@@ -102,6 +129,53 @@ pub struct VulkanRendererState {
 pub trait Presenter {
     fn present(&self, base: &mut VulkanBase);
     fn drop_resources(&mut self, base: &mut VulkanBase);
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct TextureId(u32);
+
+impl TextureId {
+    pub fn new(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum TextureUploaderError {
+    #[error("queue send error")]
+    QueueSend,
+    #[error("queue send error")]
+    QueueRecv,
+}
+
+pub struct TextureUploader<'a> {
+    state: &'a mut RenderState,
+    queue: Bichannel<image::DynamicImage, TextureId>,
+}
+
+impl<'a> TextureUploader<'a> {
+    pub fn new(state: &'a mut RenderState) -> Self {
+        let (queue, queue_recv) = Bichannel::bounded(10);
+
+        Self { state, queue }
+    }
+
+    // This thinking is predecated on upload/submit/wait for idle cycle and isn't efficient.
+    pub async fn upload_texture(
+        &mut self,
+        img: image::DynamicImage,
+    ) -> Result<TextureId, TextureUploaderError> {
+        self.queue
+            .send(img)
+            .await
+            .map_err(|_| TextureUploaderError::QueueSend)?;
+        let texture_id = self
+            .queue
+            .recv()
+            .await
+            .map_err(|_| TextureUploaderError::QueueRecv)?;
+        Ok(texture_id)
+    }
 }
 
 pub struct VulkanBase {
@@ -139,12 +213,12 @@ pub struct VulkanBase {
     pub draw_commands_reuse_fence: vk::Fence,
     pub setup_commands_reuse_fence: vk::Fence,
 
-    pub debug_utils_loader: Option<ext::DebugUtils>,
-    pub debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
+    pub maybe_debug_utils_loader: Option<ext::DebugUtils>,
+    pub maybe_debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
 }
 
 impl VulkanBase {
-    pub fn new(win_ptr: platform::WinPtr) -> Self {
+    pub fn new(win_ptr: platform::WinPtr, enable_validation_layer: bool) -> Self {
         let entry = unsafe { Entry::load() }.expect("unable to load vulkan");
         let application_info = &vk::ApplicationInfo {
             api_version: vk::make_api_version(0, 1, 0, 0),
@@ -155,7 +229,12 @@ impl VulkanBase {
             .unwrap()
             .to_vec();
 
-        let layer_names = vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
+        // TODO: make validation optional as this layer won't exist on most systems if the Vulkan SDK isn't installed
+        let layer_names = if enable_validation_layer {
+            vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()]
+        } else {
+            vec![]
+        };
         let layers_names_raw: Vec<*const i8> = layer_names
             .iter()
             .map(|raw_name| raw_name.as_ptr())
@@ -172,25 +251,13 @@ impl VulkanBase {
 
         let instance = unsafe { entry.create_instance(&create_info, None) }.unwrap();
 
-        let debug_utils_loader = ext::DebugUtils::new(&entry, &instance);
-        let debug_call_back = {
-            let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
-                .message_severity(
-                    vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
-                        | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
-                        | vk::DebugUtilsMessageSeverityFlagsEXT::INFO,
-                )
-                .message_type(
-                    vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
-                        | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
-                        | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
-                )
-                .pfn_user_callback(Some(vulkan_debug_callback));
-
-            unsafe {
-                debug_utils_loader
-                    .create_debug_utils_messenger(&debug_info, None)
-                    .unwrap()
+        let (maybe_debug_utils_loader, maybe_debug_call_back) = {
+            if enable_validation_layer {
+                let (debug_utils_loader, debug_call_back) =
+                    create_debug_callback(&entry, &instance);
+                (Some(debug_utils_loader), Some(debug_call_back))
+            } else {
+                (None, None)
             }
         };
 
@@ -457,8 +524,8 @@ impl VulkanBase {
             setup_commands_reuse_fence,
             surface,
             depth_image_memory,
-            debug_utils_loader: Some(debug_utils_loader),
-            debug_call_back: Some(debug_call_back),
+            maybe_debug_utils_loader,
+            maybe_debug_call_back,
         }
     }
 
@@ -481,6 +548,7 @@ impl VulkanBase {
             })
     }
 
+    //TODO: TaskWithShutdown that can record, record, record, then submit on close.
     pub fn record_and_submit_commandbuffer<F>(
         device: &Device,
         command_buffer: vk::CommandBuffer,
@@ -521,6 +589,34 @@ impl VulkanBase {
     }
 }
 
+fn create_debug_callback(
+    entry: &Entry,
+    instance: &ash::Instance,
+) -> (ext::DebugUtils, vk::DebugUtilsMessengerEXT) {
+    let debug_utils_loader = ext::DebugUtils::new(entry, instance);
+    let debug_call_back = {
+        let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+            .message_severity(
+                vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+                    | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
+                    | vk::DebugUtilsMessageSeverityFlagsEXT::INFO,
+            )
+            .message_type(
+                vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                    | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+                    | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
+            )
+            .pfn_user_callback(Some(vulkan_debug_callback));
+
+        unsafe {
+            debug_utils_loader
+                .create_debug_utils_messenger(&debug_info, None)
+                .unwrap()
+        }
+    };
+    (debug_utils_loader, debug_call_back)
+}
+
 impl Drop for VulkanBase {
     fn drop(&mut self) {
         unsafe {
@@ -545,9 +641,10 @@ impl Drop for VulkanBase {
             self.device.destroy_device(None);
             self.surface_loader.destroy_surface(self.surface, None);
 
-            if let Some((debug_utils, call_back)) =
-                Option::zip(self.debug_utils_loader.take(), self.debug_call_back.take())
-            {
+            if let Some((debug_utils, call_back)) = Option::zip(
+                self.maybe_debug_utils_loader.take(),
+                self.maybe_debug_call_back.take(),
+            ) {
                 debug_utils.destroy_debug_utils_messenger(call_back, None);
             }
             self.instance.destroy_instance(None);

@@ -1,7 +1,27 @@
+use std::ffi::NulError;
+
 use ash::vk;
 use models::Vertex;
 
 use crate::VulkanBase;
+
+#[derive(thiserror::Error, Debug)]
+pub enum VulkanError {
+    #[error("Unable to find suitable memorytype for the buffer")]
+    UnableToFindMemoryTypeForBuffer,
+
+    #[error("vk result")]
+    VkResult(vk::Result),
+
+    #[error("failed to create pipeline")]
+    FailedToCreatePipeline(Vec<vk::Pipeline>, vk::Result),
+
+    #[error("invalid CString from &'static str")]
+    InvalidCString(NulError),
+
+    #[error("image error {0:?}")]
+    Image(image::ImageError),
+}
 
 // Ultimately, do we want this to exist at all? Why keep the source data around at all?
 // If we were to try to use the original data against the new, we'd want a way to diff
@@ -116,5 +136,58 @@ impl VertexInputAssembly {
             .vertex_attribute_descriptions(&self.attribute_descriptions)
             .vertex_binding_descriptions(&self.binding_descriptions)
             .build()
+    }
+}
+
+#[derive(Default)]
+pub struct Attachments {
+    descriptions: Vec<vk::AttachmentDescription>,
+}
+
+impl Attachments {
+    pub fn all(&self) -> &[vk::AttachmentDescription] {
+        &self.descriptions
+    }
+}
+
+pub struct AttachmentsModifier<'a> {
+    pub attachments: &'a mut Attachments,
+    pub attachment_refs: Vec<vk::AttachmentReference>,
+}
+
+impl<'a> AttachmentsModifier<'a> {
+    pub fn new(attachments: &'a mut Attachments) -> Self {
+        Self {
+            attachments,
+            attachment_refs: Vec::new(),
+        }
+    }
+
+    pub fn add_single(
+        &mut self,
+        description: vk::AttachmentDescription,
+        ref_layout: vk::ImageLayout,
+    ) -> vk::AttachmentReference {
+        let index = self.attachments.descriptions.len();
+        self.attachments.descriptions.push(description);
+
+        vk::AttachmentReference {
+            attachment: index as u32,
+            layout: ref_layout,
+        }
+    }
+
+    pub fn add_attachment(
+        mut self,
+        description: vk::AttachmentDescription,
+        ref_layout: vk::ImageLayout,
+    ) -> Self {
+        let reference = self.add_single(description, ref_layout);
+        self.attachment_refs.push(reference);
+        self
+    }
+
+    pub fn into_refs(self) -> Vec<vk::AttachmentReference> {
+        self.attachment_refs
     }
 }

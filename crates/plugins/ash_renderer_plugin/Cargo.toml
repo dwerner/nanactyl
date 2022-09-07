@@ -9,6 +9,7 @@ crate-type = ["cdylib"]
 [dependencies]
 ash = "0.37.0+1.3.209"
 cstr = "0.2.10"
+async-io = "1.9.0"
 image = { version = "0.24.3", default-features = false, features=["png"] }
 platform = {path = "../../platform" }
 render = {path = "../../render" }

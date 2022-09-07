@@ -1,5 +1,5 @@
 use std::{
-    ffi::{CString, NulError},
+    ffi::CString,
     io::{self, Cursor},
     mem::align_of,
     time::Duration,
@@ -8,27 +8,12 @@ use std::{
 use ash::{util::Align, vk};
 use models::Vertex;
 use render::{
-    types::{BufferAndMemory, BufferWithData, Texture, VertexInputAssembly},
-    Presenter, RenderState, VulkanBase,
+    types::{
+        Attachments, AttachmentsModifier, BufferAndMemory, BufferWithData, Texture,
+        VertexInputAssembly, VulkanError,
+    },
+    Presenter, RenderState, TextureUploader, VulkanBase,
 };
-
-#[derive(thiserror::Error, Debug)]
-pub enum VulkanError {
-    #[error("Unable to find suitable memorytype for the buffer")]
-    UnableToFindMemoryTypeForBuffer,
-
-    #[error("vk result")]
-    VkResult(vk::Result),
-
-    #[error("failed to create pipeline")]
-    FailedToCreatePipeline(Vec<vk::Pipeline>, vk::Result),
-
-    #[error("invalid CString from &'static str")]
-    InvalidCString(NulError),
-
-    #[error("image error {0:?}")]
-    Image(image::ImageError),
-}
 
 pub struct ShaderStages {
     modules: Vec<vk::ShaderModule>,
@@ -173,8 +158,6 @@ impl Renderer {
                         0,
                         1,
                     );
-                    // Or draw without the index buffer
-                    // device.cmd_draw(draw_command_buffer, 3, 1, 0, 0);
                     device.cmd_end_render_pass(draw_command_buffer)
                 };
             },
@@ -260,59 +243,6 @@ macro_rules! offset_of {
 //     pub z: f32,
 //     pub _pad: f32,
 // }
-
-#[derive(Default)]
-pub struct Attachments {
-    descriptions: Vec<vk::AttachmentDescription>,
-}
-
-impl Attachments {
-    pub fn all(&self) -> &[vk::AttachmentDescription] {
-        &self.descriptions
-    }
-}
-
-struct AttachmentsModifier<'a> {
-    attachments: &'a mut Attachments,
-    attachment_refs: Vec<vk::AttachmentReference>,
-}
-
-impl<'a> AttachmentsModifier<'a> {
-    pub fn new(attachments: &'a mut Attachments) -> Self {
-        Self {
-            attachments,
-            attachment_refs: Vec::new(),
-        }
-    }
-
-    pub fn add_single(
-        &mut self,
-        description: vk::AttachmentDescription,
-        ref_layout: vk::ImageLayout,
-    ) -> vk::AttachmentReference {
-        let index = self.attachments.descriptions.len();
-        self.attachments.descriptions.push(description);
-
-        vk::AttachmentReference {
-            attachment: index as u32,
-            layout: ref_layout,
-        }
-    }
-
-    pub fn add_attachment(
-        mut self,
-        description: vk::AttachmentDescription,
-        ref_layout: vk::ImageLayout,
-    ) -> Self {
-        let reference = self.add_single(description, ref_layout);
-        self.attachment_refs.push(reference);
-        self
-    }
-
-    pub fn into_refs(self) -> Vec<vk::AttachmentReference> {
-        self.attachment_refs
-    }
-}
 
 pub struct VulkanBaseWrapper<'a>(&'a mut VulkanBase);
 
@@ -1058,13 +988,31 @@ pub struct Renderer {
 pub extern "C" fn load(state: &mut RenderState) {
     println!("loaded ash_renderer_plugin");
 
-    let mut base = state.create_base().unwrap();
+    let mut base = VulkanBase::new(state.win_ptr, state.enable_validation_layer);
+    // let device = base.device;
+    // let fence = wrapper.setup_commands_reuse_fence;
+
     state.set_presenter(Box::new(
         VulkanBaseWrapper::new(&mut base)
             .create_renderer()
             .expect("unable to setup renderer"),
     ));
     state.set_base(base);
+    state.create_spawners();
+
+    for spawner in state.task_spawners.iter_mut() {
+        // let texture_uploader = TextureUploader::new();
+        spawner.spawn_with_shutdown(|mut shutdown| async move {
+            println!("started renderer task");
+            loop {
+                async_io::Timer::after(Duration::from_millis(10)).await;
+                if shutdown.should_exit() {
+                    println!("ending async task in plugin");
+                    break;
+                }
+            }
+        });
+    }
 }
 
 #[no_mangle]
@@ -1079,6 +1027,7 @@ pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
 
 #[no_mangle]
 pub extern "C" fn unload(state: &mut RenderState) {
-    println!("unloaded ash_renderer_plugin");
     state.cleanup_base_and_presenter();
+    state.cleanup_spawners();
+    println!("unloaded ash_renderer_plugin");
 }

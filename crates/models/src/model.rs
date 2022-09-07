@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Instant;
 
 // TODO: still need to refactor nom-obj to take BufReader, among other things
 use obj_parser::model::{Interleaved, Mtl, MtlError, Obj, ObjError};
@@ -50,24 +51,25 @@ pub enum ModelLoadError {
 #[derive(Debug, Clone)]
 pub struct Model {
     pub path: PathBuf,
+    pub loaded_time: Instant,
     pub material: Material,
     pub mesh: Mesh,
 }
 
 impl Model {
     pub fn load(filename: impl AsRef<Path>) -> Result<Self, ModelLoadError> {
-        let parsed_obj = Obj::load(&filename).map_err(ModelLoadError::Obj)?;
-
-        let obj = parsed_obj
-            .objects
-            .get(0)
-            .ok_or(ModelLoadError::ObjHasMultipleModelsDefined)?;
+        let obj = Obj::load(&filename).map_err(ModelLoadError::Obj)?;
+        let obj = {
+            obj.objects
+                .get(0)
+                .ok_or(ModelLoadError::ObjHasMultipleModelsDefined)?
+        };
 
         let Interleaved { v_vt_vn, idx } = obj.interleaved();
 
         let verts = v_vt_vn
             .iter()
-            .map(|&(v, vt, vn)| Vertex::new((v.0, v.1, v.2), vt, vn))
+            .map(|&(v, vt, _vn)| Vertex::new(v, vt)) //, vn))
             .collect::<Vec<_>>();
 
         if verts.is_empty() {
@@ -76,10 +78,7 @@ impl Model {
 
         let indices = idx.iter().map(|x: &usize| *x as u16).collect::<Vec<_>>();
 
-        let mtl_file_path = &parsed_obj.objects[0]
-            .material
-            .as_ref()
-            .ok_or(ModelLoadError::NoMaterial)?;
+        let mtl_file_path = &obj.material.as_ref().ok_or(ModelLoadError::NoMaterial)?;
 
         let base_filename = filename.as_ref().to_path_buf();
         let base_path = base_filename.clone().parent().unwrap().to_path_buf();
@@ -105,6 +104,7 @@ impl Model {
         Ok(Model {
             path: base_filename,
             mesh: Mesh::create(verts, indices),
+            loaded_time: Instant::now(),
             material: Material {
                 path: material_path,
                 diffuse_map,
@@ -124,25 +124,17 @@ pub struct Normal(pub f32, pub f32, pub f32);
 
 #[derive(Debug, Copy, Clone)]
 pub struct Vertex {
-    pub position: Vector,
-    pub uvw: UVW,
-    pub normal: Normal,
+    pub pos: [f32; 4],
+    pub uv: [f32; 2],
+    // pub normal: [f32;4]
 }
 
 impl Vertex {
-    pub fn new(v: (f32, f32, f32), vt: (f32, f32, f32), vn: (f32, f32, f32)) -> Self {
+    pub fn new(v: (f32, f32, f32, f32), vt: (f32, f32, f32)) -> Self {
         Vertex {
-            position: Vector(v.0, v.1, v.2),
-            uvw: UVW(vt.0, vt.1, vt.2),
-            normal: Normal(vn.0, vn.1, vn.2),
-        }
-    }
-
-    pub fn from_parts(v: Vector, u: UVW, n: Normal) -> Self {
-        Vertex {
-            position: v,
-            uvw: u,
-            normal: n,
+            pos: [v.0, v.1, v.2, v.3],
+            uv: [vt.0, vt.1], // , vt.2),
+                              // normal: Normal(vn.0, vn.1, vn.2),
         }
     }
 }

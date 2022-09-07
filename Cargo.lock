@@ -74,6 +74,7 @@ dependencies = [
  "ash",
  "cstr",
  "image",
+ "models",
  "platform",
  "render",
  "thiserror",
@@ -1308,7 +1309,9 @@ dependencies = [
  "ash",
  "ash-window",
  "async-lock",
+ "models",
  "platform",
+ "thiserror",
  "world",
 ]
 

@@ -6,8 +6,11 @@ use std::{
 };
 
 use ash::{util::Align, vk};
-
-use render::{Presenter, RenderState, VulkanBase};
+use models::Vertex;
+use render::{
+    types::{BufferAndMemory, BufferWithData, Texture, VertexInputAssembly},
+    Presenter, RenderState, VulkanBase,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum VulkanError {
@@ -25,6 +28,67 @@ pub enum VulkanError {
 
     #[error("image error {0:?}")]
     Image(image::ImageError),
+}
+
+pub struct ShaderStages {
+    modules: Vec<vk::ShaderModule>,
+    pub shader_stage_defs: Vec<ShaderStage>,
+}
+
+impl ShaderStages {
+    pub fn new() -> Self {
+        Self {
+            modules: Vec::new(),
+            shader_stage_defs: Vec::new(),
+        }
+    }
+
+    pub fn add_shader<R>(
+        &mut self,
+        v: &mut VulkanBaseWrapper,
+        reader: &mut R,
+        entry_point_name: &'static str,
+        stage: vk::ShaderStageFlags,
+    ) -> Result<(), VulkanError>
+    where
+        R: io::Read + io::Seek,
+    {
+        let module = v.read_shader_module(reader)?;
+        let idx = self.modules.len();
+        self.modules.push(module);
+        let shader_stage = ShaderStage::new(self.modules[idx], entry_point_name, stage)?;
+        self.shader_stage_defs.push(shader_stage);
+        Ok(())
+    }
+}
+
+pub struct ShaderStage {
+    module: vk::ShaderModule,
+    entry_point_name: CString,
+    stage: vk::ShaderStageFlags,
+}
+
+impl ShaderStage {
+    pub fn new(
+        module: vk::ShaderModule,
+        entry_point_name: &'static str,
+        stage: vk::ShaderStageFlags,
+    ) -> Result<Self, VulkanError> {
+        Ok(Self {
+            module,
+            entry_point_name: CString::new(entry_point_name)
+                .map_err(VulkanError::InvalidCString)?,
+            stage,
+        })
+    }
+
+    pub fn create_info(&self) -> vk::PipelineShaderStageCreateInfo {
+        vk::PipelineShaderStageCreateInfo::builder()
+            .module(self.module)
+            .name(self.entry_point_name.as_c_str())
+            .stage(self.stage)
+            .build()
+    }
 }
 
 impl Presenter for Renderer {
@@ -49,19 +113,13 @@ macro_rules! offset_of {
     }};
 }
 
-#[derive(Clone, Debug, Copy)]
-struct Vertex {
-    pos: [f32; 4],
-    uv: [f32; 2],
-}
-
-#[derive(Clone, Debug, Copy)]
-pub struct Vector3 {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-    pub _pad: f32,
-}
+// #[derive(Clone, Debug, Copy)]
+// pub struct Vector3 {
+//     pub x: f32,
+//     pub y: f32,
+//     pub z: f32,
+//     pub _pad: f32,
+// }
 
 #[derive(Default)]
 pub struct Attachments {
@@ -853,160 +911,6 @@ pub struct Renderer {
     shader_stages: ShaderStages,
 }
 
-pub struct BufferWithData<T> {
-    data: Vec<T>,
-    buffer: BufferAndMemory,
-}
-
-impl<T> BufferWithData<T> {
-    pub fn new(buffer: BufferAndMemory, data: Vec<T>) -> Self {
-        Self { buffer, data }
-    }
-}
-
-pub struct BufferAndMemory {
-    buffer: vk::Buffer,
-    memory: vk::DeviceMemory,
-}
-
-impl BufferAndMemory {
-    pub fn new(buffer: vk::Buffer, memory: vk::DeviceMemory) -> Self {
-        Self { buffer, memory }
-    }
-}
-
-pub struct Texture {
-    format: vk::Format,
-    image: vk::Image,
-    memory: vk::DeviceMemory,
-}
-
-impl Texture {
-    pub fn new(format: vk::Format, image: vk::Image, memory: vk::DeviceMemory) -> Self {
-        Self {
-            image,
-            format,
-            memory,
-        }
-    }
-}
-
-pub struct ShaderStages {
-    modules: Vec<vk::ShaderModule>,
-    pub shader_stage_defs: Vec<ShaderStage>,
-}
-
-impl ShaderStages {
-    pub fn new() -> Self {
-        Self {
-            modules: Vec::new(),
-            shader_stage_defs: Vec::new(),
-        }
-    }
-    pub fn add_shader<R>(
-        &mut self,
-        v: &mut VulkanBaseWrapper,
-        reader: &mut R,
-        entry_point_name: &'static str,
-        stage: vk::ShaderStageFlags,
-    ) -> Result<(), VulkanError>
-    where
-        R: io::Read + io::Seek,
-    {
-        let module = v.read_shader_module(reader)?;
-        let idx = self.modules.len();
-        self.modules.push(module);
-        let shader_stage = ShaderStage::new(self.modules[idx], entry_point_name, stage)?;
-        self.shader_stage_defs.push(shader_stage);
-        Ok(())
-    }
-}
-
-pub struct VertexInputAssembly {
-    pub topology: vk::PrimitiveTopology,
-    pub binding_descriptions: Vec<vk::VertexInputBindingDescription>,
-    pub attribute_descriptions: Vec<vk::VertexInputAttributeDescription>,
-}
-
-impl VertexInputAssembly {
-    pub fn new(topology: vk::PrimitiveTopology) -> Self {
-        Self {
-            topology,
-            binding_descriptions: Vec::new(),
-            attribute_descriptions: Vec::new(),
-        }
-    }
-    pub fn assembly_state_info(&self) -> vk::PipelineInputAssemblyStateCreateInfo {
-        vk::PipelineInputAssemblyStateCreateInfo {
-            topology: self.topology,
-            ..Default::default()
-        }
-    }
-
-    pub fn add_binding_description<T>(&mut self, binding: u32, input_rate: vk::VertexInputRate)
-    where
-        T: Copy,
-    {
-        self.binding_descriptions
-            .push(vk::VertexInputBindingDescription {
-                binding,
-                stride: std::mem::size_of::<T>() as u32,
-                input_rate,
-            });
-    }
-    pub fn add_attribute_description(
-        &mut self,
-        location: u32,
-        binding: u32,
-        format: vk::Format,
-        offset: u32,
-    ) {
-        self.attribute_descriptions
-            .push(vk::VertexInputAttributeDescription {
-                location,
-                binding,
-                format,
-                offset,
-            });
-    }
-
-    pub fn input_state_info(&self) -> vk::PipelineVertexInputStateCreateInfo {
-        vk::PipelineVertexInputStateCreateInfo::builder()
-            .vertex_attribute_descriptions(&self.attribute_descriptions)
-            .vertex_binding_descriptions(&self.binding_descriptions)
-            .build()
-    }
-}
-
-pub struct ShaderStage {
-    module: vk::ShaderModule,
-    entry_point_name: CString,
-    stage: vk::ShaderStageFlags,
-}
-
-impl ShaderStage {
-    pub fn new(
-        module: vk::ShaderModule,
-        entry_point_name: &'static str,
-        stage: vk::ShaderStageFlags,
-    ) -> Result<Self, VulkanError> {
-        Ok(Self {
-            module,
-            entry_point_name: CString::new(entry_point_name)
-                .map_err(VulkanError::InvalidCString)?,
-            stage,
-        })
-    }
-
-    pub fn create_info(&self) -> vk::PipelineShaderStageCreateInfo {
-        vk::PipelineShaderStageCreateInfo::builder()
-            .module(self.module)
-            .name(self.entry_point_name.as_c_str())
-            .stage(self.stage)
-            .build()
-    }
-}
-
 fn present(renderer: &Renderer, base: &mut VulkanBase) -> Result<(), VulkanError> {
     let (present_index, _) = unsafe {
         base.swapchain_loader.acquire_next_image(
@@ -1162,13 +1066,13 @@ fn drop_resources(base: &mut VulkanBase, renderer: &mut Renderer) -> Result<(), 
 pub extern "C" fn load(state: &mut RenderState) {
     println!("loaded ash_renderer_plugin");
 
-    let mut base = VulkanBase::new(state.win_ptr);
-    state.vulkan.presenter = Some(Box::pin(
+    let mut base = state.create_base().unwrap();
+    state.set_presenter(Box::new(
         VulkanBaseWrapper::new(&mut base)
             .create_renderer()
             .expect("unable to setup renderer"),
     ));
-    state.vulkan.base = Some(base);
+    state.set_base(base);
 }
 
 #[no_mangle]
@@ -1178,14 +1082,11 @@ pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
     if state.updates % 600 == 0 {
         println!("updates: {} dt: {:?}", state.updates, dt);
     }
-    if let (Some(present), Some(base)) = (&state.vulkan.presenter, &mut state.vulkan.base) {
-        present.present(base);
-    }
+    state.present();
 }
 
 #[no_mangle]
 pub extern "C" fn unload(state: &mut RenderState) {
     println!("unloaded ash_renderer_plugin");
-    state.vulkan.presenter.take();
-    state.vulkan.base.take();
+    state.cleanup_base_and_presenter();
 }

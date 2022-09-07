@@ -12,4 +12,5 @@ cstr = "0.2.10"
 image = { version = "0.24.3", default-features = false, features=["png"] }
 platform = {path = "../../platform" }
 render = {path = "../../render" }
+models = { path = "../../models" }
 thiserror = "1.0.32"

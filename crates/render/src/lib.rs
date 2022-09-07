@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 use std::ffi::{CStr, CString};
 use std::ops::{Deref, DerefMut};
-use std::pin::Pin;
 use std::{sync::Arc, time::Duration};
 
 use ash::extensions::ext;
@@ -15,20 +14,66 @@ use async_lock::{Mutex, MutexGuardArc};
 use platform::WinPtr;
 use world::World;
 
+pub mod types;
+
 #[derive(Debug)]
 pub struct Drawable {
     pub id: world::Identity,
     pub rendered: Duration,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum RenderStateError {
+    #[error("plugin error {0:?}")]
+    PluginError(Box<dyn std::error::Error + Send + Sync>),
+}
+
 pub struct RenderState {
     // pub entities: Vec<Drawable>,
     pub updates: u64,
     pub win_ptr: WinPtr,
-    pub vulkan: VulkanRendererState,
+    vulkan: VulkanRendererState,
 }
 
 impl RenderState {
+    pub fn set_base(&mut self, base: VulkanBase) {
+        self.vulkan.base = Some(base);
+    }
+
+    // Eventually, VulkanBase and VulkanBaseWrapper join together, and this base & presenter pair go away
+    pub fn cleanup_base_and_presenter(&mut self) {
+        if let (Some(mut presenter), Some(mut base)) =
+            (self.vulkan.presenter.take(), self.vulkan.base.take())
+        {
+            presenter.drop_resources(&mut base);
+        }
+    }
+
+    pub fn take_presenter(&mut self) -> Option<Box<dyn Presenter + Send + Sync>> {
+        self.vulkan.presenter.take()
+    }
+
+    pub fn take_base(&mut self) -> Option<VulkanBase> {
+        self.vulkan.base.take()
+    }
+
+    pub fn present(&mut self) {
+        if let (Some(present), Some(base)) = (&self.vulkan.presenter, &mut self.vulkan.base) {
+            present.present(base);
+            return;
+        }
+        println!("present called with no renderer assigned");
+    }
+    // pub fn upload_and_track_model(&mut self, model: &model::Model) -> Result<(), RenderStateError> {
+    // }
+    pub fn set_presenter(&mut self, presenter: Box<dyn Presenter + Send + Sync>) {
+        self.vulkan.presenter = Some(presenter);
+    }
+
+    pub fn create_base(&mut self) -> Result<VulkanBase, RenderStateError> {
+        Ok(VulkanBase::new(self.win_ptr))
+    }
+
     pub fn new(win_ptr: WinPtr) -> Self {
         Self {
             updates: 0,
@@ -42,10 +87,16 @@ impl RenderState {
     }
 }
 
+impl Drop for RenderState {
+    fn drop(&mut self) {
+        self.cleanup_base_and_presenter();
+    }
+}
+
 #[derive(Default)]
 pub struct VulkanRendererState {
     pub base: Option<VulkanBase>,
-    pub presenter: Option<Pin<Box<dyn Presenter + Send + Sync>>>,
+    pub presenter: Option<Box<dyn Presenter + Send + Sync>>,
 }
 
 pub trait Presenter {
@@ -528,7 +579,6 @@ impl WorldRenderState {
     pub fn render_state(&mut self) -> &mut RenderState {
         self.render_state.deref_mut()
     }
-
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
@@ -553,12 +603,12 @@ unsafe extern "system" fn vulkan_debug_callback(
     };
 
     println!(
-        "{:?}:\n{:?} [{} ({})] : {}\n",
+        "VK {:?}: {:?} [{} ({})] : {}",
         message_severity,
         message_type,
         message_id_name,
         &message_id_number.to_string(),
-        message,
+        message.trim(),
     );
 
     vk::FALSE

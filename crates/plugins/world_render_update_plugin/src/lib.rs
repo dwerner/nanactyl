@@ -22,7 +22,7 @@ pub extern "C" fn load(state: &mut WorldRenderState) {
 }
 
 #[no_mangle]
-pub extern "C" fn update(state: &mut WorldRenderState, _dt: &Duration) {}
+pub extern "C" fn update(_state: &mut WorldRenderState, _dt: &Duration) {}
 
 #[no_mangle]
 pub extern "C" fn unload(state: &mut WorldRenderState) {

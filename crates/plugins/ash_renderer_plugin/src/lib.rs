@@ -370,6 +370,9 @@ impl<'a> VulkanBaseWrapper<'a> {
         let framebuffers: Vec<vk::Framebuffer> = self.framebuffers(render_pass)?;
 
         let texture = {
+            // This is very inefficient - we should be lining up all texture uploads and recording those command buffers.
+            // Then join threads/jobs and submit the buffers, but wait on device idle for non-compliant vulkan implementations
+            // missing vkWaitSemaphore ~ device.wait_semaphore().
             let image = image::load_from_memory(include_bytes!("../../../../assets/ping.png"))
                 .map_err(VulkanError::Image)?
                 .to_rgba8();
@@ -402,14 +405,11 @@ impl<'a> VulkanBaseWrapper<'a> {
 
         let mut shader_stages = ShaderStages::new();
 
+        //? shader compiler could live as a Plugin
         let mut vertex_spv_file =
             Cursor::new(&include_bytes!("../../../../assets/shaders/vertex_rustgpu.spv")[..]);
-        // let mut vertex_spv_file =
-        //     Cursor::new(&include_bytes!("../../../../assets/shaders/vert.spv")[..]);
         let mut frag_spv_file =
             Cursor::new(&include_bytes!("../../../../assets/shaders/fragment_rustgpu.spv")[..]);
-        // let mut frag_spv_file =
-        //     Cursor::new(&include_bytes!("../../../../assets/shaders/frag.spv")[..]);
 
         shader_stages.add_shader(
             self,
@@ -420,8 +420,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         shader_stages.add_shader(
             self,
             &mut frag_spv_file,
-            "shader_main_long_name", //
-            //"main",
+            "shader_main_long_name",
             vk::ShaderStageFlags::FRAGMENT,
         )?;
 

@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::ops::{Deref, DerefMut};
-use std::path::PathBuf;
 use std::{sync::Arc, time::Duration};
 
 use ash::extensions::ext;
@@ -13,11 +12,10 @@ use ash::{
 };
 
 use async_lock::{Mutex, MutexGuardArc};
-use core_executor::channel::Bichannel;
 use core_executor::ThreadExecutorSpawner;
 use platform::WinPtr;
-use types::{UploadedModelRef, VulkanError};
-use world::thing::{ModelIndex, Thing};
+use types::UploadedModelRef;
+use world::thing::ModelIndex;
 use world::World;
 
 pub mod types;
@@ -157,36 +155,6 @@ pub enum TextureUploaderError {
     QueueRecv,
 }
 
-pub struct TextureUploader<'a> {
-    state: &'a mut RenderState,
-    queue: Bichannel<image::DynamicImage, TextureId>,
-}
-
-impl<'a> TextureUploader<'a> {
-    pub fn new(state: &'a mut RenderState) -> Self {
-        let (queue, queue_recv) = Bichannel::bounded(10);
-
-        Self { state, queue }
-    }
-
-    // This thinking is predecated on upload/submit/wait for idle cycle and isn't efficient.
-    pub async fn upload_texture(
-        &mut self,
-        img: image::DynamicImage,
-    ) -> Result<TextureId, TextureUploaderError> {
-        self.queue
-            .send(img)
-            .await
-            .map_err(|_| TextureUploaderError::QueueSend)?;
-        let texture_id = self
-            .queue
-            .recv()
-            .await
-            .map_err(|_| TextureUploaderError::QueueRecv)?;
-        Ok(texture_id)
-    }
-}
-
 pub struct VulkanBase {
     pub win_ptr: platform::WinPtr,
     pub entry: ash::Entry,
@@ -225,16 +193,19 @@ pub struct VulkanBase {
     pub maybe_debug_utils_loader: Option<ext::DebugUtils>,
     pub maybe_debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
 
-    uploaded_models: Vec<UploadedModelRef>,
+    uploaded_models: HashMap<ModelIndex, UploadedModelRef>,
 }
 
 impl VulkanBase {
-    // pub fn device_memory_properties(&self) -> vk::PhysicalDeviceMemoryProperties {
-    //     unsafe {
-    //         self.instance
-    //             .get_physical_device_memory_properties(self.physical_device)
-    //     }
-    // }
+    /// Track a model reference for cleanup when VulkanBase is dropped.
+    pub fn track_uploaded_model(&mut self, index: ModelIndex, model_ref: UploadedModelRef) {
+        self.uploaded_models.insert(index, model_ref);
+    }
+
+    pub fn get_tracked_model(&self, index: impl Into<ModelIndex>) -> Option<&UploadedModelRef> {
+        self.uploaded_models.get(&index.into())
+    }
+
     pub fn new(win_ptr: platform::WinPtr, enable_validation_layer: bool) -> Self {
         let entry = unsafe { Entry::load() }.expect("unable to load vulkan");
         let application_info = &vk::ApplicationInfo {
@@ -543,7 +514,7 @@ impl VulkanBase {
             depth_image_memory,
             maybe_debug_utils_loader,
             maybe_debug_call_back,
-            uploaded_models: vec![],
+            uploaded_models: HashMap::new(),
         }
     }
 
@@ -648,8 +619,8 @@ impl Drop for VulkanBase {
             self.device
                 .destroy_fence(self.setup_commands_reuse_fence, None);
 
-            let models: Vec<_> = self.uploaded_models.drain(..).collect();
-            for model in models {
+            let models: Vec<_> = self.uploaded_models.drain().collect();
+            for (_index, model) in models {
                 model.deallocate(self);
             }
 

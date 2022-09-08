@@ -9,7 +9,7 @@ pub extern "C" fn load(state: &mut LockWorldAndRenderState) {
         state.world().updates
     );
     let camera_idx = state.world().maybe_camera.unwrap();
-    let camera_thing = state.world().thing_as_ref(camera_idx).unwrap();
+    let _camera_thing = state.world().thing_as_ref(camera_idx).unwrap();
     // random gdc guy from amd: "Shoud provide a 'more declarative api' rather than hand back buffers"...
 }
 

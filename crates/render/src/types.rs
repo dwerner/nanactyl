@@ -1,7 +1,6 @@
 use std::ffi::NulError;
 
 use ash::vk;
-use models::Vertex;
 
 use crate::VulkanBase;
 
@@ -73,13 +72,28 @@ impl BufferAndMemory {
 
 // TODO rename
 pub struct UploadedModelRef {
+    pub src_image: BufferAndMemory,
     pub vertex_buffer: BufferAndMemory,
     pub index_buffer: BufferAndMemory,
     pub texture: Texture,
 }
 
 impl UploadedModelRef {
+    pub fn new(
+        texture: Texture,
+        vertex_buffer: BufferAndMemory,
+        index_buffer: BufferAndMemory,
+        src_image: BufferAndMemory,
+    ) -> Self {
+        Self {
+            texture,
+            vertex_buffer,
+            index_buffer,
+            src_image,
+        }
+    }
     pub(crate) fn deallocate(&self, base: &mut VulkanBase) {
+        self.src_image.deallocate(base);
         self.index_buffer.deallocate(base);
         self.vertex_buffer.deallocate(base);
         self.texture.deallocate(base);

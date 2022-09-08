@@ -10,7 +10,7 @@ use models::{Image, Vertex};
 use render::{
     types::{
         Attachments, AttachmentsModifier, BufferAndMemory, BufferWithData, Texture,
-        VertexInputAssembly, VulkanError,
+        UploadedModelRef, VertexInputAssembly, VulkanError,
     },
     Presenter, RenderState, VulkanBase,
 };
@@ -1182,11 +1182,6 @@ impl<'a> DeviceWrap<'a> {
 pub extern "C" fn load(state: &mut RenderState) {
     println!("loaded ash_renderer_plugin...");
     let mut base = VulkanBase::new(state.win_ptr, state.enable_validation_layer);
-    state.set_presenter(Box::new(
-        VulkanBaseWrapper::new(&mut base)
-            .create_renderer()
-            .expect("unable to setup renderer"),
-    ));
 
     // Command buffer requirements, thread safe? But cloning pointers
     // #[derive(Clone)]
@@ -1202,37 +1197,11 @@ pub extern "C" fn load(state: &mut RenderState) {
     let queue_family_index = base.queue_family_index;
     let device_memory_properties = base.device_memory_properties;
 
-    state.set_base(base);
-    state.create_spawners();
-
-    // let (sender, receiver): (Sender<models::Model>, Receiver<models::Model>) =
-    //     async_channel::bounded(10);
-
-    // let (reply_sender, reply_receiver): (Sender<models::Model>, Receiver<models::Model>) =
-    //     async_channel::bounded(10);
-
-    // for spawner in state.task_spawners.iter_mut() {
-    // let texture_uploader = TextureUploader::new();
-    // let mut reqs = reqs.clone();
-    // let receiver = receiver.clone();
-    // spawner.spawn_with_shutdown(|mut shutdown| async move {
-    //     println!("started renderer task");
-
     let w = DeviceWrap(&device);
-
     let pool = w.create_command_pool(queue_family_index).unwrap();
     let fence = w.create_fence().unwrap();
-
-    // loop {
-    // let model = match receiver.recv_blocking() {
-    //     Ok(model) => model,
-    //     Err(err) => {
-    //         println!("recv err {:?}", err);
-    //         continue;
-    //     }
-    // };
-    for (path, model) in state.models.iter() {
-        println!("loading model at {:?}...", path);
+    for (index, model) in state.models.iter() {
+        println!("loading model at {:?}...", index);
         let command_buffers = w.allocate_command_buffers(pool).unwrap();
         let command_buffer = command_buffers[0];
         w.wait_for_fence(fence).unwrap();
@@ -1250,25 +1219,39 @@ pub extern "C" fn load(state: &mut RenderState) {
         w.cmd_buffer_end(command_buffer).unwrap();
         w.submit_command_buffers(fence, queue, command_buffers)
             .unwrap();
-        // if shutdown.should_exit() {
-        //     println!("ending async task in plugin");
-        //     break;
-        // }
-    }
 
+        let vertex_buffer = w
+            .allocate_and_init_buffer(
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+                device_memory_properties,
+                &model.mesh.vertices,
+            )
+            .unwrap();
+
+        let index_buffer = w
+            .allocate_and_init_buffer(
+                vk::BufferUsageFlags::INDEX_BUFFER,
+                device_memory_properties,
+                &model.mesh.indices,
+            )
+            .unwrap();
+
+        let uploaded_model =
+            UploadedModelRef::new(dest_texture, vertex_buffer, index_buffer, src_image);
+        base.track_uploaded_model(*index, uploaded_model);
+    }
     unsafe {
         device.device_wait_idle().unwrap();
         device.destroy_fence(fence, None);
         device.destroy_command_pool(pool, None);
     }
-    // });
-    // }
-
-    // for (path, model) in state.models.iter() {
-    //     sender.send_blocking(model.clone()).unwrap();
-    //     let _model_ref = reply_receiver.recv_blocking().unwrap();
-    //     println!("(would have) uploaded model at {:?}", path);
-    // }
+    state.set_presenter(Box::new(
+        VulkanBaseWrapper::new(&mut base)
+            .create_renderer()
+            .expect("unable to setup renderer"),
+    ));
+    state.set_base(base);
+    state.create_spawners();
 }
 
 #[no_mangle]

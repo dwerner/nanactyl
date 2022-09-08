@@ -21,6 +21,21 @@ pub enum VulkanError {
 
     #[error("image error {0:?}")]
     Image(image::ImageError),
+
+    #[error("fence error {0:?}")]
+    Fence(vk::Result),
+
+    #[error("reset fence error {0:?}")]
+    ResetFence(vk::Result),
+
+    #[error("begin command buffer error {0:?}")]
+    BeginCommandBuffer(vk::Result),
+
+    #[error("end command buffer error {0:?}")]
+    EndCommandBuffer(vk::Result),
+
+    #[error("submit command buffer error {0:?}")]
+    SubmitCommandBuffers(vk::Result),
 }
 
 // Ultimately, do we want this to exist at all? Why keep the source data around at all?
@@ -56,8 +71,19 @@ impl BufferAndMemory {
     }
 }
 
-pub struct UploadedModel {
-    pub vertices: BufferWithData<Vertex>,
+// TODO rename
+pub struct UploadedModelRef {
+    pub vertex_buffer: BufferAndMemory,
+    pub index_buffer: BufferAndMemory,
+    pub texture: Texture,
+}
+
+impl UploadedModelRef {
+    pub(crate) fn deallocate(&self, base: &mut VulkanBase) {
+        self.index_buffer.deallocate(base);
+        self.vertex_buffer.deallocate(base);
+        self.texture.deallocate(base);
+    }
 }
 
 pub struct Texture {

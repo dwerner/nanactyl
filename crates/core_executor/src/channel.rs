@@ -30,21 +30,31 @@ pub struct Bichannel<S, R> {
     recv: async_channel::Receiver<R>,
 }
 
+// Rather than derive clone here, implement it manually or we require that S and R: Clone as well.
+impl<S, R> Clone for Bichannel<S, R> {
+    fn clone(&self) -> Self {
+        Self {
+            send: self.send.clone(),
+            recv: self.recv.clone(),
+        }
+    }
+}
+
 impl<S, R> Bichannel<S, R> {
     /// Simple bi-directional channel on top of async_channel.
     /// Send and receive can be different types.
     /// send from left(send) -> right(recv) -> right(send) -> left(recv)
-    pub fn bounded(cap: usize) -> (Bichannel<R, S>, Bichannel<S, R>) {
+    pub fn bounded(cap: usize) -> (Bichannel<S, R>, Bichannel<R, S>) {
         let (left_send, left_recv) = async_channel::bounded::<S>(cap);
         let (right_send, right_recv) = async_channel::bounded::<R>(cap);
         (
             Bichannel {
-                send: right_send,
-                recv: left_recv,
+                send: left_send,
+                recv: right_recv,
             },
             Bichannel {
-                recv: right_recv,
-                send: left_send,
+                recv: left_recv,
+                send: right_send,
             },
         )
     }
@@ -64,7 +74,7 @@ impl<S, R> Bichannel<S, R> {
         self.send.send_blocking(msg)
     }
 
-    pub async fn recv_blocking(&self) -> Result<R, async_channel::RecvError> {
+    pub fn recv_blocking(&self) -> Result<R, async_channel::RecvError> {
         self.recv.recv_blocking()
     }
 }

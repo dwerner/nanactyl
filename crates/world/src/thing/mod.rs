@@ -3,13 +3,13 @@ use std::time::Duration;
 use nalgebra::{Matrix4, Perspective3, Vector3};
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct PhysicalIndex(u32);
+pub struct PhysicalIndex(pub(crate) u32);
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct HealthIndex(u32);
+pub struct HealthIndex(pub(crate) u32);
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct CameraIndex(u32);
+pub struct CameraIndex(pub(crate) u32);
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct ModelIndex(u32);
+pub struct ModelIndex(pub(crate) u32);
 
 impl From<usize> for CameraIndex {
     fn from(value: usize) -> Self {

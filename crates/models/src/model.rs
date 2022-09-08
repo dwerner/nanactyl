@@ -3,6 +3,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use image::GenericImageView;
 // TODO: still need to refactor nom-obj to take BufReader, among other things
 use obj_parser::model::{Interleaved, Mtl, MtlError, Obj, ObjError};
 
@@ -16,6 +17,12 @@ pub struct Material {
 pub struct Image {
     pub path: PathBuf,
     pub image: image::DynamicImage,
+}
+
+impl Image {
+    pub fn extent(&self) -> (u32, u32) {
+        self.image.dimensions()
+    }
 }
 
 impl Debug for Image {

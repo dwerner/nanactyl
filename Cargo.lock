@@ -72,7 +72,9 @@ name = "ash_renderer_plugin"
 version = "0.1.0"
 dependencies = [
  "ash",
+ "async-channel",
  "async-io",
+ "core_executor",
  "cstr",
  "image",
  "models",

@@ -11,8 +11,8 @@ use input::EngineEvent;
 use plugin_loader::Plugin;
 use plugin_loader::PluginCheck;
 use plugin_loader::PluginError;
+use render::LockWorldAndRenderState;
 use render::RenderState;
-use render::WorldRenderState;
 use world::thing::CameraFacet;
 use world::thing::ModelFacet;
 use world::thing::PhysicalFacet;
@@ -103,13 +103,14 @@ fn main() {
         )
         .unwrap()
         .into_shared();
-        let world_render_update_plugin = Plugin::<render::WorldRenderState>::open_from_target_dir(
-            spawners[0].clone(),
-            &opts.plugin_dir,
-            "world_render_update_plugin",
-        )
-        .unwrap()
-        .into_shared();
+        let world_render_update_plugin =
+            Plugin::<render::LockWorldAndRenderState>::open_from_target_dir(
+                spawners[0].clone(),
+                &opts.plugin_dir,
+                "world_render_update_plugin",
+            )
+            .unwrap()
+            .into_shared();
 
         let render_exec = core_executor::CoreAffinityExecutor::new(4);
         // state needs to be dropped on the same thread as it was created
@@ -122,6 +123,12 @@ fn main() {
 
         let mut frame_start;
         let mut last_frame_complete = Instant::now();
+
+        {
+            let mut world_render_update_state =
+                LockWorldAndRenderState::lock(&world, &render_state).await;
+            world_render_update_state.update_models();
+        }
 
         let mut frame = 0u64;
         'frame_loop: loop {
@@ -138,7 +145,7 @@ fn main() {
             if frame % (60 * 6) == 0 {
                 check_plugin(
                     &mut *world_render_update_plugin.lock().await,
-                    &mut WorldRenderState::new(&world, &render_state).await,
+                    &mut LockWorldAndRenderState::lock(&world, &render_state).await,
                 );
 
                 let _check_plugins = futures_util::future::join(
@@ -188,14 +195,14 @@ fn main() {
 fn call_world_render_state_update_plugin(
     render_state: &Arc<Mutex<RenderState>>,
     world: &Arc<Mutex<World>>,
-    plugin: &Arc<Mutex<Plugin<render::WorldRenderState>>>,
+    plugin: &Arc<Mutex<Plugin<render::LockWorldAndRenderState>>>,
     dt: Duration,
 ) -> Pin<Box<impl Future<Output = Result<Duration, PluginError>> + Send + Sync>> {
     let render_state = Arc::clone(render_state);
     let world = Arc::clone(world);
     let plugin = Arc::clone(plugin);
     Box::pin(async move {
-        let mut state = render::WorldRenderState::new(&world, &render_state).await;
+        let mut state = render::LockWorldAndRenderState::lock(&world, &render_state).await;
         plugin.lock().await.call_update(&mut state, &dt).await
     })
 }

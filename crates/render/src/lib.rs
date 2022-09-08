@@ -1,6 +1,8 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::ops::{Deref, DerefMut};
+use std::path::PathBuf;
 use std::{sync::Arc, time::Duration};
 
 use ash::extensions::ext;
@@ -14,6 +16,8 @@ use async_lock::{Mutex, MutexGuardArc};
 use core_executor::channel::Bichannel;
 use core_executor::ThreadExecutorSpawner;
 use platform::WinPtr;
+use types::{UploadedModelRef, VulkanError};
+use world::thing::{ModelIndex, Thing};
 use world::World;
 
 pub mod types;
@@ -40,6 +44,8 @@ pub struct RenderState {
     pub enable_validation_layer: bool,
     copy_spawners: Vec<ThreadExecutorSpawner>,
     pub task_spawners: Vec<ThreadExecutorSpawner>,
+    pub models: HashMap<ModelIndex, models::Model>,
+    // TODO pub camera
 }
 
 impl RenderState {
@@ -55,6 +61,7 @@ impl RenderState {
             enable_validation_layer,
             task_spawners: spawners.clone(),
             copy_spawners: spawners,
+            models: HashMap::new(),
         }
     }
 
@@ -64,11 +71,13 @@ impl RenderState {
 
     // "Declarative" style api attempt - don't expose any renderer details/buffers, instead have RenderState track them
 
-    pub fn upload_and_track_model(
+    pub fn queue_model_for_upload(
         &mut self,
-        model: &models::Model,
+        index: ModelIndex,
+        model: models::Model,
     ) -> Result<(), RenderStateError> {
-        Err(RenderStateError::ModelUploadTODO)
+        self.models.insert(index, model);
+        Ok(())
     }
 
     // Eventually, VulkanBase and VulkanBaseWrapper join together, and this base & presenter pair go away
@@ -215,9 +224,17 @@ pub struct VulkanBase {
 
     pub maybe_debug_utils_loader: Option<ext::DebugUtils>,
     pub maybe_debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
+
+    uploaded_models: Vec<UploadedModelRef>,
 }
 
 impl VulkanBase {
+    // pub fn device_memory_properties(&self) -> vk::PhysicalDeviceMemoryProperties {
+    //     unsafe {
+    //         self.instance
+    //             .get_physical_device_memory_properties(self.physical_device)
+    //     }
+    // }
     pub fn new(win_ptr: platform::WinPtr, enable_validation_layer: bool) -> Self {
         let entry = unsafe { Entry::load() }.expect("unable to load vulkan");
         let application_info = &vk::ApplicationInfo {
@@ -526,6 +543,7 @@ impl VulkanBase {
             depth_image_memory,
             maybe_debug_utils_loader,
             maybe_debug_call_back,
+            uploaded_models: vec![],
         }
     }
 
@@ -629,6 +647,12 @@ impl Drop for VulkanBase {
                 .destroy_fence(self.draw_commands_reuse_fence, None);
             self.device
                 .destroy_fence(self.setup_commands_reuse_fence, None);
+
+            let models: Vec<_> = self.uploaded_models.drain(..).collect();
+            for model in models {
+                model.deallocate(self);
+            }
+
             self.device.free_memory(self.depth_image_memory, None);
             self.device.destroy_image_view(self.depth_image_view, None);
             self.device.destroy_image(self.depth_image, None);
@@ -654,13 +678,30 @@ impl Drop for VulkanBase {
 
 // TODO: consider a generic version of this?
 /// Acts as a combiner for Mutex, locking both mutexes but also releases both mutexes when dropped.
-pub struct WorldRenderState {
+pub struct LockWorldAndRenderState {
     render_state: MutexGuardArc<RenderState>,
     world: MutexGuardArc<World>,
 }
 
-impl WorldRenderState {
-    pub async fn new(world: &Arc<Mutex<World>>, render_state: &Arc<Mutex<RenderState>>) -> Self {
+impl LockWorldAndRenderState {
+    pub fn update_models(&mut self) {
+        let models: Vec<_> = {
+            let world = self.world();
+            world
+                .facets
+                .model_iter()
+                .map(|(index, model)| (index, model.clone()))
+                .collect()
+        };
+        // This needs to move to somewhere that owns the assets...
+        for (index, model) in models {
+            self.render_state()
+                .queue_model_for_upload(index, model)
+                .expect("should upload");
+        }
+    }
+
+    pub async fn lock(world: &Arc<Mutex<World>>, render_state: &Arc<Mutex<RenderState>>) -> Self {
         let world = Arc::clone(world).lock_arc().await;
         let render_state = Arc::clone(render_state).lock_arc().await;
         Self {

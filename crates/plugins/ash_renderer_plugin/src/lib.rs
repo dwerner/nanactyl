@@ -6,13 +6,13 @@ use std::{
 };
 
 use ash::{util::Align, vk};
-use models::Vertex;
+use models::{Image, Vertex};
 use render::{
     types::{
         Attachments, AttachmentsModifier, BufferAndMemory, BufferWithData, Texture,
         VertexInputAssembly, VulkanError,
     },
-    Presenter, RenderState, TextureUploader, VulkanBase,
+    Presenter, RenderState, VulkanBase,
 };
 
 pub struct ShaderStages {
@@ -252,10 +252,15 @@ impl<'a> VulkanBaseWrapper<'a> {
     }
 
     pub fn create_renderer(&mut self) -> Result<Renderer, VulkanError> {
+        let device = self.0.device.clone();
+        let w = DeviceWrap(&device);
         let index_with_data = {
             let index_buffer_data = vec![0u32, 1, 2, 2, 3, 0];
-            let index = self
-                .allocate_and_init_buffer(vk::BufferUsageFlags::INDEX_BUFFER, &index_buffer_data)?;
+            let index = w.allocate_and_init_buffer(
+                vk::BufferUsageFlags::INDEX_BUFFER,
+                self.0.device_memory_properties,
+                &index_buffer_data,
+            )?;
             BufferWithData::new(index, index_buffer_data)
         };
 
@@ -278,7 +283,11 @@ impl<'a> VulkanBaseWrapper<'a> {
                     uv: [1.0, 0.0],
                 },
             ];
-            self.allocate_and_init_buffer(vk::BufferUsageFlags::VERTEX_BUFFER, &vertex_data)?
+            w.allocate_and_init_buffer(
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+                self.0.device_memory_properties,
+                &vertex_data,
+            )?
         };
 
         // let uniform_color_with_data = {
@@ -309,9 +318,13 @@ impl<'a> VulkanBaseWrapper<'a> {
             let (width, height) = image.dimensions();
             let image_extent = vk::Extent2D { width, height };
             let image_data = image.into_raw();
-            let src_image =
-                self.allocate_and_init_buffer(vk::BufferUsageFlags::TRANSFER_SRC, &image_data)?;
-            let texture = self.allocate_texture_dest_buffer(image_extent)?;
+            let src_image = w.allocate_and_init_buffer(
+                vk::BufferUsageFlags::TRANSFER_SRC,
+                self.0.device_memory_properties,
+                &image_data,
+            )?;
+            let texture =
+                w.allocate_texture_dest_buffer(self.0.device_memory_properties, image_extent)?;
             self.submit_upload_texture(image_extent, &src_image, &texture);
             src_image.deallocate(self.0);
             texture
@@ -761,114 +774,6 @@ impl<'a> VulkanBaseWrapper<'a> {
             .map_err(VulkanError::VkResult)
     }
 
-    pub fn allocate_texture_dest_buffer(
-        &mut self,
-        image_extent: vk::Extent2D,
-    ) -> Result<Texture, VulkanError> {
-        let base = &mut *self.0;
-        let texture_create_info = vk::ImageCreateInfo {
-            image_type: vk::ImageType::TYPE_2D,
-            format: vk::Format::R8G8B8A8_UNORM,
-            extent: image_extent.into(),
-            mip_levels: 1,
-            array_layers: 1,
-            samples: vk::SampleCountFlags::TYPE_1,
-            tiling: vk::ImageTiling::OPTIMAL,
-            usage: vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
-            sharing_mode: vk::SharingMode::EXCLUSIVE,
-            ..Default::default()
-        };
-        let texture_image = unsafe { base.device.create_image(&texture_create_info, None) }
-            .map_err(VulkanError::VkResult)?;
-        let texture_memory_req =
-            unsafe { base.device.get_image_memory_requirements(texture_image) };
-        let texture_memory_index = VulkanBase::find_memorytype_index(
-            &texture_memory_req,
-            &base.device_memory_properties,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )
-        .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
-
-        let texture_allocate_info = vk::MemoryAllocateInfo {
-            allocation_size: texture_memory_req.size,
-            memory_type_index: texture_memory_index,
-            ..Default::default()
-        };
-
-        let texture_memory = unsafe { base.device.allocate_memory(&texture_allocate_info, None) }
-            .map_err(VulkanError::VkResult)?;
-
-        unsafe {
-            base.device
-                .bind_image_memory(texture_image, texture_memory, 0)
-        }
-        .map_err(VulkanError::VkResult)?;
-
-        Ok(Texture::new(
-            texture_create_info.format,
-            texture_image,
-            texture_memory,
-        ))
-    }
-
-    /// Allocate a buffer with usage flags, initialize with data.
-    /// TODO: internalize
-    pub fn allocate_and_init_buffer<T>(
-        &mut self,
-        usage: vk::BufferUsageFlags,
-        data: &[T],
-    ) -> Result<BufferAndMemory, VulkanError>
-    where
-        T: Copy,
-    {
-        let base = &mut *self.0;
-
-        let buffer_info = vk::BufferCreateInfo {
-            size: (data.len() * std::mem::size_of::<T>()) as u64,
-            usage,
-            sharing_mode: vk::SharingMode::EXCLUSIVE,
-            ..Default::default()
-        };
-        let buffer = unsafe { base.device.create_buffer(&buffer_info, None) }
-            .map_err(VulkanError::VkResult)?;
-
-        let buffer_memory_req = unsafe { base.device.get_buffer_memory_requirements(buffer) };
-        let buffer_memory_index = VulkanBase::find_memorytype_index(
-            &buffer_memory_req,
-            &base.device_memory_properties,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )
-        .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
-
-        let allocate_info = vk::MemoryAllocateInfo {
-            allocation_size: buffer_memory_req.size,
-            memory_type_index: buffer_memory_index,
-            ..Default::default()
-        };
-
-        let buffer_memory = unsafe { base.device.allocate_memory(&allocate_info, None) }
-            .map_err(VulkanError::VkResult)?;
-
-        let ptr = unsafe {
-            base.device.map_memory(
-                buffer_memory,
-                0,
-                buffer_memory_req.size,
-                vk::MemoryMapFlags::empty(),
-            )
-        }
-        .map_err(VulkanError::VkResult)?;
-
-        let mut slice = unsafe { Align::new(ptr, align_of::<T>() as u64, buffer_memory_req.size) };
-        slice.copy_from_slice(data);
-
-        unsafe { base.device.unmap_memory(buffer_memory) };
-        unsafe { base.device.bind_buffer_memory(buffer, buffer_memory, 0) }
-            .map_err(VulkanError::VkResult)?;
-
-        Ok(BufferAndMemory::new(buffer, buffer_memory))
-    }
-
     /// Create attachments for renderpass construction
     fn attachments(
         &mut self,
@@ -964,7 +869,6 @@ impl<'a> VulkanBaseWrapper<'a> {
         Ok(framebuffers)
     }
 }
-
 pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
@@ -984,35 +888,387 @@ pub struct Renderer {
     shader_stages: ShaderStages,
 }
 
+pub struct DeviceWrap<'a>(&'a ash::Device);
+
+impl<'a> DeviceWrap<'a> {
+    fn wait_for_fence(&self, fence: vk::Fence) -> Result<(), VulkanError> {
+        unsafe {
+            self.0
+                .wait_for_fences(&[fence], true, u64::MAX)
+                .map_err(VulkanError::Fence)?;
+            self.0
+                .reset_fences(&[fence])
+                .map_err(VulkanError::ResetFence)?;
+        }
+        Ok(())
+    }
+    fn allocate_texture_dest_buffer(
+        &self,
+        memory_properties: vk::PhysicalDeviceMemoryProperties,
+        image_extent: vk::Extent2D,
+    ) -> Result<Texture, VulkanError> {
+        let texture_create_info = vk::ImageCreateInfo {
+            image_type: vk::ImageType::TYPE_2D,
+            format: vk::Format::R8G8B8A8_UNORM,
+            extent: image_extent.into(),
+            mip_levels: 1,
+            array_layers: 1,
+            samples: vk::SampleCountFlags::TYPE_1,
+            tiling: vk::ImageTiling::OPTIMAL,
+            usage: vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+        let texture_image = unsafe { self.0.create_image(&texture_create_info, None) }
+            .map_err(VulkanError::VkResult)?;
+        let texture_memory_req = unsafe { self.0.get_image_memory_requirements(texture_image) };
+        let texture_memory_index = VulkanBase::find_memorytype_index(
+            &texture_memory_req,
+            &memory_properties,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )
+        .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
+
+        let texture_allocate_info = vk::MemoryAllocateInfo {
+            allocation_size: texture_memory_req.size,
+            memory_type_index: texture_memory_index,
+            ..Default::default()
+        };
+
+        let texture_memory = unsafe { self.0.allocate_memory(&texture_allocate_info, None) }
+            .map_err(VulkanError::VkResult)?;
+
+        unsafe { self.0.bind_image_memory(texture_image, texture_memory, 0) }
+            .map_err(VulkanError::VkResult)?;
+
+        Ok(Texture::new(
+            texture_create_info.format,
+            texture_image,
+            texture_memory,
+        ))
+    }
+    /// Allocate a buffer with usage flags, initialize with data.
+    /// TODO: internalize
+    fn allocate_and_init_buffer<T>(
+        &self,
+        usage: vk::BufferUsageFlags,
+        memory_properties: vk::PhysicalDeviceMemoryProperties,
+        data: &[T],
+    ) -> Result<BufferAndMemory, VulkanError>
+    where
+        T: Copy,
+    {
+        let buffer_info = vk::BufferCreateInfo {
+            size: (data.len() * std::mem::size_of::<T>()) as u64,
+            usage,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+        let buffer =
+            unsafe { self.0.create_buffer(&buffer_info, None) }.map_err(VulkanError::VkResult)?;
+        let (allocation_size, memory_type_index) = self.memorytype_index_and_size_for_buffer(
+            buffer,
+            memory_properties,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+        let allocate_info = vk::MemoryAllocateInfo {
+            allocation_size,
+            memory_type_index,
+            ..Default::default()
+        };
+        let buffer_memory = unsafe { self.0.allocate_memory(&allocate_info, None) }
+            .map_err(VulkanError::VkResult)?;
+        let buffer = BufferAndMemory::new(buffer, buffer_memory);
+        let ptr = unsafe {
+            self.0.map_memory(
+                buffer.memory,
+                0,
+                allocation_size,
+                vk::MemoryMapFlags::empty(),
+            )
+        }
+        .map_err(VulkanError::VkResult)?;
+        let mut slice = unsafe { Align::new(ptr, align_of::<T>() as u64, allocation_size) };
+        slice.copy_from_slice(data);
+        unsafe { self.0.unmap_memory(buffer.memory) };
+        unsafe { self.0.bind_buffer_memory(buffer.buffer, buffer.memory, 0) }
+            .map_err(VulkanError::VkResult)?;
+
+        Ok(buffer)
+    }
+
+    fn memorytype_index_and_size_for_buffer(
+        &self,
+        buffer: vk::Buffer,
+        memory_properties: vk::PhysicalDeviceMemoryProperties,
+        flags: vk::MemoryPropertyFlags,
+    ) -> Result<(u64, u32), VulkanError> {
+        let buffer_memory_req = unsafe { self.0.get_buffer_memory_requirements(buffer) };
+        Ok((
+            buffer_memory_req.size,
+            VulkanBase::find_memorytype_index(&buffer_memory_req, &memory_properties, flags)
+                .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?,
+        ))
+    }
+    pub fn create_fence(&self) -> Result<vk::Fence, VulkanError> {
+        let fence_create_info = vk::FenceCreateInfo::builder()
+            .flags(vk::FenceCreateFlags::SIGNALED)
+            .build();
+        unsafe { self.0.create_fence(&fence_create_info, None) }.map_err(VulkanError::VkResult)
+    }
+
+    pub fn cmd_copy_buffer_to_image(
+        &self,
+        src_image: &BufferAndMemory,
+        image_extent: vk::Extent2D,
+        dest_texture: &Texture,
+        command_buffer: vk::CommandBuffer,
+    ) {
+        let buffer_copy_regions = vk::BufferImageCopy::builder()
+            .image_subresource(
+                vk::ImageSubresourceLayers::builder()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .layer_count(1)
+                    .build(),
+            )
+            .image_extent(image_extent.into());
+
+        unsafe {
+            self.0.cmd_copy_buffer_to_image(
+                command_buffer,
+                src_image.buffer,
+                dest_texture.image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[buffer_copy_regions.build()],
+            )
+        }
+    }
+
+    pub fn submit_command_buffers(
+        &self,
+        fence: vk::Fence,
+        queue: vk::Queue,
+        command_buffers: Vec<vk::CommandBuffer>,
+    ) -> Result<(), VulkanError> {
+        let submit_info = vk::SubmitInfo::builder()
+            .command_buffers(&command_buffers)
+            .build();
+
+        unsafe { self.0.queue_submit(queue, &[submit_info], fence) }
+            .map_err(VulkanError::SubmitCommandBuffers)
+    }
+
+    pub fn cmd_buffer_end(&self, command_buffer: vk::CommandBuffer) -> Result<(), VulkanError> {
+        unsafe { self.0.end_command_buffer(command_buffer) }.map_err(VulkanError::EndCommandBuffer)
+    }
+
+    // just a few flags are different between * and *_end versions, but need to better understand the
+    pub fn cmd_pipeline_barrier_end(&self, image: vk::Image, command_buffer: vk::CommandBuffer) {
+        let texture_barrier_end = vk::ImageMemoryBarrier {
+            src_access_mask: vk::AccessFlags::TRANSFER_WRITE,
+            dst_access_mask: vk::AccessFlags::SHADER_READ,
+            old_layout: vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            new_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            image,
+            subresource_range: vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                level_count: 1,
+                layer_count: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        unsafe {
+            self.0.cmd_pipeline_barrier(
+                command_buffer,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[texture_barrier_end],
+            )
+        };
+    }
+
+    pub fn cmd_pipeline_barrier_start(&self, image: vk::Image, command_buffer: vk::CommandBuffer) {
+        let texture_barrier = vk::ImageMemoryBarrier {
+            dst_access_mask: vk::AccessFlags::TRANSFER_WRITE,
+            new_layout: vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            image,
+            subresource_range: vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                level_count: 1,
+                layer_count: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        unsafe {
+            self.0.cmd_pipeline_barrier(
+                command_buffer,
+                vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[texture_barrier],
+            )
+        }
+    }
+
+    pub fn copy_image_to_transfer_src_buffer(
+        &self,
+        image: &Image,
+        memory_properties: vk::PhysicalDeviceMemoryProperties,
+    ) -> Result<(vk::Extent2D, BufferAndMemory), VulkanError> {
+        let image_extent = {
+            let (width, height) = image.extent();
+            vk::Extent2D { width, height }
+        };
+        let image_data = image.image.to_rgba8();
+        self.allocate_and_init_buffer(
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            memory_properties,
+            &image_data,
+        )
+        .map(|image| (image_extent, image))
+    }
+
+    pub fn begin_command_buffer(
+        &self,
+        command_buffer: vk::CommandBuffer,
+    ) -> Result<(), VulkanError> {
+        let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+            .build();
+        unsafe {
+            self.0
+                .begin_command_buffer(command_buffer, &command_buffer_begin_info)
+        }
+        .map_err(VulkanError::BeginCommandBuffer)
+    }
+
+    pub fn allocate_command_buffers(
+        &self,
+        pool: vk::CommandPool,
+    ) -> Result<Vec<vk::CommandBuffer>, VulkanError> {
+        let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+            .command_buffer_count(1)
+            .command_pool(pool)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .build();
+        unsafe {
+            self.0
+                .allocate_command_buffers(&command_buffer_allocate_info)
+        }
+        .map_err(VulkanError::VkResult)
+    }
+
+    pub fn create_command_pool(
+        &self,
+        queue_family_index: u32,
+    ) -> Result<vk::CommandPool, VulkanError> {
+        let pool_create_info = vk::CommandPoolCreateInfo::builder()
+            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+            .queue_family_index(queue_family_index)
+            .build();
+        unsafe { self.0.create_command_pool(&pool_create_info, None) }
+            .map_err(VulkanError::VkResult)
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn load(state: &mut RenderState) {
-    println!("loaded ash_renderer_plugin");
-
+    println!("loaded ash_renderer_plugin...");
     let mut base = VulkanBase::new(state.win_ptr, state.enable_validation_layer);
-    // let device = base.device;
-    // let fence = wrapper.setup_commands_reuse_fence;
-
     state.set_presenter(Box::new(
         VulkanBaseWrapper::new(&mut base)
             .create_renderer()
             .expect("unable to setup renderer"),
     ));
+
+    // Command buffer requirements, thread safe? But cloning pointers
+    // #[derive(Clone)]
+    // struct CommandBufferReqs {
+    //     device: ash::Device,
+    //     queue_family_index: u32,
+    //     queue: vk::Queue,
+    //     device_memory_properties: vk::PhysicalDeviceMemoryProperties,
+    // }
+    // Cloning pointers...
+    let device = base.device.clone();
+    let queue = base.present_queue.clone();
+    let queue_family_index = base.queue_family_index;
+    let device_memory_properties = base.device_memory_properties;
+
     state.set_base(base);
     state.create_spawners();
 
-    for spawner in state.task_spawners.iter_mut() {
-        // let texture_uploader = TextureUploader::new();
-        spawner.spawn_with_shutdown(|mut shutdown| async move {
-            println!("started renderer task");
-            loop {
-                async_io::Timer::after(Duration::from_millis(10)).await;
-                if shutdown.should_exit() {
-                    println!("ending async task in plugin");
-                    break;
-                }
-            }
-        });
+    // let (sender, receiver): (Sender<models::Model>, Receiver<models::Model>) =
+    //     async_channel::bounded(10);
+
+    // let (reply_sender, reply_receiver): (Sender<models::Model>, Receiver<models::Model>) =
+    //     async_channel::bounded(10);
+
+    // for spawner in state.task_spawners.iter_mut() {
+    // let texture_uploader = TextureUploader::new();
+    // let mut reqs = reqs.clone();
+    // let receiver = receiver.clone();
+    // spawner.spawn_with_shutdown(|mut shutdown| async move {
+    //     println!("started renderer task");
+
+    let w = DeviceWrap(&device);
+
+    let pool = w.create_command_pool(queue_family_index).unwrap();
+    let fence = w.create_fence().unwrap();
+
+    // loop {
+    // let model = match receiver.recv_blocking() {
+    //     Ok(model) => model,
+    //     Err(err) => {
+    //         println!("recv err {:?}", err);
+    //         continue;
+    //     }
+    // };
+    for (path, model) in state.models.iter() {
+        println!("loading model at {:?}...", path);
+        let command_buffers = w.allocate_command_buffers(pool).unwrap();
+        let command_buffer = command_buffers[0];
+        w.wait_for_fence(fence).unwrap();
+        w.begin_command_buffer(command_buffer).unwrap();
+        let image = &model.material.diffuse_map;
+        let (image_extent, src_image) = w
+            .copy_image_to_transfer_src_buffer(image, device_memory_properties)
+            .unwrap();
+        let dest_texture = w
+            .allocate_texture_dest_buffer(device_memory_properties, image_extent)
+            .unwrap();
+        w.cmd_pipeline_barrier_start(dest_texture.image, command_buffer);
+        w.cmd_copy_buffer_to_image(&src_image, image_extent, &dest_texture, command_buffer);
+        w.cmd_pipeline_barrier_end(dest_texture.image, command_buffer);
+        w.cmd_buffer_end(command_buffer).unwrap();
+        w.submit_command_buffers(fence, queue, command_buffers)
+            .unwrap();
+        // if shutdown.should_exit() {
+        //     println!("ending async task in plugin");
+        //     break;
+        // }
     }
+
+    unsafe {
+        device.device_wait_idle().unwrap();
+        device.destroy_fence(fence, None);
+        device.destroy_command_pool(pool, None);
+    }
+    // });
+    // }
+
+    // for (path, model) in state.models.iter() {
+    //     sender.send_blocking(model.clone()).unwrap();
+    //     let _model_ref = reply_receiver.recv_blocking().unwrap();
+    //     println!("(would have) uploaded model at {:?}", path);
+    // }
 }
 
 #[no_mangle]

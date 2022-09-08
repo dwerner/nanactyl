@@ -1,4 +1,4 @@
-use std::{future::Future, pin::Pin, process::Output, thread::JoinHandle};
+use std::{future::Future, pin::Pin, thread::JoinHandle};
 
 use async_channel::Sender;
 use async_executor::LocalExecutor;

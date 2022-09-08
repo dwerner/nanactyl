@@ -1,10 +1,11 @@
 use std::time::Duration;
 
+use models::Model;
 use network::Peer;
 use scene::Scene;
 use thing::{
-    CameraFacet, CameraIndex, HealthFacet, ModelFacet, ModelIndex, PhysicalFacet, PhysicalIndex,
-    Thing,
+    CameraFacet, CameraIndex, HealthFacet, HealthIndex, ModelFacet, ModelIndex, PhysicalFacet,
+    PhysicalIndex, Thing,
 };
 
 mod scene;
@@ -38,15 +39,38 @@ pub trait Identifyable {
 // safety here.
 #[derive(Default)]
 pub struct WorldFacets {
-    pub cameras: Vec<CameraFacet>,
-    pub models: Vec<ModelFacet>,
-    pub physical: Vec<PhysicalFacet>,
-    pub health: Vec<HealthFacet>,
+    cameras: Vec<CameraFacet>,
+    models: Vec<ModelFacet>,
+    physical: Vec<PhysicalFacet>,
+    health: Vec<HealthFacet>,
 }
 
 impl WorldFacets {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn camera(&self, index: CameraIndex) -> Option<&CameraFacet> {
+        self.cameras.get(index.0 as usize)
+    }
+
+    pub fn model_iter(&self) -> impl Iterator<Item = (ModelIndex, &Model)> {
+        self.models
+            .iter()
+            .enumerate()
+            .map(|(index, facet)| (index.into(), &facet.model))
+    }
+
+    pub fn model(&self, index: ModelIndex) -> Option<&ModelFacet> {
+        self.models.get(index.0 as usize)
+    }
+
+    pub fn physical(&self, index: PhysicalIndex) -> Option<&PhysicalFacet> {
+        self.physical.get(index.0 as usize)
+    }
+
+    pub fn health(&self, index: HealthIndex) -> Option<&HealthFacet> {
+        self.health.get(index.0 as usize)
     }
 }
 

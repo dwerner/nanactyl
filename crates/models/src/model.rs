@@ -76,14 +76,15 @@ impl Model {
 
         let verts = v_vt_vn
             .iter()
-            .map(|&(v, vt, _vn)| Vertex::new(v, vt)) //, vn))
+            .map(|&(v, vt, vn)| Vertex::new(v, vt, vn)) //, vn))
             .collect::<Vec<_>>();
 
         if verts.is_empty() {
             return Err(ModelLoadError::ModelHasNoVerts);
         }
 
-        let indices = idx.iter().map(|x: &usize| *x as u16).collect::<Vec<_>>();
+        // TODO: bounding
+        let indices = idx.iter().map(|x: &usize| *x as u32).collect::<Vec<_>>();
 
         let mtl_file_path = &obj.material.as_ref().ok_or(ModelLoadError::NoMaterial)?;
 
@@ -110,7 +111,7 @@ impl Model {
 
         Ok(Model {
             path: base_filename,
-            mesh: Mesh::create(verts, indices),
+            mesh: Mesh::new(verts, indices),
             loaded_time: Instant::now(),
             material: Material {
                 path: material_path,
@@ -121,27 +122,19 @@ impl Model {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct Vector(pub f32, pub f32, pub f32);
-
-#[derive(Debug, Copy, Clone)]
-pub struct UVW(pub f32, pub f32, pub f32);
-
-#[derive(Debug, Copy, Clone)]
-pub struct Normal(pub f32, pub f32, pub f32);
-
-#[derive(Debug, Copy, Clone)]
+#[repr(C)]
 pub struct Vertex {
     pub pos: [f32; 4],
     pub uv: [f32; 2],
-    // pub normal: [f32;4]
+    pub normal: [f32; 3],
 }
 
 impl Vertex {
-    pub fn new(v: (f32, f32, f32, f32), vt: (f32, f32, f32)) -> Self {
+    pub fn new(v: (f32, f32, f32, f32), vt: (f32, f32, f32), vn: (f32, f32, f32)) -> Self {
         Vertex {
             pos: [v.0, v.1, v.2, v.3],
-            uv: [vt.0, vt.1], // , vt.2),
-                              // normal: Normal(vn.0, vn.1, vn.2),
+            uv: [vt.0, vt.1],
+            normal: [vn.0, vn.1, vn.2],
         }
     }
 }
@@ -149,7 +142,7 @@ impl Vertex {
 #[derive(Clone)]
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
-    pub indices: Vec<u16>,
+    pub indices: Vec<u32>,
 }
 
 impl Debug for Mesh {
@@ -162,7 +155,7 @@ impl Debug for Mesh {
 }
 
 impl Mesh {
-    pub fn create(vertices: Vec<Vertex>, indices: Vec<u16>) -> Self {
+    pub fn new(vertices: Vec<Vertex>, indices: Vec<u32>) -> Self {
         Mesh { vertices, indices }
     }
 }

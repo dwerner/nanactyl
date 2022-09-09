@@ -9,24 +9,32 @@ pub enum VulkanError {
     #[error("Unable to find suitable memorytype for the buffer")]
     UnableToFindMemoryTypeForBuffer,
 
-    #[error("vk result")]
-    VkResult(vk::Result),
-
-    #[error("failed to create pipeline")]
-    FailedToCreatePipeline(Vec<vk::Pipeline>, vk::Result),
+    #[error("vk result ({0:?}) todo: assign a real error variant")]
+    VkResultToDo(vk::Result),
 
     #[error("invalid CString from &'static str")]
     InvalidCString(NulError),
 
+    #[error("failed to create pipeline {1:?}")]
+    FailedToCreatePipeline(Vec<vk::Pipeline>, vk::Result),
+
     #[error("image error {0:?}")]
     Image(image::ImageError),
 
+    #[error("swapchain acquire next image error {0:?}")]
+    SwapchainAquireNextImage(vk::Result),
+
+    #[error("no scene to present")]
+    NoSceneToPresent,
+
+    // Fences
     #[error("fence error {0:?}")]
     Fence(vk::Result),
 
     #[error("reset fence error {0:?}")]
-    ResetFence(vk::Result),
+    FenceReset(vk::Result),
 
+    // Command buffers
     #[error("begin command buffer error {0:?}")]
     BeginCommandBuffer(vk::Result),
 
@@ -37,29 +45,21 @@ pub enum VulkanError {
     SubmitCommandBuffers(vk::Result),
 }
 
-// Ultimately, do we want this to exist at all? Why keep the source data around at all?
-// If we were to try to use the original data against the new, we'd want a way to diff
-// the two and arrive at a set of operations to write, in order to update the buffer.
-// Is that worth the cost of mirroring GPU local data in general RAM?
-pub struct BufferWithData<T> {
-    pub data: Vec<T>,
-    pub buffer: BufferAndMemory,
-}
-
-impl<T> BufferWithData<T> {
-    pub fn new(buffer: BufferAndMemory, data: Vec<T>) -> Self {
-        Self { buffer, data }
-    }
-}
-
 pub struct BufferAndMemory {
     pub buffer: vk::Buffer,
     pub memory: vk::DeviceMemory,
+
+    /// len of the original slice copied from.
+    pub len: usize,
 }
 
 impl BufferAndMemory {
-    pub fn new(buffer: vk::Buffer, memory: vk::DeviceMemory) -> Self {
-        Self { buffer, memory }
+    pub fn new(buffer: vk::Buffer, memory: vk::DeviceMemory, len: usize) -> Self {
+        Self {
+            buffer,
+            memory,
+            len,
+        }
     }
 
     pub fn deallocate(&self, base: &mut VulkanBase) {
@@ -104,19 +104,48 @@ pub struct Texture {
     pub format: vk::Format,
     pub image: vk::Image,
     pub memory: vk::DeviceMemory,
+    pub image_view: vk::ImageView,
 }
 
 impl Texture {
-    pub fn new(format: vk::Format, image: vk::Image, memory: vk::DeviceMemory) -> Self {
-        Self {
+    pub fn new(
+        format: vk::Format,
+        image: vk::Image,
+        memory: vk::DeviceMemory,
+        device: &ash::Device,
+    ) -> Result<Self, VulkanError> {
+        let img_view_info = vk::ImageViewCreateInfo {
+            view_type: vk::ImageViewType::TYPE_2D,
+            format,
+            components: vk::ComponentMapping {
+                r: vk::ComponentSwizzle::R,
+                g: vk::ComponentSwizzle::G,
+                b: vk::ComponentSwizzle::B,
+                a: vk::ComponentSwizzle::A,
+            },
+            subresource_range: vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                level_count: 1,
+                layer_count: 1,
+                ..Default::default()
+            },
+            image,
+            ..Default::default()
+        };
+        let image_view = unsafe { device.create_image_view(&img_view_info, None) }
+            .map_err(VulkanError::VkResultToDo)?;
+
+        Ok(Self {
             image,
             format,
             memory,
-        }
+            image_view,
+        })
     }
 
     pub fn deallocate(&self, base: &mut VulkanBase) {
         unsafe {
+            base.device.destroy_image_view(self.image_view, None);
             base.device.free_memory(self.memory, None);
             base.device.destroy_image(self.image, None);
         }

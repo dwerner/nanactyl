@@ -177,7 +177,7 @@ pub struct VulkanBase {
     pub present_image_views: Vec<vk::ImageView>,
 
     pub pool: vk::CommandPool,
-    pub draw_command_buffer: vk::CommandBuffer,
+    pub draw_cmd_buf: vk::CommandBuffer,
     pub setup_command_buffer: vk::CommandBuffer,
 
     pub depth_image: vk::Image,
@@ -193,7 +193,7 @@ pub struct VulkanBase {
     pub maybe_debug_utils_loader: Option<ext::DebugUtils>,
     pub maybe_debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
 
-    uploaded_models: HashMap<ModelIndex, UploadedModelRef>,
+    pub uploaded_models: HashMap<ModelIndex, UploadedModelRef>,
 }
 
 impl VulkanBase {
@@ -502,7 +502,7 @@ impl VulkanBase {
             present_images,
             present_image_views,
             pool,
-            draw_command_buffer,
+            draw_cmd_buf: draw_command_buffer,
             setup_command_buffer,
             depth_image,
             depth_image_view,

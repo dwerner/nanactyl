@@ -41,7 +41,7 @@ impl Renderer {
         // TODO - make dynamic, should load the scene graph/ something like that and generate draw calls.
         let model = base
             .uploaded_models
-            .get(&(0.into()))
+            .get(&(1.into()))
             .ok_or(VulkanError::NoSceneToPresent)?;
 
         w.wait_for_fence(base.draw_commands_reuse_fence)?;
@@ -195,7 +195,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         let model = self
             .0
             .uploaded_models
-            .get(&(0.into()))
+            .get(&(1.into()))
             .ok_or(VulkanError::NoSceneToPresent)?;
 
         Self::update_descriptor_set(
@@ -211,9 +211,6 @@ impl<'a> VulkanBaseWrapper<'a> {
         let mut frag_spv_file =
             Cursor::new(&include_bytes!("../../../../assets/shaders/fragment_rustgpu.spv")[..]);
 
-        let pipeline_layout = Self::pipeline_layout(&self.0.device, &desc_set_layouts)?;
-        let viewports = self.viewports();
-        let scissors = self.scissors();
         let mut shader_stages = ShaderStages::new();
         shader_stages.add_shader(
             &self.0.device,
@@ -251,9 +248,9 @@ impl<'a> VulkanBaseWrapper<'a> {
         // );
 
         let pipeline_deps = PipelineDeps::new(
-            pipeline_layout,
-            viewports,
-            scissors,
+            Self::pipeline_layout(&self.0.device, &desc_set_layouts)?,
+            self.viewports(),
+            self.scissors(),
             shader_stages,
             vertex_input_assembly,
         );
@@ -481,6 +478,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             compare_op: vk::CompareOp::NEVER,
             ..Default::default()
         };
+
         unsafe { self.0.device.create_sampler(&sampler_info, None) }
             .map_err(VulkanError::VkResultToDo)
     }

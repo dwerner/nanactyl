@@ -51,6 +51,9 @@ fn main() {
     let cube_model = models::Model::load("assets/models/static/cube.obj").unwrap();
     let cube_model_facet = ModelFacet::new(cube_model);
     let cube_model_idx = world.add_model(cube_model_facet);
+    let ico_model = models::Model::load("assets/models/static/ico.obj").unwrap();
+    let ico_model_facet = ModelFacet::new(ico_model);
+    let ico_model_idx = world.add_model(ico_model_facet);
 
     let physical = PhysicalFacet::new(0.0, 0.0, 0.0);
     let camera_idx = world.add_camera(CameraFacet::new(&physical));
@@ -67,9 +70,13 @@ fn main() {
     for x in 0..10u32 {
         for y in 0..10u32 {
             for z in 0..10u32 {
+                let model_idx = if x + y + z % 2 == 0 {
+                    cube_model_idx
+                } else {
+                    ico_model_idx
+                };
                 let physical = PhysicalFacet::new(x as f32, y as f32, z as f32);
                 let physical_idx = world.add_physical(physical);
-                let model_idx = cube_model_idx;
                 let model_object = Thing::model_object(physical_idx, model_idx);
                 world
                     .add_thing(model_object)

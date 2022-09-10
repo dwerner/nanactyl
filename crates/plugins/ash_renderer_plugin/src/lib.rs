@@ -1,80 +1,14 @@
-use std::{
-    ffi::CString,
-    io::{self, Cursor},
-    mem::align_of,
-    time::Duration,
-};
+use std::{io::Cursor, mem::align_of, time::Duration};
 
 use ash::{util::Align, vk};
 use models::{Image, Vertex};
 use render::{
     types::{
-        Attachments, AttachmentsModifier, BufferAndMemory, Texture, UploadedModelRef,
-        VertexInputAssembly, VulkanError,
+        Attachments, AttachmentsModifier, BufferAndMemory, PipelineDeps, ShaderStage, ShaderStages,
+        Texture, UploadedModelRef, VertexInputAssembly, VulkanError,
     },
     Presenter, RenderState, VulkanBase,
 };
-
-pub struct ShaderStages {
-    modules: Vec<vk::ShaderModule>,
-    pub shader_stage_defs: Vec<ShaderStage>,
-}
-
-impl ShaderStages {
-    pub fn new() -> Self {
-        Self {
-            modules: Vec::new(),
-            shader_stage_defs: Vec::new(),
-        }
-    }
-
-    pub fn add_shader<R>(
-        &mut self,
-        v: &mut VulkanBaseWrapper,
-        reader: &mut R,
-        entry_point_name: &'static str,
-        stage: vk::ShaderStageFlags,
-    ) -> Result<(), VulkanError>
-    where
-        R: io::Read + io::Seek,
-    {
-        let module = v.read_shader_module(reader)?;
-        let idx = self.modules.len();
-        self.modules.push(module);
-        let shader_stage = ShaderStage::new(self.modules[idx], entry_point_name, stage)?;
-        self.shader_stage_defs.push(shader_stage);
-        Ok(())
-    }
-}
-
-pub struct ShaderStage {
-    module: vk::ShaderModule,
-    entry_point_name: CString,
-    stage: vk::ShaderStageFlags,
-}
-
-impl ShaderStage {
-    pub fn new(
-        module: vk::ShaderModule,
-        entry_point_name: &'static str,
-        stage: vk::ShaderStageFlags,
-    ) -> Result<Self, VulkanError> {
-        Ok(Self {
-            module,
-            entry_point_name: CString::new(entry_point_name)
-                .map_err(VulkanError::InvalidCString)?,
-            stage,
-        })
-    }
-
-    pub fn create_info(&self) -> vk::PipelineShaderStageCreateInfo {
-        vk::PipelineShaderStageCreateInfo::builder()
-            .module(self.module)
-            .name(self.entry_point_name.as_c_str())
-            .stage(self.stage)
-            .build()
-    }
-}
 
 impl Renderer {
     fn present_with_base(&self, base: &mut VulkanBase) -> Result<(), VulkanError> {
@@ -129,7 +63,7 @@ impl Renderer {
         w.cmd_bind_descriptor_sets(
             base.draw_cmd_buf,
             vk::PipelineBindPoint::GRAPHICS,
-            self.pipeline_layout,
+            self.pipeline_deps.layout,
             0,
             &self.descriptor_sets[..],
             &[],
@@ -139,8 +73,8 @@ impl Renderer {
             vk::PipelineBindPoint::GRAPHICS,
             self.graphics_pipelines[0],
         );
-        w.cmd_set_viewport(base.draw_cmd_buf, 0, &self.viewports);
-        w.cmd_set_scissor(base.draw_cmd_buf, 0, &self.scissors);
+        w.cmd_set_viewport(base.draw_cmd_buf, 0, &self.pipeline_deps.viewports);
+        w.cmd_set_scissor(base.draw_cmd_buf, 0, &self.pipeline_deps.scissors);
         w.cmd_bind_vertex_buffers(base.draw_cmd_buf, 0, &[model.vertex_buffer.buffer], &[0]);
         w.cmd_bind_index_buffer(
             base.draw_cmd_buf,
@@ -194,11 +128,7 @@ impl Renderer {
             for pipeline in self.graphics_pipelines.iter() {
                 base.device.destroy_pipeline(*pipeline, None);
             }
-            base.device
-                .destroy_pipeline_layout(self.pipeline_layout, None);
-            for shader_module in self.shader_stages.modules.drain(..) {
-                base.device.destroy_shader_module(shader_module, None);
-            }
+            self.pipeline_deps.deallocate(&base.device);
             for &descriptor_set_layout in self.desc_set_layouts.iter() {
                 base.device
                     .destroy_descriptor_set_layout(descriptor_set_layout, None);
@@ -251,31 +181,29 @@ impl<'a> VulkanBaseWrapper<'a> {
         Self(base)
     }
 
-    pub fn create_renderer(&mut self) -> Result<Renderer, VulkanError> {
+    pub fn renderer(&mut self) -> Result<Renderer, VulkanError> {
         let (attachments, color, depth) = self.attachments();
         let render_pass = self.render_pass(attachments.all(), &color, &depth);
-        let framebuffers: Vec<vk::Framebuffer> = self.framebuffers(render_pass)?;
-
+        let framebuffers = self.framebuffers(render_pass)?;
         let sampler = self.sampler()?;
 
+        // TODO: shaders that apply only to certain models need different descriptor sets.
         let descriptor_pool = self.descriptor_pool()?;
-        let desc_set_layouts = self.descriptor_set_layouts()?;
+        let desc_set_layouts = vec![self.descriptor_set_layout()?];
         let descriptor_sets = self.descriptor_sets(descriptor_pool, &desc_set_layouts)?;
 
-        // TODO: shaders that apply only to certain models need different descriptor sets.
         let model = self
             .0
             .uploaded_models
             .get(&(0.into()))
             .ok_or(VulkanError::NoSceneToPresent)?;
 
-        self.update_descriptor_set(descriptor_sets[0], model.texture.image_view, sampler);
-        let pipeline_layout = self.pipeline_layout(&desc_set_layouts)?;
-
-        let viewports = self.viewports();
-        let scissors = self.scissors();
-
-        let mut shader_stages = ShaderStages::new();
+        Self::update_descriptor_set(
+            &self.0.device,
+            descriptor_sets[0],
+            model.texture.image_view,
+            sampler,
+        );
 
         //? shader compiler could live as a Plugin
         let mut vertex_spv_file =
@@ -283,14 +211,18 @@ impl<'a> VulkanBaseWrapper<'a> {
         let mut frag_spv_file =
             Cursor::new(&include_bytes!("../../../../assets/shaders/fragment_rustgpu.spv")[..]);
 
+        let pipeline_layout = Self::pipeline_layout(&self.0.device, &desc_set_layouts)?;
+        let viewports = self.viewports();
+        let scissors = self.scissors();
+        let mut shader_stages = ShaderStages::new();
         shader_stages.add_shader(
-            self,
+            &self.0.device,
             &mut vertex_spv_file,
             "shader_main_long_name",
             vk::ShaderStageFlags::VERTEX,
         )?;
         shader_stages.add_shader(
-            self,
+            &self.0.device,
             &mut frag_spv_file,
             "shader_main_long_name",
             vk::ShaderStageFlags::FRAGMENT,
@@ -318,14 +250,15 @@ impl<'a> VulkanBaseWrapper<'a> {
         //     offset_of!(Vertex, normal) as u32,
         // );
 
-        let graphics_pipelines = self.graphics_pipelines(
-            &viewports,
-            &scissors,
+        let pipeline_deps = PipelineDeps::new(
             pipeline_layout,
-            render_pass,
-            &shader_stages.shader_stage_defs,
-            &vertex_input_assembly,
-        )?;
+            viewports,
+            scissors,
+            shader_stages,
+            vertex_input_assembly,
+        );
+
+        let graphics_pipelines = self.graphics_pipelines(&pipeline_deps, render_pass)?;
 
         Ok(Renderer {
             desc_set_layouts,
@@ -333,29 +266,10 @@ impl<'a> VulkanBaseWrapper<'a> {
             descriptor_sets,
             framebuffers,
             graphics_pipelines,
-            pipeline_layout,
             render_pass,
             sampler,
-            scissors,
-            shader_stages,
-            viewports,
+            pipeline_deps,
         })
-    }
-
-    pub fn read_shader_module<R>(&self, reader: &mut R) -> Result<vk::ShaderModule, VulkanError>
-    where
-        R: io::Read + io::Seek,
-    {
-        // TODO: convert to VulkanError
-        let shader_code = ash::util::read_spv(reader).expect("Failed to read shader spv data");
-
-        let shader_create_info = vk::ShaderModuleCreateInfo::builder().code(&shader_code);
-        unsafe {
-            self.0
-                .device
-                .create_shader_module(&shader_create_info, None)
-        }
-        .map_err(VulkanError::VkResultToDo)
     }
 
     pub fn scissors(&self) -> Vec<vk::Rect2D> {
@@ -375,21 +289,19 @@ impl<'a> VulkanBaseWrapper<'a> {
 
     pub fn graphics_pipelines(
         &mut self,
-        viewports: &[vk::Viewport],
-        scissors: &[vk::Rect2D],
-        pipeline_layout: vk::PipelineLayout,
+        pipeline_deps: &PipelineDeps,
         render_pass: vk::RenderPass,
-        shader_stage_defs: &[ShaderStage],
-        vertex_input_assembly: &VertexInputAssembly,
     ) -> Result<Vec<vk::Pipeline>, VulkanError> {
-        let shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo> = shader_stage_defs
+        let shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo> = pipeline_deps
+            .shader_stages
+            .shader_stage_defs
             .iter()
             .map(ShaderStage::create_info)
             .collect();
 
         let viewport_state_info = vk::PipelineViewportStateCreateInfo::builder()
-            .scissors(scissors)
-            .viewports(viewports);
+            .scissors(&pipeline_deps.scissors)
+            .viewports(&pipeline_deps.viewports);
 
         let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
             front_face: vk::FrontFace::COUNTER_CLOCKWISE,
@@ -436,8 +348,9 @@ impl<'a> VulkanBaseWrapper<'a> {
         let dynamic_state_info =
             vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_state);
 
-        let vertex_input_state_info = vertex_input_assembly.input_state_info();
-        let vertex_input_assembly_state_info = vertex_input_assembly.assembly_state_info();
+        let vertex_input_state_info = pipeline_deps.vertex_input_assembly.input_state_info();
+        let vertex_input_assembly_state_info =
+            pipeline_deps.vertex_input_assembly.assembly_state_info();
 
         let graphic_pipeline_infos = vk::GraphicsPipelineCreateInfo::builder()
             .stages(&shader_stage_create_infos)
@@ -449,7 +362,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             .depth_stencil_state(&depth_state_info)
             .color_blend_state(&color_blend_state)
             .dynamic_state(&dynamic_state_info)
-            .layout(pipeline_layout)
+            .layout(pipeline_deps.layout)
             .render_pass(render_pass);
 
         unsafe {
@@ -463,24 +376,18 @@ impl<'a> VulkanBaseWrapper<'a> {
     }
 
     pub fn pipeline_layout(
-        &mut self,
+        device: &ash::Device,
         desc_set_layouts: &[vk::DescriptorSetLayout],
     ) -> Result<vk::PipelineLayout, VulkanError> {
         let layout_create_info =
             vk::PipelineLayoutCreateInfo::builder().set_layouts(desc_set_layouts);
-        unsafe {
-            self.0
-                .device
-                .create_pipeline_layout(&layout_create_info, None)
-        }
-        .map_err(VulkanError::VkResultToDo)
+        unsafe { device.create_pipeline_layout(&layout_create_info, None) }
+            .map_err(VulkanError::VkResultToDo)
     }
 
-    // update descriptor sets with uniform buffer and tex_image_view
     pub fn update_descriptor_set(
-        &mut self,
+        device: &ash::Device,
         descriptor_set: vk::DescriptorSet,
-        // uniform_color: &BufferWithData<Vector3>,
         tex_image_view: vk::ImageView,
         sampler: vk::Sampler,
     ) {
@@ -495,7 +402,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .image_info(&[tex_descriptor])
             .build()];
-        unsafe { self.0.device.update_descriptor_sets(&write_desc_sets, &[]) };
+        unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
     }
 
     pub fn descriptor_sets(
@@ -510,7 +417,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             .map_err(VulkanError::VkResultToDo)
     }
 
-    pub fn descriptor_set_layouts(&mut self) -> Result<Vec<vk::DescriptorSetLayout>, VulkanError> {
+    pub fn descriptor_set_layout(&mut self) -> Result<vk::DescriptorSetLayout, VulkanError> {
         let desc_layout_bindings = [
             // vk::DescriptorSetLayoutBinding {
             //     binding: 0,
@@ -535,7 +442,7 @@ impl<'a> VulkanBaseWrapper<'a> {
                 .create_descriptor_set_layout(&descriptor_info, None)
         }
         .map_err(VulkanError::VkResultToDo)?;
-        Ok(vec![layout])
+        Ok(layout)
     }
 
     pub fn descriptor_pool(&mut self) -> Result<vk::DescriptorPool, VulkanError> {
@@ -679,12 +586,9 @@ pub struct Renderer {
     desc_set_layouts: Vec<vk::DescriptorSetLayout>,
     framebuffers: Vec<vk::Framebuffer>,
     graphics_pipelines: Vec<vk::Pipeline>,
-    pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
     sampler: vk::Sampler,
-    scissors: Vec<vk::Rect2D>,
-    viewports: Vec<vk::Viewport>,
-    shader_stages: ShaderStages,
+    pipeline_deps: PipelineDeps,
 }
 
 pub struct DeviceWrap<'a>(&'a ash::Device);
@@ -1107,6 +1011,10 @@ pub extern "C" fn load(state: &mut RenderState) {
     let w = DeviceWrap(&device);
     let pool = w.create_command_pool(queue_family_index).unwrap();
     let fence = w.create_fence().unwrap();
+
+    // Store src image buffers for cleanup once complete.
+    let mut src_images = Vec::new();
+
     for (index, model) in state.models.iter() {
         println!("loading model at {:?}...", index);
         let command_buffers = w.allocate_command_buffers(pool).unwrap();
@@ -1146,18 +1054,23 @@ pub extern "C" fn load(state: &mut RenderState) {
             )
             .unwrap();
 
-        let uploaded_model =
-            UploadedModelRef::new(dest_texture, vertex_buffer, index_buffer, src_image);
+        let uploaded_model = UploadedModelRef::new(dest_texture, vertex_buffer, index_buffer);
+        src_images.push(src_image);
         base.track_uploaded_model(*index, uploaded_model);
     }
     unsafe {
         device.device_wait_idle().unwrap();
+    }
+    for image in src_images {
+        image.deallocate(&device);
+    }
+    unsafe {
         device.destroy_fence(fence, None);
         device.destroy_command_pool(pool, None);
     }
     state.set_presenter(Box::new(
         VulkanBaseWrapper::new(&mut base)
-            .create_renderer()
+            .renderer()
             .expect("unable to setup renderer"),
     ));
     state.set_base(base);

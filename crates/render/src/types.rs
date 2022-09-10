@@ -1,4 +1,7 @@
-use std::ffi::NulError;
+use std::{
+    ffi::{CString, NulError},
+    io,
+};
 
 use ash::vk;
 
@@ -62,17 +65,16 @@ impl BufferAndMemory {
         }
     }
 
-    pub fn deallocate(&self, base: &mut VulkanBase) {
+    pub fn deallocate(&self, device: &ash::Device) {
         unsafe {
-            base.device.free_memory(self.memory, None);
-            base.device.destroy_buffer(self.buffer, None);
+            device.free_memory(self.memory, None);
+            device.destroy_buffer(self.buffer, None);
         }
     }
 }
 
 // TODO rename
 pub struct UploadedModelRef {
-    pub src_image: BufferAndMemory,
     pub vertex_buffer: BufferAndMemory,
     pub index_buffer: BufferAndMemory,
     pub texture: Texture,
@@ -83,20 +85,17 @@ impl UploadedModelRef {
         texture: Texture,
         vertex_buffer: BufferAndMemory,
         index_buffer: BufferAndMemory,
-        src_image: BufferAndMemory,
     ) -> Self {
         Self {
             texture,
             vertex_buffer,
             index_buffer,
-            src_image,
         }
     }
     pub(crate) fn deallocate(&self, base: &mut VulkanBase) {
-        self.src_image.deallocate(base);
-        self.index_buffer.deallocate(base);
-        self.vertex_buffer.deallocate(base);
-        self.texture.deallocate(base);
+        self.index_buffer.deallocate(&base.device);
+        self.vertex_buffer.deallocate(&base.device);
+        self.texture.deallocate(&base.device);
     }
 }
 
@@ -143,11 +142,11 @@ impl Texture {
         })
     }
 
-    pub fn deallocate(&self, base: &mut VulkanBase) {
+    pub fn deallocate(&self, device: &ash::Device) {
         unsafe {
-            base.device.destroy_image_view(self.image_view, None);
-            base.device.free_memory(self.memory, None);
-            base.device.destroy_image(self.image, None);
+            device.destroy_image_view(self.image_view, None);
+            device.free_memory(self.memory, None);
+            device.destroy_image(self.image, None);
         }
     }
 }
@@ -258,5 +257,116 @@ impl<'a> AttachmentsModifier<'a> {
 
     pub fn into_refs(self) -> Vec<vk::AttachmentReference> {
         self.attachment_refs
+    }
+}
+
+pub struct PipelineDeps {
+    pub layout: vk::PipelineLayout,
+    pub viewports: Vec<vk::Viewport>,
+    pub scissors: Vec<vk::Rect2D>,
+    pub shader_stages: ShaderStages,
+    pub vertex_input_assembly: VertexInputAssembly,
+}
+
+impl PipelineDeps {
+    pub fn new(
+        layout: vk::PipelineLayout,
+        viewports: Vec<vk::Viewport>,
+        scissors: Vec<vk::Rect2D>,
+        shader_stages: ShaderStages,
+        vertex_input_assembly: VertexInputAssembly,
+    ) -> Self {
+        Self {
+            layout,
+            viewports,
+            scissors,
+            shader_stages,
+            vertex_input_assembly,
+        }
+    }
+    pub fn deallocate(&mut self, device: &ash::Device) {
+        unsafe {
+            device.destroy_pipeline_layout(self.layout, None);
+            for shader_module in self.shader_stages.modules.drain(..) {
+                device.destroy_shader_module(shader_module, None);
+            }
+        }
+    }
+}
+
+// Move to DeviceWrap
+pub fn read_shader_module<R>(
+    device: &ash::Device,
+    reader: &mut R,
+) -> Result<vk::ShaderModule, VulkanError>
+where
+    R: io::Read + io::Seek,
+{
+    // TODO: convert to VulkanError
+    let shader_code = ash::util::read_spv(reader).expect("Failed to read shader spv data");
+
+    let shader_create_info = vk::ShaderModuleCreateInfo::builder().code(&shader_code);
+    unsafe { device.create_shader_module(&shader_create_info, None) }
+        .map_err(VulkanError::VkResultToDo)
+}
+
+pub struct ShaderStages {
+    pub modules: Vec<vk::ShaderModule>,
+    pub shader_stage_defs: Vec<ShaderStage>,
+}
+
+impl ShaderStages {
+    pub fn new() -> Self {
+        Self {
+            modules: Vec::new(),
+            shader_stage_defs: Vec::new(),
+        }
+    }
+
+    pub fn add_shader<R>(
+        &mut self,
+        device: &ash::Device,
+        reader: &mut R,
+        entry_point_name: &'static str,
+        stage: vk::ShaderStageFlags,
+    ) -> Result<(), VulkanError>
+    where
+        R: io::Read + io::Seek,
+    {
+        let module = read_shader_module(device, reader)?;
+        let idx = self.modules.len();
+        self.modules.push(module);
+        let shader_stage = ShaderStage::new(self.modules[idx], entry_point_name, stage)?;
+        self.shader_stage_defs.push(shader_stage);
+        Ok(())
+    }
+}
+
+pub struct ShaderStage {
+    module: vk::ShaderModule,
+    entry_point_name: CString,
+    stage: vk::ShaderStageFlags,
+}
+
+impl ShaderStage {
+    pub fn new(
+        module: vk::ShaderModule,
+        entry_point_name: &'static str,
+        stage: vk::ShaderStageFlags,
+    ) -> Result<Self, VulkanError> {
+        Ok(Self {
+            module,
+            entry_point_name: CString::new(entry_point_name)
+                .map_err(VulkanError::InvalidCString)?,
+            stage,
+        })
+    }
+
+    pub fn create_info(&self) -> vk::PipelineShaderStageCreateInfo {
+        vk::PipelineShaderStageCreateInfo::builder()
+            .module(self.module)
+            .name(self.entry_point_name.as_c_str())
+            .stage(self.stage)
+            .build()
     }
 }

@@ -1,11 +1,12 @@
-use std::{io::Cursor, mem::align_of, time::Duration};
+use std::{fs::File, io::BufReader, mem::align_of, time::Duration};
 
 use ash::{util::Align, vk};
 use models::{Image, Vertex};
 use render::{
     types::{
-        Attachments, AttachmentsModifier, BufferAndMemory, PipelineDeps, ShaderStage, ShaderStages,
-        Texture, UploadedModelRef, VertexInputAssembly, VulkanError,
+        Attachments, AttachmentsModifier, BufferAndMemory, DescBinding, PipelineDesc, ShaderStage,
+        ShaderStages, ShadersDescription, Texture, UploadedModelRef, VertexInputAssembly,
+        VulkanError,
     },
     Presenter, RenderState, VulkanBase,
 };
@@ -38,12 +39,6 @@ impl Renderer {
 
         let w = DeviceWrap(&base.device);
 
-        // TODO - make dynamic, should load the scene graph/ something like that and generate draw calls.
-        let model = base
-            .uploaded_models
-            .get(&(1.into()))
-            .ok_or(VulkanError::NoSceneToPresent)?;
-
         w.wait_for_fence(base.draw_commands_reuse_fence)?;
         w.reset_fence(base.draw_commands_reuse_fence)?;
 
@@ -60,29 +55,30 @@ impl Renderer {
             &render_pass_begin_info,
             vk::SubpassContents::INLINE,
         );
-        w.cmd_bind_descriptor_sets(
-            base.draw_cmd_buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.pipeline_deps.layout,
-            0,
-            &self.descriptor_sets[..],
-            &[],
-        );
-        w.cmd_bind_pipeline(
-            base.draw_cmd_buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.graphics_pipelines[0],
-        );
-        w.cmd_set_viewport(base.draw_cmd_buf, 0, &self.pipeline_deps.viewports);
-        w.cmd_set_scissor(base.draw_cmd_buf, 0, &self.pipeline_deps.scissors);
-        w.cmd_bind_vertex_buffers(base.draw_cmd_buf, 0, &[model.vertex_buffer.buffer], &[0]);
-        w.cmd_bind_index_buffer(
-            base.draw_cmd_buf,
-            model.index_buffer.buffer,
-            0,
-            vk::IndexType::UINT32,
-        );
-        w.cmd_draw_indexed(base.draw_cmd_buf, model.index_buffer.len as u32, 1, 0, 0, 1);
+
+        for (index, (_model_index, model)) in base.uploaded_models.iter().enumerate() {
+            let desc = &self.pipeline_descriptions[index];
+            let pipeline = self.graphics_pipelines[index];
+            w.cmd_bind_descriptor_sets(
+                base.draw_cmd_buf,
+                vk::PipelineBindPoint::GRAPHICS,
+                desc.layout,
+                0,
+                &[desc.descriptor_set],
+                &[],
+            );
+            w.cmd_bind_pipeline(base.draw_cmd_buf, vk::PipelineBindPoint::GRAPHICS, pipeline);
+            w.cmd_set_viewport(base.draw_cmd_buf, 0, &desc.viewports);
+            w.cmd_set_scissor(base.draw_cmd_buf, 0, &desc.scissors);
+            w.cmd_bind_vertex_buffers(base.draw_cmd_buf, 0, &[model.vertex_buffer.buffer], &[0]);
+            w.cmd_bind_index_buffer(
+                base.draw_cmd_buf,
+                model.index_buffer.buffer,
+                0,
+                vk::IndexType::UINT32,
+            );
+            w.cmd_draw_indexed(base.draw_cmd_buf, model.index_buffer.len as u32, 1, 0, 0, 1);
+        }
         w.cmd_end_render_pass(base.draw_cmd_buf);
 
         let command_buffers = vec![base.draw_cmd_buf];
@@ -128,14 +124,15 @@ impl Renderer {
             for pipeline in self.graphics_pipelines.iter() {
                 base.device.destroy_pipeline(*pipeline, None);
             }
-            self.pipeline_deps.deallocate(&base.device);
+            for desc in self.pipeline_descriptions.iter() {
+                desc.deallocate(&base.device);
+            }
             for &descriptor_set_layout in self.desc_set_layouts.iter() {
                 base.device
                     .destroy_descriptor_set_layout(descriptor_set_layout, None);
             }
             base.device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
-            base.device.destroy_sampler(self.sampler, None);
             for framebuffer in self.framebuffers.iter() {
                 base.device.destroy_framebuffer(*framebuffer, None);
             }
@@ -185,87 +182,95 @@ impl<'a> VulkanBaseWrapper<'a> {
         let (attachments, color, depth) = self.attachments();
         let render_pass = self.render_pass(attachments.all(), &color, &depth);
         let framebuffers = self.framebuffers(render_pass)?;
-        let sampler = self.sampler()?;
 
         // TODO: shaders that apply only to certain models need different descriptor sets.
-        let descriptor_pool = self.descriptor_pool()?;
-        let desc_set_layouts = vec![self.descriptor_set_layout()?];
-        let descriptor_sets = self.descriptor_sets(descriptor_pool, &desc_set_layouts)?;
+        //? TODO: any pool can be a thread local, but then any object must be destroyed on that thread.
+        let descriptor_pool = self.descriptor_pool(3, 3)?;
 
-        let model = self
-            .0
-            .uploaded_models
-            .get(&(1.into()))
-            .ok_or(VulkanError::NoSceneToPresent)?;
+        let mut desc_set_layouts = Vec::new();
+        let mut mirrored_model_indices = Vec::new();
+        let mut pipeline_descriptions = Vec::new();
+        // TODO: clean this mirrored iteration mess up...
+        for (model_index, model) in self.0.uploaded_models.iter() {
+            desc_set_layouts
+                .push(self.descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?);
+            mirrored_model_indices.push(model_index);
+        }
+        let descriptor_sets = self.allocate_descriptor_sets(descriptor_pool, &desc_set_layouts)?;
+        for (index, descriptor_set) in descriptor_sets.into_iter().enumerate() {
+            let model_index = mirrored_model_indices[index];
+            let model = &self.0.uploaded_models[model_index];
 
-        Self::update_descriptor_set(
-            &self.0.device,
-            descriptor_sets[0],
-            model.texture.image_view,
-            sampler,
-        );
+            let sampler = self.sampler()?;
+            Self::update_descriptor_set(
+                &self.0.device,
+                descriptor_set,
+                model.texture.image_view,
+                sampler,
+            );
+            let mut vertex_spv_file = BufReader::new(
+                File::open(&model.shaders.vertex_shader).map_err(VulkanError::ShaderRead)?,
+            );
+            let mut frag_spv_file = BufReader::new(
+                File::open(&model.shaders.fragment_shader).map_err(VulkanError::ShaderRead)?,
+            );
 
-        //? shader compiler could live as a Plugin
-        let mut vertex_spv_file =
-            Cursor::new(&include_bytes!("../../../../assets/shaders/vertex_rustgpu.spv")[..]);
-        let mut frag_spv_file =
-            Cursor::new(&include_bytes!("../../../../assets/shaders/fragment_rustgpu.spv")[..]);
+            let mut shader_stages = ShaderStages::new();
+            shader_stages.add_shader(
+                &self.0.device,
+                &mut vertex_spv_file,
+                "shader_main_long_name",
+                vk::ShaderStageFlags::VERTEX,
+            )?;
+            shader_stages.add_shader(
+                &self.0.device,
+                &mut frag_spv_file,
+                "shader_main_long_name",
+                vk::ShaderStageFlags::FRAGMENT,
+            )?;
 
-        let mut shader_stages = ShaderStages::new();
-        shader_stages.add_shader(
-            &self.0.device,
-            &mut vertex_spv_file,
-            "shader_main_long_name",
-            vk::ShaderStageFlags::VERTEX,
-        )?;
-        shader_stages.add_shader(
-            &self.0.device,
-            &mut frag_spv_file,
-            "shader_main_long_name",
-            vk::ShaderStageFlags::FRAGMENT,
-        )?;
+            let mut vertex_input_assembly =
+                VertexInputAssembly::new(vk::PrimitiveTopology::TRIANGLE_LIST);
+            vertex_input_assembly.add_binding_description::<Vertex>(0, vk::VertexInputRate::VERTEX);
+            vertex_input_assembly.add_attribute_description(
+                0,
+                0,
+                vk::Format::R32G32B32A32_SFLOAT,
+                offset_of!(Vertex, pos) as u32,
+            );
+            vertex_input_assembly.add_attribute_description(
+                1,
+                0,
+                vk::Format::R32G32_SFLOAT,
+                offset_of!(Vertex, uv) as u32,
+            );
+            // vertex_input_assembly.add_attribute_description(
+            //     2,
+            //     0,
+            //     vk::Format::R32G32B32_SFLOAT,
+            //     offset_of!(Vertex, normal) as u32,
+            // );
 
-        let mut vertex_input_assembly =
-            VertexInputAssembly::new(vk::PrimitiveTopology::TRIANGLE_LIST);
-        vertex_input_assembly.add_binding_description::<Vertex>(0, vk::VertexInputRate::VERTEX);
-        vertex_input_assembly.add_attribute_description(
-            0,
-            0,
-            vk::Format::R32G32B32A32_SFLOAT,
-            offset_of!(Vertex, pos) as u32,
-        );
-        vertex_input_assembly.add_attribute_description(
-            1,
-            0,
-            vk::Format::R32G32_SFLOAT,
-            offset_of!(Vertex, uv) as u32,
-        );
-        // vertex_input_assembly.add_attribute_description(
-        //     2,
-        //     0,
-        //     vk::Format::R32G32B32_SFLOAT,
-        //     offset_of!(Vertex, normal) as u32,
-        // );
+            pipeline_descriptions.push(PipelineDesc::new(
+                descriptor_set,
+                sampler,
+                Self::pipeline_layout(&self.0.device, &desc_set_layouts)?,
+                self.viewports(),
+                self.scissors(),
+                shader_stages,
+                vertex_input_assembly,
+            ));
+        }
 
-        let pipeline_deps = PipelineDeps::new(
-            Self::pipeline_layout(&self.0.device, &desc_set_layouts)?,
-            self.viewports(),
-            self.scissors(),
-            shader_stages,
-            vertex_input_assembly,
-        );
-
-        let graphics_pipelines = self.graphics_pipelines(&pipeline_deps, render_pass)?;
+        let graphics_pipelines = self.graphics_pipelines(&pipeline_descriptions, render_pass)?;
 
         Ok(Renderer {
             desc_set_layouts,
             descriptor_pool,
-            descriptor_sets,
             framebuffers,
             graphics_pipelines,
             render_pass,
-            sampler,
-            pipeline_deps,
+            pipeline_descriptions,
         })
     }
 
@@ -286,90 +291,94 @@ impl<'a> VulkanBaseWrapper<'a> {
 
     pub fn graphics_pipelines(
         &mut self,
-        pipeline_deps: &PipelineDeps,
+        pipeline_deps: &[PipelineDesc],
         render_pass: vk::RenderPass,
     ) -> Result<Vec<vk::Pipeline>, VulkanError> {
-        let shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo> = pipeline_deps
-            .shader_stages
-            .shader_stage_defs
-            .iter()
-            .map(ShaderStage::create_info)
-            .collect();
+        let mut graphics_pipelines = Vec::new();
+        for desc in pipeline_deps {
+            let shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo> = desc
+                .shader_stages
+                .shader_stage_defs
+                .iter()
+                .map(ShaderStage::create_info)
+                .collect();
 
-        let viewport_state_info = vk::PipelineViewportStateCreateInfo::builder()
-            .scissors(&pipeline_deps.scissors)
-            .viewports(&pipeline_deps.viewports);
+            let viewport_state_info = vk::PipelineViewportStateCreateInfo::builder()
+                .scissors(&desc.scissors)
+                .viewports(&desc.viewports);
 
-        let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
-            front_face: vk::FrontFace::COUNTER_CLOCKWISE,
-            line_width: 1.0,
-            polygon_mode: vk::PolygonMode::FILL,
-            ..Default::default()
-        };
+            let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
+                front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+                line_width: 1.0,
+                polygon_mode: vk::PolygonMode::FILL,
+                ..Default::default()
+            };
 
-        let multisample_state_info = vk::PipelineMultisampleStateCreateInfo::builder()
-            .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+            let multisample_state_info = vk::PipelineMultisampleStateCreateInfo::builder()
+                .rasterization_samples(vk::SampleCountFlags::TYPE_1);
 
-        let noop_stencil_state = vk::StencilOpState {
-            fail_op: vk::StencilOp::KEEP,
-            pass_op: vk::StencilOp::KEEP,
-            depth_fail_op: vk::StencilOp::KEEP,
-            compare_op: vk::CompareOp::ALWAYS,
-            ..Default::default()
-        };
-        let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
-            depth_test_enable: 1,
-            depth_write_enable: 1,
-            depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
-            front: noop_stencil_state,
-            back: noop_stencil_state,
-            max_depth_bounds: 1.0,
-            ..Default::default()
-        };
+            let noop_stencil_state = vk::StencilOpState {
+                fail_op: vk::StencilOp::KEEP,
+                pass_op: vk::StencilOp::KEEP,
+                depth_fail_op: vk::StencilOp::KEEP,
+                compare_op: vk::CompareOp::ALWAYS,
+                ..Default::default()
+            };
+            let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
+                depth_test_enable: 1,
+                depth_write_enable: 1,
+                depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
+                front: noop_stencil_state,
+                back: noop_stencil_state,
+                max_depth_bounds: 1.0,
+                ..Default::default()
+            };
 
-        let color_blend_attachment_states = [vk::PipelineColorBlendAttachmentState {
-            blend_enable: 0,
-            src_color_blend_factor: vk::BlendFactor::SRC_COLOR,
-            dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_DST_COLOR,
-            color_blend_op: vk::BlendOp::ADD,
-            src_alpha_blend_factor: vk::BlendFactor::ZERO,
-            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
-            alpha_blend_op: vk::BlendOp::ADD,
-            color_write_mask: vk::ColorComponentFlags::RGBA,
-        }];
-        let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
-            .logic_op(vk::LogicOp::CLEAR)
-            .attachments(&color_blend_attachment_states);
+            let color_blend_attachment_states = [vk::PipelineColorBlendAttachmentState {
+                blend_enable: 0,
+                src_color_blend_factor: vk::BlendFactor::SRC_COLOR,
+                dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_DST_COLOR,
+                color_blend_op: vk::BlendOp::ADD,
+                src_alpha_blend_factor: vk::BlendFactor::ZERO,
+                dst_alpha_blend_factor: vk::BlendFactor::ZERO,
+                alpha_blend_op: vk::BlendOp::ADD,
+                color_write_mask: vk::ColorComponentFlags::RGBA,
+            }];
+            let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
+                .logic_op(vk::LogicOp::CLEAR)
+                .attachments(&color_blend_attachment_states);
 
-        let dynamic_state = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
-        let dynamic_state_info =
-            vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_state);
+            let dynamic_state = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+            let dynamic_state_info =
+                vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_state);
 
-        let vertex_input_state_info = pipeline_deps.vertex_input_assembly.input_state_info();
-        let vertex_input_assembly_state_info =
-            pipeline_deps.vertex_input_assembly.assembly_state_info();
+            let vertex_input_state_info = desc.vertex_input_assembly.input_state_info();
+            let vertex_input_assembly_state_info = desc.vertex_input_assembly.assembly_state_info();
 
-        let graphic_pipeline_infos = vk::GraphicsPipelineCreateInfo::builder()
-            .stages(&shader_stage_create_infos)
-            .vertex_input_state(&vertex_input_state_info)
-            .input_assembly_state(&vertex_input_assembly_state_info)
-            .viewport_state(&viewport_state_info)
-            .rasterization_state(&rasterization_info)
-            .multisample_state(&multisample_state_info)
-            .depth_stencil_state(&depth_state_info)
-            .color_blend_state(&color_blend_state)
-            .dynamic_state(&dynamic_state_info)
-            .layout(pipeline_deps.layout)
-            .render_pass(render_pass);
+            let graphics_pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
+                .stages(&shader_stage_create_infos)
+                .vertex_input_state(&vertex_input_state_info)
+                .input_assembly_state(&vertex_input_assembly_state_info)
+                .viewport_state(&viewport_state_info)
+                .rasterization_state(&rasterization_info)
+                .multisample_state(&multisample_state_info)
+                .depth_stencil_state(&depth_state_info)
+                .color_blend_state(&color_blend_state)
+                .dynamic_state(&dynamic_state_info)
+                .layout(desc.layout)
+                .render_pass(render_pass);
 
-        unsafe {
-            self.0.device.create_graphics_pipelines(
-                vk::PipelineCache::null(),
-                &[graphic_pipeline_infos.build()],
-                None,
-            )
+            let pipelines = unsafe {
+                self.0.device.create_graphics_pipelines(
+                    vk::PipelineCache::null(),
+                    &[graphics_pipeline_info.build()],
+                    None,
+                )
+            }
+            .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))?;
+            graphics_pipelines.extend(pipelines);
         }
-        .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))
+        Ok(graphics_pipelines)
     }
 
     pub fn pipeline_layout(
@@ -402,8 +411,8 @@ impl<'a> VulkanBaseWrapper<'a> {
         unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
     }
 
-    pub fn descriptor_sets(
-        &mut self,
+    pub fn allocate_descriptor_sets(
+        &self,
         pool: vk::DescriptorPool,
         layouts: &[vk::DescriptorSetLayout],
     ) -> Result<Vec<vk::DescriptorSet>, VulkanError> {
@@ -414,25 +423,16 @@ impl<'a> VulkanBaseWrapper<'a> {
             .map_err(VulkanError::VkResultToDo)
     }
 
-    pub fn descriptor_set_layout(&mut self) -> Result<vk::DescriptorSetLayout, VulkanError> {
-        let desc_layout_bindings = [
-            // vk::DescriptorSetLayoutBinding {
-            //     binding: 0,
-            //     descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-            //     descriptor_count: 1,
-            //     stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            //     ..Default::default()
-            // },
-            vk::DescriptorSetLayoutBinding {
-                binding: 1,
-                descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: 1,
-                stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                ..Default::default()
-            },
-        ];
-        let descriptor_info =
-            vk::DescriptorSetLayoutCreateInfo::builder().bindings(&desc_layout_bindings);
+    pub fn descriptor_set_layout(
+        &self,
+        bindings: Vec<DescBinding>,
+    ) -> Result<vk::DescriptorSetLayout, VulkanError> {
+        let bindings: Vec<_> = bindings
+            .into_iter()
+            .map(|desc| desc.into_layout_binding())
+            .collect();
+
+        let descriptor_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         let layout = unsafe {
             self.0
                 .device
@@ -442,7 +442,11 @@ impl<'a> VulkanBaseWrapper<'a> {
         Ok(layout)
     }
 
-    pub fn descriptor_pool(&mut self) -> Result<vk::DescriptorPool, VulkanError> {
+    pub fn descriptor_pool(
+        &mut self,
+        max_sets: u32,
+        descriptor_count: u32,
+    ) -> Result<vk::DescriptorPool, VulkanError> {
         let descriptor_sizes = [
             // vk::DescriptorPoolSize {
             //     ty: vk::DescriptorType::UNIFORM_BUFFER,
@@ -450,12 +454,12 @@ impl<'a> VulkanBaseWrapper<'a> {
             // },
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: 1,
+                descriptor_count, //TODO
             },
         ];
         let descriptor_pool_info = vk::DescriptorPoolCreateInfo::builder()
             .pool_sizes(&descriptor_sizes)
-            .max_sets(1);
+            .max_sets(max_sets);
         unsafe {
             self.0
                 .device
@@ -464,7 +468,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         .map_err(VulkanError::VkResultToDo)
     }
 
-    pub fn sampler(&mut self) -> Result<vk::Sampler, VulkanError> {
+    pub fn sampler(&self) -> Result<vk::Sampler, VulkanError> {
         // start preparing shader related structures
         let sampler_info = vk::SamplerCreateInfo {
             mag_filter: vk::Filter::LINEAR,
@@ -580,13 +584,11 @@ impl<'a> VulkanBaseWrapper<'a> {
 }
 pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
-    descriptor_sets: Vec<vk::DescriptorSet>,
     desc_set_layouts: Vec<vk::DescriptorSetLayout>,
     framebuffers: Vec<vk::Framebuffer>,
     graphics_pipelines: Vec<vk::Pipeline>,
     render_pass: vk::RenderPass,
-    sampler: vk::Sampler,
-    pipeline_deps: PipelineDeps,
+    pipeline_descriptions: Vec<PipelineDesc>,
 }
 
 pub struct DeviceWrap<'a>(&'a ash::Device);
@@ -603,6 +605,7 @@ impl<'a> DeviceWrap<'a> {
         }
         Ok(())
     }
+
     fn allocate_texture_dest_buffer(
         &self,
         memory_properties: vk::PhysicalDeviceMemoryProperties,
@@ -1015,8 +1018,11 @@ pub extern "C" fn load(state: &mut RenderState) {
 
     for (index, model) in state.models.iter() {
         println!("loading model at {:?}...", index);
+        println!("material {:?}", model.material.path);
+
         let command_buffers = w.allocate_command_buffers(pool).unwrap();
         let command_buffer = command_buffers[0];
+
         w.wait_for_fence(fence).unwrap();
         w.begin_command_buffer(command_buffer).unwrap();
         let image = &model.material.diffuse_map;
@@ -1052,7 +1058,22 @@ pub extern "C" fn load(state: &mut RenderState) {
             )
             .unwrap();
 
-        let uploaded_model = UploadedModelRef::new(dest_texture, vertex_buffer, index_buffer);
+        let uploaded_model = UploadedModelRef::new(
+            dest_texture,
+            vertex_buffer,
+            index_buffer,
+            // TODO: generate this from model metadata! hardcoing this for now to move forward with model rendering
+            ShadersDescription {
+                desc_set_layout_bindings: vec![DescBinding {
+                    binding: 1,
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                }],
+                vertex_shader: model.vertex_shader.clone(),
+                fragment_shader: model.fragment_shader.clone(),
+            },
+        );
         src_images.push(src_image);
         base.track_uploaded_model(*index, uploaded_model);
     }
@@ -1080,7 +1101,7 @@ pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
     // Call render, buffers are updated etc
     state.updates += 1;
     if state.updates % 600 == 0 {
-        println!("updates: {} dt: {:?}", state.updates, dt);
+        println!("updates: {} dt: {:?}...", state.updates, dt);
     }
     state.present();
 }

@@ -81,6 +81,7 @@ dependencies = [
  "platform",
  "render",
  "thiserror",
+ "world",
 ]
 
 [[package]]

@@ -1,6 +1,7 @@
 use std::{
     ffi::{CString, NulError},
     io,
+    path::PathBuf,
 };
 
 use ash::vk;
@@ -9,6 +10,9 @@ use crate::VulkanBase;
 
 #[derive(thiserror::Error, Debug)]
 pub enum VulkanError {
+    #[error("error reading shader ({0:?})")]
+    ShaderRead(io::Error),
+
     #[error("Unable to find suitable memorytype for the buffer")]
     UnableToFindMemoryTypeForBuffer,
 
@@ -73,11 +77,44 @@ impl BufferAndMemory {
     }
 }
 
+#[derive(Clone)]
+pub struct DescBinding {
+    pub binding: u32,
+    pub descriptor_type: vk::DescriptorType,
+    pub descriptor_count: u32,
+    pub stage_flags: vk::ShaderStageFlags,
+}
+impl DescBinding {
+    pub fn into_layout_binding(self) -> vk::DescriptorSetLayoutBinding {
+        let Self {
+            binding,
+            descriptor_type,
+            descriptor_count,
+            stage_flags,
+        } = self;
+        vk::DescriptorSetLayoutBinding {
+            binding,
+            descriptor_type,
+            descriptor_count,
+            stage_flags,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ShadersDescription {
+    pub desc_set_layout_bindings: Vec<DescBinding>,
+    pub vertex_shader: PathBuf,
+    pub fragment_shader: PathBuf,
+}
+
 // TODO rename
 pub struct UploadedModelRef {
     pub vertex_buffer: BufferAndMemory,
     pub index_buffer: BufferAndMemory,
     pub texture: Texture,
+    pub shaders: ShadersDescription,
 }
 
 impl UploadedModelRef {
@@ -85,11 +122,13 @@ impl UploadedModelRef {
         texture: Texture,
         vertex_buffer: BufferAndMemory,
         index_buffer: BufferAndMemory,
+        shaders: ShadersDescription,
     ) -> Self {
         Self {
             texture,
             vertex_buffer,
             index_buffer,
+            shaders,
         }
     }
     pub(crate) fn deallocate(&self, base: &mut VulkanBase) {
@@ -260,7 +299,9 @@ impl<'a> AttachmentsModifier<'a> {
     }
 }
 
-pub struct PipelineDeps {
+pub struct PipelineDesc {
+    pub descriptor_set: vk::DescriptorSet,
+    pub sampler: vk::Sampler,
     pub layout: vk::PipelineLayout,
     pub viewports: Vec<vk::Viewport>,
     pub scissors: Vec<vk::Rect2D>,
@@ -268,8 +309,10 @@ pub struct PipelineDeps {
     pub vertex_input_assembly: VertexInputAssembly,
 }
 
-impl PipelineDeps {
+impl PipelineDesc {
     pub fn new(
+        descriptor_set: vk::DescriptorSet,
+        sampler: vk::Sampler,
         layout: vk::PipelineLayout,
         viewports: Vec<vk::Viewport>,
         scissors: Vec<vk::Rect2D>,
@@ -277,6 +320,8 @@ impl PipelineDeps {
         vertex_input_assembly: VertexInputAssembly,
     ) -> Self {
         Self {
+            descriptor_set,
+            sampler,
             layout,
             viewports,
             scissors,
@@ -284,12 +329,13 @@ impl PipelineDeps {
             vertex_input_assembly,
         }
     }
-    pub fn deallocate(&mut self, device: &ash::Device) {
+    pub fn deallocate(&self, device: &ash::Device) {
         unsafe {
             device.destroy_pipeline_layout(self.layout, None);
-            for shader_module in self.shader_stages.modules.drain(..) {
-                device.destroy_shader_module(shader_module, None);
+            for shader_module in self.shader_stages.modules.iter() {
+                device.destroy_shader_module(*shader_module, None);
             }
+            device.destroy_sampler(self.sampler, None);
         }
     }
 }

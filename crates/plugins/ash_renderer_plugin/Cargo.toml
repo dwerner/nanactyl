@@ -16,4 +16,5 @@ core_executor = { path = "../../core_executor" }
 platform = {path = "../../platform" }
 render = {path = "../../render" }
 models = { path = "../../models" }
+world = {path = "../../world" }
 thiserror = "1.0.32"

@@ -30,7 +30,7 @@ struct CliOpts {
     backtrace: bool,
 
     #[structopt(long)]
-    enable_validation_layer: bool,
+    disable_validation_layer: bool,
 }
 
 fn main() {
@@ -48,12 +48,23 @@ fn main() {
 
     let mut world = world::World::new();
 
-    let cube_model = models::Model::load("assets/models/static/cube.obj").unwrap();
-    let cube_model_facet = ModelFacet::new(cube_model);
-    let cube_model_idx = world.add_model(cube_model_facet);
-    let ico_model = models::Model::load("assets/models/static/ico.obj").unwrap();
+    let ico_model = models::Model::load(
+        "assets/models/static/ico.obj",
+        "assets/shaders/vertex_rustgpu.spv",
+        "assets/shaders/fragment_rustgpu.spv",
+    )
+    .unwrap();
     let ico_model_facet = ModelFacet::new(ico_model);
     let ico_model_idx = world.add_model(ico_model_facet);
+
+    let cube_model = models::Model::load(
+        "assets/models/static/cube.obj",
+        "assets/shaders/vertex_rustgpu.spv",
+        "assets/shaders/fragment_rustgpu.spv",
+    )
+    .unwrap();
+    let cube_model_facet = ModelFacet::new(cube_model);
+    let cube_model_idx = world.add_model(cube_model_facet);
 
     let physical = PhysicalFacet::new(0.0, 0.0, 0.0);
     let camera_idx = world.add_camera(CameraFacet::new(&physical));
@@ -123,7 +134,7 @@ fn main() {
         // state needs to be dropped on the same thread as it was created
         let render_state = RenderState::new(
             win_ptr,
-            opts.enable_validation_layer,
+            !opts.disable_validation_layer,
             render_exec.spawners(),
         )
         .into_shared();

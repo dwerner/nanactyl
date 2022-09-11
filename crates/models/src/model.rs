@@ -61,10 +61,16 @@ pub struct Model {
     pub loaded_time: Instant,
     pub material: Material,
     pub mesh: Mesh,
+    pub vertex_shader: PathBuf,
+    pub fragment_shader: PathBuf,
 }
 
 impl Model {
-    pub fn load(filename: impl AsRef<Path>) -> Result<Self, ModelLoadError> {
+    pub fn load(
+        filename: impl AsRef<Path>,
+        vertex_shader: impl AsRef<Path>,
+        fragment_shader: impl AsRef<Path>,
+    ) -> Result<Self, ModelLoadError> {
         let obj = Obj::load(&filename).map_err(ModelLoadError::Obj)?;
         let obj = {
             obj.objects
@@ -117,6 +123,8 @@ impl Model {
                 path: material_path,
                 diffuse_map,
             },
+            vertex_shader: vertex_shader.as_ref().to_path_buf(),
+            fragment_shader: fragment_shader.as_ref().to_path_buf(),
         })
     }
 }

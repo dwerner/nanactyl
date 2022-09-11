@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 ash = "0.37.0+1.3.209"
 async-io = "1.9.0"
 async-channel = "1.7.1"
+bytemuck = "1.12.1"
 cstr = "0.2.10"
 image = { version = "0.24.3", default-features = false, features=["png"] }
 core_executor = { path = "../../core_executor" }

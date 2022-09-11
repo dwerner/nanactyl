@@ -12,17 +12,13 @@ use spirv_std::macros::spirv;
 
 mod hide;
 
-use spirv_std::glam::{Vec2, Vec3, Vec4};
-
-pub struct UBO {
-    pub color: Vec3,
-}
+use spirv_std::glam::{Vec2, Vec4};
 
 #[spirv(fragment)]
-pub fn shader_main_long_name(
+pub fn fragment_main(
     o_uv: Vec2,
     frag_color: &mut Vec4,
-    #[spirv(descriptor_set = 0, binding = 1)] sampler: &hide::Sampler2d,
+    #[spirv(descriptor_set = 0, binding = 2)] sampler: &hide::Sampler2d,
 ) {
     let color = unsafe { sampler.sample(o_uv) };
     *frag_color = color;

@@ -74,6 +74,7 @@ dependencies = [
  "ash",
  "async-channel",
  "async-io",
+ "bytemuck",
  "core_executor",
  "cstr",
  "image",

@@ -4,12 +4,13 @@ use ash::{util::Align, vk};
 use models::{Image, Vertex};
 use render::{
     types::{
-        Attachments, AttachmentsModifier, BufferAndMemory, DescBinding, PipelineDesc, ShaderStage,
-        ShaderStages, ShadersDescription, Texture, UploadedModelRef, VertexInputAssembly,
+        Attachments, AttachmentsModifier, BufferAndMemory, GpuModelRef, PipelineDesc,
+        ShaderBindingDesc, ShaderDesc, ShaderStage, ShaderStages, Texture, VertexInputAssembly,
         VulkanError,
     },
     Presenter, RenderState, VulkanBase,
 };
+use world::Matrix4;
 
 impl Renderer {
     fn present_with_base(&self, base: &mut VulkanBase) -> Result<(), VulkanError> {
@@ -56,6 +57,15 @@ impl Renderer {
             vk::SubpassContents::INLINE,
         );
 
+        // TODO: iterate over scene's Things, not uploaded_models.
+        // From there, we can get a model matrix from the physical facet.
+        // FOR NOW: hard-code a matrix.
+        let model_mat = Matrix4::<f32>::identity();
+        let model_mat = model_mat.as_slice();
+        let mut mat = [0f32; 16];
+        mat.copy_from_slice(&model_mat);
+        let push_constant_bytes = bytemuck::bytes_of(&mat);
+
         for (index, (_model_index, model)) in base.uploaded_models.iter().enumerate() {
             let desc = &self.pipeline_descriptions[index];
             let pipeline = self.graphics_pipelines[index];
@@ -76,6 +86,13 @@ impl Renderer {
                 model.index_buffer.buffer,
                 0,
                 vk::IndexType::UINT32,
+            );
+            w.cmd_push_constants(
+                base.draw_cmd_buf,
+                desc.layout,
+                vk::ShaderStageFlags::VERTEX,
+                0,
+                push_constant_bytes,
             );
             w.cmd_draw_indexed(base.draw_cmd_buf, model.index_buffer.len as u32, 1, 0, 0, 1);
         }
@@ -163,14 +180,6 @@ macro_rules! offset_of {
     }};
 }
 
-// #[derive(Clone, Debug, Copy)]
-// pub struct Vector3 {
-//     pub x: f32,
-//     pub y: f32,
-//     pub z: f32,
-//     pub _pad: f32,
-// }
-
 pub struct VulkanBaseWrapper<'a>(&'a mut VulkanBase);
 
 impl<'a> VulkanBaseWrapper<'a> {
@@ -185,26 +194,36 @@ impl<'a> VulkanBaseWrapper<'a> {
 
         // TODO: shaders that apply only to certain models need different descriptor sets.
         //? TODO: any pool can be a thread local, but then any object must be destroyed on that thread.
-        let descriptor_pool = self.descriptor_pool(3, 3)?;
+        let descriptor_pool = self.descriptor_pool(10, 4, 4)?;
 
         let mut desc_set_layouts = Vec::new();
         let mut mirrored_model_indices = Vec::new();
         let mut pipeline_descriptions = Vec::new();
-        // TODO: clean this mirrored iteration mess up...
+
+        // For now we are creating a pipeline per model.
         for (model_index, model) in self.0.uploaded_models.iter() {
+            let uniform_buffer = {
+                let device = DeviceWrap(&self.0.device);
+                device.allocate_and_init_buffer(
+                    vk::BufferUsageFlags::UNIFORM_BUFFER,
+                    self.0.device_memory_properties,
+                    Matrix4::<f32>::identity().as_slice(),
+                )?
+            };
+
             desc_set_layouts
                 .push(self.descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?);
             mirrored_model_indices.push(model_index);
-        }
-        let descriptor_sets = self.allocate_descriptor_sets(descriptor_pool, &desc_set_layouts)?;
-        for (index, descriptor_set) in descriptor_sets.into_iter().enumerate() {
-            let model_index = mirrored_model_indices[index];
-            let model = &self.0.uploaded_models[model_index];
+            let descriptor_sets =
+                self.allocate_descriptor_sets(descriptor_pool, &desc_set_layouts)?;
 
             let sampler = self.sampler()?;
+
+            let descriptor_set = descriptor_sets[0];
             Self::update_descriptor_set(
                 &self.0.device,
                 descriptor_set,
+                uniform_buffer.buffer,
                 model.texture.image_view,
                 sampler,
             );
@@ -219,14 +238,16 @@ impl<'a> VulkanBaseWrapper<'a> {
             shader_stages.add_shader(
                 &self.0.device,
                 &mut vertex_spv_file,
-                "shader_main_long_name",
+                "vertex_main",
                 vk::ShaderStageFlags::VERTEX,
+                vk::PipelineShaderStageCreateFlags::empty(),
             )?;
             shader_stages.add_shader(
                 &self.0.device,
                 &mut frag_spv_file,
-                "shader_main_long_name",
+                "fragment_main",
                 vk::ShaderStageFlags::FRAGMENT,
+                vk::PipelineShaderStageCreateFlags::empty(),
             )?;
 
             let mut vertex_input_assembly =
@@ -241,18 +262,19 @@ impl<'a> VulkanBaseWrapper<'a> {
             vertex_input_assembly.add_attribute_description(
                 1,
                 0,
+                vk::Format::R32G32B32_SFLOAT,
+                offset_of!(Vertex, normal) as u32,
+            );
+            vertex_input_assembly.add_attribute_description(
+                2,
+                0,
                 vk::Format::R32G32_SFLOAT,
                 offset_of!(Vertex, uv) as u32,
             );
-            // vertex_input_assembly.add_attribute_description(
-            //     2,
-            //     0,
-            //     vk::Format::R32G32B32_SFLOAT,
-            //     offset_of!(Vertex, normal) as u32,
-            // );
 
             pipeline_descriptions.push(PipelineDesc::new(
-                descriptor_set,
+                uniform_buffer,
+                descriptor_sets[0],
                 sampler,
                 Self::pipeline_layout(&self.0.device, &desc_set_layouts)?,
                 self.viewports(),
@@ -391,23 +413,38 @@ impl<'a> VulkanBaseWrapper<'a> {
             .map_err(VulkanError::VkResultToDo)
     }
 
+    // This could be updated to update many descriptor sets in bulk, however we only have one we care
+    // about, per-pipeline when this was written.
     pub fn update_descriptor_set(
         device: &ash::Device,
         descriptor_set: vk::DescriptorSet,
+        uniform_buffer: vk::Buffer,
         tex_image_view: vk::ImageView,
         sampler: vk::Sampler,
     ) {
+        let uniform_descriptor = vk::DescriptorBufferInfo::builder()
+            .buffer(uniform_buffer)
+            .build();
+
         let tex_descriptor = vk::DescriptorImageInfo {
             image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             image_view: tex_image_view,
             sampler,
         };
-        let write_desc_sets = [vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_set)
-            .dst_binding(1)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&[tex_descriptor])
-            .build()];
+        let write_desc_sets = [
+            vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&[uniform_descriptor])
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_set)
+                .dst_binding(2)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&[tex_descriptor])
+                .build(),
+        ];
         unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
     }
 
@@ -425,7 +462,7 @@ impl<'a> VulkanBaseWrapper<'a> {
 
     pub fn descriptor_set_layout(
         &self,
-        bindings: Vec<DescBinding>,
+        bindings: Vec<ShaderBindingDesc>,
     ) -> Result<vk::DescriptorSetLayout, VulkanError> {
         let bindings: Vec<_> = bindings
             .into_iter()
@@ -445,16 +482,17 @@ impl<'a> VulkanBaseWrapper<'a> {
     pub fn descriptor_pool(
         &mut self,
         max_sets: u32,
-        descriptor_count: u32,
+        max_samplers: u32,
+        max_uniform_buffers: u32,
     ) -> Result<vk::DescriptorPool, VulkanError> {
         let descriptor_sizes = [
-            // vk::DescriptorPoolSize {
-            //     ty: vk::DescriptorType::UNIFORM_BUFFER,
-            //     descriptor_count: 1,
-            // },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: max_uniform_buffers,
+            },
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count, //TODO
+                descriptor_count: max_samplers,
             },
         ];
         let descriptor_pool_info = vk::DescriptorPoolCreateInfo::builder()
@@ -654,7 +692,7 @@ impl<'a> DeviceWrap<'a> {
     }
     /// Allocate a buffer with usage flags, initialize with data.
     /// TODO: internalize
-    fn allocate_and_init_buffer<T>(
+    pub fn allocate_and_init_buffer<T>(
         &self,
         usage: vk::BufferUsageFlags,
         memory_properties: vk::PhysicalDeviceMemoryProperties,
@@ -962,6 +1000,20 @@ impl<'a> DeviceWrap<'a> {
         }
     }
 
+    pub fn cmd_push_constants(
+        &self,
+        command_buffer: vk::CommandBuffer,
+        layout: vk::PipelineLayout,
+        stage_flags: vk::ShaderStageFlags,
+        offset: u32,
+        constants: &[u8],
+    ) {
+        unsafe {
+            self.0
+                .cmd_push_constants(command_buffer, layout, stage_flags, offset, constants)
+        }
+    }
+
     pub fn cmd_draw_indexed(
         &self,
         command_buffer: vk::CommandBuffer,
@@ -1058,18 +1110,26 @@ pub extern "C" fn load(state: &mut RenderState) {
             )
             .unwrap();
 
-        let uploaded_model = UploadedModelRef::new(
+        let uploaded_model = GpuModelRef::new(
             dest_texture,
             vertex_buffer,
             index_buffer,
             // TODO: generate this from model metadata! hardcoing this for now to move forward with model rendering
-            ShadersDescription {
-                desc_set_layout_bindings: vec![DescBinding {
-                    binding: 1,
-                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                }],
+            ShaderDesc {
+                desc_set_layout_bindings: vec![
+                    ShaderBindingDesc {
+                        binding: 1,
+                        descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                        descriptor_count: 1,
+                        stage_flags: vk::ShaderStageFlags::VERTEX,
+                    },
+                    ShaderBindingDesc {
+                        binding: 2,
+                        descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                        descriptor_count: 1,
+                        stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    },
+                ],
                 vertex_shader: model.vertex_shader.clone(),
                 fragment_shader: model.fragment_shader.clone(),
             },

@@ -14,7 +14,7 @@ use ash::{
 use async_lock::{Mutex, MutexGuardArc};
 use core_executor::ThreadExecutorSpawner;
 use platform::WinPtr;
-use types::UploadedModelRef;
+use types::GpuModelRef;
 use world::thing::ModelIndex;
 use world::World;
 
@@ -193,16 +193,16 @@ pub struct VulkanBase {
     pub maybe_debug_utils_loader: Option<ext::DebugUtils>,
     pub maybe_debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
 
-    pub uploaded_models: HashMap<ModelIndex, UploadedModelRef>,
+    pub uploaded_models: HashMap<ModelIndex, GpuModelRef>,
 }
 
 impl VulkanBase {
     /// Track a model reference for cleanup when VulkanBase is dropped.
-    pub fn track_uploaded_model(&mut self, index: ModelIndex, model_ref: UploadedModelRef) {
+    pub fn track_uploaded_model(&mut self, index: ModelIndex, model_ref: GpuModelRef) {
         self.uploaded_models.insert(index, model_ref);
     }
 
-    pub fn get_tracked_model(&self, index: impl Into<ModelIndex>) -> Option<&UploadedModelRef> {
+    pub fn get_tracked_model(&self, index: impl Into<ModelIndex>) -> Option<&GpuModelRef> {
         self.uploaded_models.get(&index.into())
     }
 

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     ffi::{CString, NulError},
     io,
     path::PathBuf,
@@ -52,6 +53,7 @@ pub enum VulkanError {
     SubmitCommandBuffers(vk::Result),
 }
 
+/// A handle to a Vulkan GPU buffer and it's backing memory.
 pub struct BufferAndMemory {
     pub buffer: vk::Buffer,
     pub memory: vk::DeviceMemory,
@@ -77,14 +79,15 @@ impl BufferAndMemory {
     }
 }
 
+/// Describes a shader binding.
 #[derive(Clone)]
-pub struct DescBinding {
+pub struct ShaderBindingDesc {
     pub binding: u32,
     pub descriptor_type: vk::DescriptorType,
     pub descriptor_count: u32,
     pub stage_flags: vk::ShaderStageFlags,
 }
-impl DescBinding {
+impl ShaderBindingDesc {
     pub fn into_layout_binding(self) -> vk::DescriptorSetLayoutBinding {
         let Self {
             binding,
@@ -103,26 +106,26 @@ impl DescBinding {
 }
 
 #[derive(Clone)]
-pub struct ShadersDescription {
-    pub desc_set_layout_bindings: Vec<DescBinding>,
+pub struct ShaderDesc {
+    pub desc_set_layout_bindings: Vec<ShaderBindingDesc>,
     pub vertex_shader: PathBuf,
     pub fragment_shader: PathBuf,
 }
 
-// TODO rename
-pub struct UploadedModelRef {
+/// Handle to resources on the GPU comprising a texture.
+pub struct GpuModelRef {
     pub vertex_buffer: BufferAndMemory,
     pub index_buffer: BufferAndMemory,
     pub texture: Texture,
-    pub shaders: ShadersDescription,
+    pub shaders: ShaderDesc,
 }
 
-impl UploadedModelRef {
+impl GpuModelRef {
     pub fn new(
         texture: Texture,
         vertex_buffer: BufferAndMemory,
         index_buffer: BufferAndMemory,
-        shaders: ShadersDescription,
+        shaders: ShaderDesc,
     ) -> Self {
         Self {
             texture,
@@ -138,6 +141,7 @@ impl UploadedModelRef {
     }
 }
 
+/// Holds references to GPU resources for a texture.
 pub struct Texture {
     pub format: vk::Format,
     pub image: vk::Image,
@@ -299,7 +303,9 @@ impl<'a> AttachmentsModifier<'a> {
     }
 }
 
+/// Describes a pipeline.
 pub struct PipelineDesc {
+    pub uniform_buffer: BufferAndMemory,
     pub descriptor_set: vk::DescriptorSet,
     pub sampler: vk::Sampler,
     pub layout: vk::PipelineLayout,
@@ -311,6 +317,7 @@ pub struct PipelineDesc {
 
 impl PipelineDesc {
     pub fn new(
+        uniform_buffer: BufferAndMemory,
         descriptor_set: vk::DescriptorSet,
         sampler: vk::Sampler,
         layout: vk::PipelineLayout,
@@ -320,6 +327,7 @@ impl PipelineDesc {
         vertex_input_assembly: VertexInputAssembly,
     ) -> Self {
         Self {
+            uniform_buffer,
             descriptor_set,
             sampler,
             layout,
@@ -331,6 +339,7 @@ impl PipelineDesc {
     }
     pub fn deallocate(&self, device: &ash::Device) {
         unsafe {
+            self.uniform_buffer.deallocate(device);
             device.destroy_pipeline_layout(self.layout, None);
             for shader_module in self.shader_stages.modules.iter() {
                 device.destroy_shader_module(*shader_module, None);
@@ -340,7 +349,7 @@ impl PipelineDesc {
     }
 }
 
-// Move to DeviceWrap
+/// TODO: Move to DeviceWrap
 pub fn read_shader_module<R>(
     device: &ash::Device,
     reader: &mut R,
@@ -348,14 +357,18 @@ pub fn read_shader_module<R>(
 where
     R: io::Read + io::Seek,
 {
-    // TODO: convert to VulkanError
-    let shader_code = ash::util::read_spv(reader).expect("Failed to read shader spv data");
-
+    let shader_code = ash::util::read_spv(reader).map_err(VulkanError::ShaderRead)?;
     let shader_create_info = vk::ShaderModuleCreateInfo::builder().code(&shader_code);
     unsafe { device.create_shader_module(&shader_create_info, None) }
         .map_err(VulkanError::VkResultToDo)
 }
 
+/// TODO: further implementaion of shader caching.
+pub struct ShaderModuleCache {
+    _shaders: HashMap<String, ShaderStages>,
+}
+
+/// Tracks modules and definitions used to initialize shaders.
 pub struct ShaderStages {
     pub modules: Vec<vk::ShaderModule>,
     pub shader_stage_defs: Vec<ShaderStage>,
@@ -375,6 +388,7 @@ impl ShaderStages {
         reader: &mut R,
         entry_point_name: &'static str,
         stage: vk::ShaderStageFlags,
+        flags: vk::PipelineShaderStageCreateFlags,
     ) -> Result<(), VulkanError>
     where
         R: io::Read + io::Seek,
@@ -382,16 +396,19 @@ impl ShaderStages {
         let module = read_shader_module(device, reader)?;
         let idx = self.modules.len();
         self.modules.push(module);
-        let shader_stage = ShaderStage::new(self.modules[idx], entry_point_name, stage)?;
+        let shader_stage = ShaderStage::new(self.modules[idx], entry_point_name, stage, flags)?;
         self.shader_stage_defs.push(shader_stage);
         Ok(())
     }
 }
 
+/// TODO: Maybe chain together instead of leaving disparate.
+
 pub struct ShaderStage {
     module: vk::ShaderModule,
     entry_point_name: CString,
     stage: vk::ShaderStageFlags,
+    flags: vk::PipelineShaderStageCreateFlags,
 }
 
 impl ShaderStage {
@@ -399,12 +416,14 @@ impl ShaderStage {
         module: vk::ShaderModule,
         entry_point_name: &'static str,
         stage: vk::ShaderStageFlags,
+        flags: vk::PipelineShaderStageCreateFlags,
     ) -> Result<Self, VulkanError> {
         Ok(Self {
             module,
             entry_point_name: CString::new(entry_point_name)
                 .map_err(VulkanError::InvalidCString)?,
             stage,
+            flags,
         })
     }
 
@@ -413,6 +432,7 @@ impl ShaderStage {
             .module(self.module)
             .name(self.entry_point_name.as_c_str())
             .stage(self.stage)
+            .flags(self.flags)
             .build()
     }
 }

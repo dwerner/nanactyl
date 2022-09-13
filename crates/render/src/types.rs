@@ -305,6 +305,7 @@ impl<'a> AttachmentsModifier<'a> {
 
 /// Describes a pipeline.
 pub struct PipelineDesc {
+    pub desc_set_layout: vk::DescriptorSetLayout,
     pub uniform_buffer: BufferAndMemory,
     pub descriptor_set: vk::DescriptorSet,
     pub sampler: vk::Sampler,
@@ -317,6 +318,7 @@ pub struct PipelineDesc {
 
 impl PipelineDesc {
     pub fn new(
+        desc_set_layout: vk::DescriptorSetLayout,
         uniform_buffer: BufferAndMemory,
         descriptor_set: vk::DescriptorSet,
         sampler: vk::Sampler,
@@ -327,6 +329,7 @@ impl PipelineDesc {
         vertex_input_assembly: VertexInputAssembly,
     ) -> Self {
         Self {
+            desc_set_layout,
             uniform_buffer,
             descriptor_set,
             sampler,
@@ -345,6 +348,7 @@ impl PipelineDesc {
                 device.destroy_shader_module(*shader_module, None);
             }
             device.destroy_sampler(self.sampler, None);
+            device.destroy_descriptor_set_layout(self.desc_set_layout, None);
         }
     }
 }

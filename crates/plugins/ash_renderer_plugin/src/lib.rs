@@ -1,4 +1,4 @@
-use std::{fs::File, io::BufReader, mem::align_of, time::Duration};
+use std::{collections::HashMap, fs::File, io::BufReader, mem::align_of, time::Duration};
 
 use ash::{util::Align, vk};
 use models::{Image, Vertex};
@@ -8,12 +8,16 @@ use render::{
         ShaderBindingDesc, ShaderDesc, ShaderStage, ShaderStages, Texture, VertexInputAssembly,
         VulkanError,
     },
-    Presenter, RenderState, VulkanBase,
+    Presenter, RenderScene, RenderState, VulkanBase,
 };
-use world::Matrix4;
+use world::{thing::ModelIndex, Matrix4};
 
 impl Renderer {
-    fn present_with_base(&self, base: &mut VulkanBase) -> Result<(), VulkanError> {
+    fn present_with_base(
+        &self,
+        base: &mut VulkanBase,
+        scene: &RenderScene,
+    ) -> Result<(), VulkanError> {
         let (present_index, _) = unsafe {
             base.swapchain_loader.acquire_next_image(
                 base.swapchain,
@@ -60,15 +64,20 @@ impl Renderer {
         // TODO: iterate over scene's Things, not uploaded_models.
         // From there, we can get a model matrix from the physical facet.
         // FOR NOW: hard-code a matrix.
-        let model_mat = Matrix4::<f32>::identity();
-        let model_mat = model_mat.as_slice();
-        let mut mat = [0f32; 16];
-        mat.copy_from_slice(&model_mat);
-        let push_constant_bytes = bytemuck::bytes_of(&mat);
 
-        for (index, (_model_index, model)) in base.uploaded_models.iter().enumerate() {
-            let desc = &self.pipeline_descriptions[index];
-            let pipeline = self.graphics_pipelines[index];
+        for drawable in scene.drawables.iter() {
+            // create a matrix for translating to the given position.
+            let model_mat =
+                Matrix4::<f32>::new_translation(&drawable.pos) * Matrix4::new_scaling(0.1);
+            let model_mat = model_mat.as_slice();
+            let mut mat = [0f32; 16];
+            mat.copy_from_slice(&model_mat);
+            let push_constant_bytes = bytemuck::bytes_of(&mat);
+
+            let model = base.uploaded_models.get(&drawable.model).unwrap();
+            let desc = &self.pipeline_descriptions[&drawable.model];
+            let pipeline = self.graphics_pipelines[&drawable.model];
+
             w.cmd_bind_descriptor_sets(
                 base.draw_cmd_buf,
                 vk::PipelineBindPoint::GRAPHICS,
@@ -138,15 +147,11 @@ impl Renderer {
                 .device_wait_idle()
                 .map_err(VulkanError::VkResultToDo)?;
 
-            for pipeline in self.graphics_pipelines.iter() {
+            for (_, pipeline) in self.graphics_pipelines.iter() {
                 base.device.destroy_pipeline(*pipeline, None);
             }
-            for desc in self.pipeline_descriptions.iter() {
+            for (_, desc) in self.pipeline_descriptions.iter() {
                 desc.deallocate(&base.device);
-            }
-            for &descriptor_set_layout in self.desc_set_layouts.iter() {
-                base.device
-                    .destroy_descriptor_set_layout(descriptor_set_layout, None);
             }
             base.device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
@@ -160,8 +165,8 @@ impl Renderer {
 }
 
 impl Presenter for Renderer {
-    fn present(&self, base: &mut VulkanBase) {
-        self.present_with_base(base).unwrap();
+    fn present(&self, base: &mut VulkanBase, scene: &RenderScene) {
+        self.present_with_base(base, scene).unwrap();
     }
     fn drop_resources(&mut self, base: &mut VulkanBase) {
         self.drop_resources_with_base(base).unwrap();
@@ -196,9 +201,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         //? TODO: any pool can be a thread local, but then any object must be destroyed on that thread.
         let descriptor_pool = self.descriptor_pool(10, 4, 4)?;
 
-        let mut desc_set_layouts = Vec::new();
-        let mut mirrored_model_indices = Vec::new();
-        let mut pipeline_descriptions = Vec::new();
+        let mut pipeline_descriptions = HashMap::new();
 
         // For now we are creating a pipeline per model.
         for (model_index, model) in self.0.uploaded_models.iter() {
@@ -211,19 +214,18 @@ impl<'a> VulkanBaseWrapper<'a> {
                 )?
             };
 
-            desc_set_layouts
-                .push(self.descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?);
-            mirrored_model_indices.push(model_index);
+            let desc_set_layout =
+                self.descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?;
             let descriptor_sets =
-                self.allocate_descriptor_sets(descriptor_pool, &desc_set_layouts)?;
+                self.allocate_descriptor_sets(descriptor_pool, &[desc_set_layout])?;
+            let descriptor_set = descriptor_sets[0];
 
             let sampler = self.sampler()?;
 
-            let descriptor_set = descriptor_sets[0];
             Self::update_descriptor_set(
                 &self.0.device,
                 descriptor_set,
-                uniform_buffer.buffer,
+                &uniform_buffer,
                 model.texture.image_view,
                 sampler,
             );
@@ -272,22 +274,30 @@ impl<'a> VulkanBaseWrapper<'a> {
                 offset_of!(Vertex, uv) as u32,
             );
 
-            pipeline_descriptions.push(PipelineDesc::new(
-                uniform_buffer,
-                descriptor_sets[0],
-                sampler,
-                Self::pipeline_layout(&self.0.device, &desc_set_layouts)?,
-                self.viewports(),
-                self.scissors(),
-                shader_stages,
-                vertex_input_assembly,
-            ));
+            let w = DeviceWrap(&self.0.device);
+
+            pipeline_descriptions.insert(
+                *model_index,
+                PipelineDesc::new(
+                    desc_set_layout,
+                    uniform_buffer,
+                    descriptor_set,
+                    sampler,
+                    w.pipeline_layout(
+                        std::mem::size_of::<Matrix4<f32>>() as u32,
+                        &[desc_set_layout],
+                    )?,
+                    self.viewports(),
+                    self.scissors(),
+                    shader_stages,
+                    vertex_input_assembly,
+                ),
+            );
         }
 
         let graphics_pipelines = self.graphics_pipelines(&pipeline_descriptions, render_pass)?;
 
         Ok(Renderer {
-            desc_set_layouts,
             descriptor_pool,
             framebuffers,
             graphics_pipelines,
@@ -313,11 +323,11 @@ impl<'a> VulkanBaseWrapper<'a> {
 
     pub fn graphics_pipelines(
         &mut self,
-        pipeline_deps: &[PipelineDesc],
+        pipeline_descriptions: &HashMap<ModelIndex, PipelineDesc>,
         render_pass: vk::RenderPass,
-    ) -> Result<Vec<vk::Pipeline>, VulkanError> {
-        let mut graphics_pipelines = Vec::new();
-        for desc in pipeline_deps {
+    ) -> Result<HashMap<ModelIndex, vk::Pipeline>, VulkanError> {
+        let mut graphics_pipelines = HashMap::new();
+        for (model_index, desc) in pipeline_descriptions {
             let shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo> = desc
                 .shader_stages
                 .shader_stage_defs
@@ -390,27 +400,18 @@ impl<'a> VulkanBaseWrapper<'a> {
                 .layout(desc.layout)
                 .render_pass(render_pass);
 
-            let pipelines = unsafe {
+            let pipeline = unsafe {
                 self.0.device.create_graphics_pipelines(
                     vk::PipelineCache::null(),
                     &[graphics_pipeline_info.build()],
                     None,
                 )
             }
-            .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))?;
-            graphics_pipelines.extend(pipelines);
+            .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))?
+                [0];
+            graphics_pipelines.insert(*model_index, pipeline);
         }
         Ok(graphics_pipelines)
-    }
-
-    pub fn pipeline_layout(
-        device: &ash::Device,
-        desc_set_layouts: &[vk::DescriptorSetLayout],
-    ) -> Result<vk::PipelineLayout, VulkanError> {
-        let layout_create_info =
-            vk::PipelineLayoutCreateInfo::builder().set_layouts(desc_set_layouts);
-        unsafe { device.create_pipeline_layout(&layout_create_info, None) }
-            .map_err(VulkanError::VkResultToDo)
     }
 
     // This could be updated to update many descriptor sets in bulk, however we only have one we care
@@ -418,12 +419,14 @@ impl<'a> VulkanBaseWrapper<'a> {
     pub fn update_descriptor_set(
         device: &ash::Device,
         descriptor_set: vk::DescriptorSet,
-        uniform_buffer: vk::Buffer,
+        uniform_buffer: &BufferAndMemory,
         tex_image_view: vk::ImageView,
         sampler: vk::Sampler,
     ) {
         let uniform_descriptor = vk::DescriptorBufferInfo::builder()
-            .buffer(uniform_buffer)
+            .buffer(uniform_buffer.buffer)
+            .range(uniform_buffer.len as u64)
+            .offset(0)
             .build();
 
         let tex_descriptor = vk::DescriptorImageInfo {
@@ -622,16 +625,35 @@ impl<'a> VulkanBaseWrapper<'a> {
 }
 pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
-    desc_set_layouts: Vec<vk::DescriptorSetLayout>,
     framebuffers: Vec<vk::Framebuffer>,
-    graphics_pipelines: Vec<vk::Pipeline>,
+    graphics_pipelines: HashMap<ModelIndex, vk::Pipeline>,
     render_pass: vk::RenderPass,
-    pipeline_descriptions: Vec<PipelineDesc>,
+    pipeline_descriptions: HashMap<ModelIndex, PipelineDesc>,
 }
 
 pub struct DeviceWrap<'a>(&'a ash::Device);
 
 impl<'a> DeviceWrap<'a> {
+    /// push_constants_byte_len must be len in bytes and a multiple of 4
+    pub fn pipeline_layout(
+        &self,
+        push_constants_len: u32,
+        desc_set_layouts: &[vk::DescriptorSetLayout],
+    ) -> Result<vk::PipelineLayout, VulkanError> {
+        let push_constant_ranges = [vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .offset(0)
+            .size(push_constants_len)
+            .build()];
+
+        let layout_create_info = vk::PipelineLayoutCreateInfo::builder()
+            .set_layouts(desc_set_layouts)
+            .push_constant_ranges(&push_constant_ranges);
+
+        unsafe { self.0.create_pipeline_layout(&layout_create_info, None) }
+            .map_err(VulkanError::VkResultToDo)
+    }
+
     fn wait_for_fence(&self, fence: vk::Fence) -> Result<(), VulkanError> {
         unsafe {
             self.0

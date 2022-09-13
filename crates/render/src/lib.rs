@@ -13,10 +13,11 @@ use ash::{
 
 use async_lock::{Mutex, MutexGuardArc};
 use core_executor::ThreadExecutorSpawner;
+use nalgebra::{Matrix4, Perspective3, Vector3};
 use platform::WinPtr;
 use types::GpuModelRef;
-use world::thing::ModelIndex;
-use world::World;
+use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalIndex};
+use world::{Identity, World};
 
 pub mod types;
 
@@ -34,8 +35,19 @@ pub enum RenderStateError {
     ModelUploadTODO,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum SceneError {
+    #[error("no camera found in scene")]
+    NoCameraFound,
+    #[error("thing with id {0:?} not found in scene")]
+    ThingNotFound(Identity),
+    #[error("no phys facet at index {0:?}")]
+    NoSuchPhys(PhysicalIndex),
+    #[error("no camera facet at index {0:?}")]
+    NoSuchCamera(CameraIndex),
+}
+
 pub struct RenderState {
-    // pub entities: Vec<Drawable>,
     pub updates: u64,
     pub win_ptr: WinPtr,
     vulkan: VulkanRendererState,
@@ -43,7 +55,8 @@ pub struct RenderState {
     copy_spawners: Vec<ThreadExecutorSpawner>,
     pub task_spawners: Vec<ThreadExecutorSpawner>,
     pub models: HashMap<ModelIndex, models::Model>,
-    // TODO pub camera
+
+    pub scene: RenderScene,
 }
 
 impl RenderState {
@@ -60,6 +73,13 @@ impl RenderState {
             task_spawners: spawners.clone(),
             copy_spawners: spawners,
             models: HashMap::new(),
+            scene: RenderScene {
+                camera: CameraFacet {
+                    view: Matrix4::<f32>::identity(),
+                    perspective: Perspective3::<f32>::new(0.5, 0.9, 0.0, 1.0),
+                },
+                drawables: vec![],
+            },
         }
     }
 
@@ -109,7 +129,7 @@ impl RenderState {
 
     pub fn present(&mut self) {
         if let (Some(present), Some(base)) = (&self.vulkan.presenter, &mut self.vulkan.base) {
-            present.present(base);
+            present.present(base, &self.scene);
             return;
         }
         println!("present called with no renderer assigned");
@@ -117,6 +137,11 @@ impl RenderState {
 
     pub fn set_presenter(&mut self, presenter: Box<dyn Presenter + Send + Sync>) {
         self.vulkan.presenter = Some(presenter);
+    }
+
+    pub fn update_scene(&mut self, scene: RenderScene) -> Result<(), SceneError> {
+        self.scene = scene;
+        Ok(())
     }
 }
 
@@ -134,7 +159,7 @@ pub struct VulkanRendererState {
 }
 
 pub trait Presenter {
-    fn present(&self, base: &mut VulkanBase);
+    fn present(&self, base: &mut VulkanBase, scene: &RenderScene);
     fn drop_resources(&mut self, base: &mut VulkanBase);
 }
 
@@ -654,7 +679,57 @@ pub struct LockWorldAndRenderState {
     world: MutexGuardArc<World>,
 }
 
+pub struct RenderScene {
+    pub camera: CameraFacet,
+    pub drawables: Vec<SceneModelRef>,
+}
+
+pub struct SceneModelRef {
+    pub model: ModelIndex,
+    pub pos: Vector3<f32>,
+}
+
 impl LockWorldAndRenderState {
+    pub fn update_render_scene(&mut self) -> Result<(), SceneError> {
+        let camera_id = self.world().maybe_camera.ok_or(SceneError::NoCameraFound)?;
+        let camera = self
+            .world()
+            .thing_as_ref(camera_id)
+            .ok_or_else(|| SceneError::ThingNotFound(camera_id))?;
+
+        let camera_facet = match camera.facets {
+            world::thing::ThingType::Camera { phys: _, camera } => self
+                .world()
+                .facets
+                .camera(camera)
+                .ok_or_else(|| SceneError::NoCameraFound)?,
+            _ => return Err(SceneError::NoCameraFound),
+        };
+
+        let mut drawables = Vec::new();
+        for thing in self.world().things() {
+            if let world::thing::ThingType::ModelObject { phys, model } = &thing.facets {
+                drawables.push(SceneModelRef {
+                    model: *model,
+                    pos: self
+                        .world()
+                        .facets
+                        .physical(*phys)
+                        .ok_or_else(|| SceneError::NoSuchPhys(*phys))?
+                        .position
+                        .clone(),
+                });
+            }
+        }
+        let scene = RenderScene {
+            camera: camera_facet.clone(),
+            drawables,
+        };
+
+        self.render_state().update_scene(scene)?;
+        Ok(())
+    }
+
     pub fn update_models(&mut self) {
         let models: Vec<_> = {
             let world = self.world();
@@ -681,7 +756,7 @@ impl LockWorldAndRenderState {
         }
     }
 
-    pub fn world(&mut self) -> &World {
+    pub fn world(&self) -> &World {
         self.world.deref()
     }
 

@@ -9,6 +9,7 @@ ash-window = "0.11.0"
 async-lock = "2.5.0"
 core_executor = { path = "../core_executor" }
 image = "0.24.3"
+nalgebra = "0.31.1"
 platform = { path = "../platform" }
 world = { path = "../world" }
 models = { path = "../models" }

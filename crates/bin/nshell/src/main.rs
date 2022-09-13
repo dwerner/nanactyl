@@ -78,9 +78,9 @@ fn main() {
     world.maybe_camera = Some(camera_thing_id);
 
     // initialize some state, lots of model_object entities
-    for x in 0..10u32 {
-        for y in 0..10u32 {
-            for z in 0..10u32 {
+    for x in 0..10i32 {
+        for y in 0..10i32 {
+            for z in 0..10i32 {
                 let model_idx = if x + y + z % 2 == 0 {
                     cube_model_idx
                 } else {
@@ -102,7 +102,7 @@ fn main() {
         let mut platform_context = platform::PlatformContext::new().unwrap();
 
         let index = platform_context
-            .add_vulkan_window("nshell", 0, 0, 400, 400)
+            .add_vulkan_window("nshell", 0, 0, 1000, 1000)
             .unwrap();
 
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();

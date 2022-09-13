@@ -98,7 +98,7 @@ impl PhysicalFacet {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CameraFacet {
     pub view: Matrix4<f32>,
     pub perspective: Perspective3<f32>,

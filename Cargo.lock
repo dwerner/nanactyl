@@ -1548,6 +1548,7 @@ dependencies = [
  "core_executor",
  "image",
  "models",
+ "nalgebra",
  "platform",
  "thiserror",
  "world",

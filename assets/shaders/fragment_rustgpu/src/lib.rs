@@ -16,7 +16,7 @@ use spirv_std::glam::{Vec2, Vec4};
 
 #[spirv(fragment)]
 pub fn fragment_main(
-    normal: Vec4,
+    _normal: Vec4,
     uv: Vec2,
     frag_color: &mut Vec4,
     #[spirv(descriptor_set = 0, binding = 2)] sampler: &hide::Sampler2d,
@@ -24,5 +24,5 @@ pub fn fragment_main(
     let color: Vec4 = unsafe { sampler.sample(uv) };
     // for now we combine the texture and normal colors, and that prevents a
     // validation error. Could do other things like shading.
-    *frag_color = color * normal;
+    *frag_color = color; // * normal;
 }

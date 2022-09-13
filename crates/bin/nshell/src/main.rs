@@ -78,16 +78,16 @@ fn main() {
     world.maybe_camera = Some(camera_thing_id);
 
     // initialize some state, lots of model_object entities
-    for x in 0..2i32 {
-        for y in 0..2i32 {
+    for x in -5..5i32 {
+        for y in -5..5i32 {
             let model_idx = if (x + y) % 2 == 0 {
                 cube_model_idx
             } else {
                 ico_model_idx
             };
-            let x = x / 4;
-            let y = y / 4;
-            let physical = PhysicalFacet::new(x as f32, y as f32, 0.0);
+            let (x, y) = (x as f32, y as f32);
+
+            let physical = PhysicalFacet::new(x * 4.0, y * 4.0, 0.0);
             let physical_idx = world.add_physical(physical);
             let model_object = Thing::model_object(physical_idx, model_idx);
             world.add_thing(model_object).unwrap();

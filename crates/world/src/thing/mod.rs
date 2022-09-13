@@ -34,7 +34,7 @@ impl From<usize> for HealthIndex {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModelFacet {
     pub model: models::Model,
 }
@@ -44,7 +44,7 @@ impl ModelFacet {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HealthFacet {
     pub hp: u32,
 }
@@ -65,7 +65,7 @@ impl HealthFacet {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Shape {
     Box { width: f32, height: f32, depth: f32 },
     Cone { radius: f32, height: f32 },
@@ -73,7 +73,7 @@ pub enum Shape {
     Sphere { radius: f32 },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PhysicalFacet {
     pub position: Vector3<f32>,
     pub linear_velocity: Vector3<f32>,

@@ -16,7 +16,7 @@ use core_executor::ThreadExecutorSpawner;
 use nalgebra::{Matrix4, Perspective3, Vector3};
 use platform::WinPtr;
 use types::GpuModelRef;
-use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalIndex};
+use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalFacet, PhysicalIndex};
 use world::{Identity, World};
 
 pub mod types;
@@ -65,6 +65,8 @@ impl RenderState {
         enable_validation_layer: bool,
         spawners: Vec<ThreadExecutorSpawner>,
     ) -> Self {
+        let physical_facet = PhysicalFacet::new(0.0, 0.0, 0.0);
+        let camera_facet = CameraFacet::new(&physical_facet);
         Self {
             updates: 0,
             win_ptr,
@@ -74,10 +76,7 @@ impl RenderState {
             copy_spawners: spawners,
             models: HashMap::new(),
             scene: RenderScene {
-                camera: CameraFacet {
-                    view: Matrix4::<f32>::identity(),
-                    perspective: Perspective3::<f32>::new(0.5, 0.9, 0.0, 1.0),
-                },
+                cameras: vec![(physical_facet, camera_facet)],
                 drawables: vec![],
             },
         }
@@ -128,7 +127,7 @@ impl RenderState {
     }
 
     pub fn present(&mut self) {
-        if let (Some(present), Some(base)) = (&self.vulkan.presenter, &mut self.vulkan.base) {
+        if let (Some(present), Some(base)) = (&mut self.vulkan.presenter, &mut self.vulkan.base) {
             present.present(base, &self.scene);
             return;
         }
@@ -159,7 +158,7 @@ pub struct VulkanRendererState {
 }
 
 pub trait Presenter {
-    fn present(&self, base: &mut VulkanBase, scene: &RenderScene);
+    fn present(&mut self, base: &mut VulkanBase, scene: &RenderScene);
     fn drop_resources(&mut self, base: &mut VulkanBase);
 }
 
@@ -679,7 +678,8 @@ pub struct LockWorldAndRenderState {
 }
 
 pub struct RenderScene {
-    pub camera: CameraFacet,
+    // TODO: should this just be indices?
+    pub cameras: Vec<(PhysicalFacet, CameraFacet)>,
     pub drawables: Vec<SceneModelRef>,
 }
 
@@ -696,12 +696,17 @@ impl LockWorldAndRenderState {
             .thing_as_ref(camera_id)
             .ok_or_else(|| SceneError::ThingNotFound(camera_id))?;
 
-        let camera_facet = match camera.facets {
-            world::thing::ThingType::Camera { phys: _, camera } => self
-                .world()
-                .facets
-                .camera(camera)
-                .ok_or_else(|| SceneError::NoCameraFound)?,
+        let (phys_facet, camera_facet) = match camera.facets {
+            world::thing::ThingType::Camera { phys, camera } => {
+                let world_facets = &self.world().facets;
+                let camera = world_facets
+                    .camera(camera)
+                    .ok_or_else(|| SceneError::NoCameraFound)?;
+                let phys = world_facets
+                    .physical(phys)
+                    .ok_or_else(|| SceneError::NoCameraFound)?;
+                (phys.clone(), camera.clone())
+            }
             _ => return Err(SceneError::NoCameraFound),
         };
 
@@ -721,7 +726,7 @@ impl LockWorldAndRenderState {
             }
         }
         let scene = RenderScene {
-            camera: camera_facet.clone(),
+            cameras: vec![(phys_facet, camera_facet)],
             drawables,
         };
 

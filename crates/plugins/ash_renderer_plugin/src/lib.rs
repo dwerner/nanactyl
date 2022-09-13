@@ -14,7 +14,7 @@ use world::{thing::ModelIndex, Matrix4, Vector3};
 
 impl Renderer {
     fn present_with_base(
-        &self,
+        &mut self,
         base: &mut VulkanBase,
         scene: &RenderScene,
     ) -> Result<(), VulkanError> {
@@ -46,7 +46,6 @@ impl Renderer {
 
         w.wait_for_fence(base.draw_commands_reuse_fence)?;
         w.reset_fence(base.draw_commands_reuse_fence)?;
-
         w.begin_command_buffer(base.draw_cmd_buf)?;
 
         let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
@@ -61,19 +60,26 @@ impl Renderer {
             vk::SubpassContents::INLINE,
         );
 
-        for (index, drawable) in scene.drawables.iter().enumerate() {
-            // create a matrix for translating to the given position.
-            let model_mat = Matrix4::<f32>::new_translation(&drawable.pos)
-                * Matrix4::new_scaling(0.5)
-                * Matrix4::new_rotation(Vector3::new((index / 3) as f32, (index / 3) as f32, 0.0));
-            let model_mat = model_mat.as_slice();
-            let mut mat = [0f32; 16];
-            mat.copy_from_slice(&model_mat);
-            let push_constant_bytes = bytemuck::bytes_of(&mat);
+        let (phys_cam, camera) = &scene.cameras[0];
 
-            let model = base.uploaded_models.get(&drawable.model).unwrap();
-            let desc = &self.pipeline_descriptions[&drawable.model];
-            let pipeline = self.graphics_pipelines[&drawable.model];
+        let scale = Matrix4::new_scaling(0.5);
+        let viewscale = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -10.0f32)) * scale;
+
+        // TODO: do we want to do this every frame?
+        let proj_mat =
+            Matrix4::new_perspective(500f32 / 500f32, ::std::f32::consts::FRAC_PI_2, 0.01, 100.0);
+
+        for (model_index, model) in base.uploaded_models.iter() {
+            let desc = self.pipeline_descriptions.get_mut(model_index).unwrap();
+            let pipeline = self.graphics_pipelines[model_index];
+
+            {
+                let proj_mat = proj_mat.as_slice();
+                let mut mat = [0f32; 16];
+                mat.copy_from_slice(&proj_mat);
+                let push_constant_bytes = bytemuck::bytes_of(&mat);
+                w.update_buffer(&mut desc.uniform_buffer, push_constant_bytes)?;
+            }
 
             w.cmd_bind_descriptor_sets(
                 base.draw_cmd_buf,
@@ -93,15 +99,26 @@ impl Renderer {
                 0,
                 vk::IndexType::UINT32,
             );
-            w.cmd_push_constants(
-                base.draw_cmd_buf,
-                desc.layout,
-                vk::ShaderStageFlags::VERTEX,
-                0,
-                push_constant_bytes,
-            );
-            w.cmd_draw_indexed(base.draw_cmd_buf, model.index_buffer.len as u32, 1, 0, 0, 1);
+            for drawable in scene.drawables.iter().filter(|p| p.model == *model_index) {
+                // create a matrix for translating to the given position.
+                let model_mat = viewscale * Matrix4::<f32>::new_translation(&drawable.pos);
+                let model_mat = model_mat.as_slice();
+                let mut mat = [0f32; 16];
+                mat.copy_from_slice(&model_mat);
+                let push_constant_bytes = bytemuck::bytes_of(&mat);
+
+                let model = base.uploaded_models.get(&drawable.model).unwrap();
+                w.cmd_push_constants(
+                    base.draw_cmd_buf,
+                    desc.layout,
+                    vk::ShaderStageFlags::VERTEX,
+                    0,
+                    push_constant_bytes,
+                );
+                w.cmd_draw_indexed(base.draw_cmd_buf, model.index_buffer.len as u32, 1, 0, 0, 1);
+            }
         }
+
         w.cmd_end_render_pass(base.draw_cmd_buf);
 
         let command_buffers = vec![base.draw_cmd_buf];
@@ -162,7 +179,7 @@ impl Renderer {
 }
 
 impl Presenter for Renderer {
-    fn present(&self, base: &mut VulkanBase, scene: &RenderScene) {
+    fn present(&mut self, base: &mut VulkanBase, scene: &RenderScene) {
         self.present_with_base(base, scene).unwrap();
     }
     fn drop_resources(&mut self, base: &mut VulkanBase) {
@@ -203,11 +220,16 @@ impl<'a> VulkanBaseWrapper<'a> {
         // For now we are creating a pipeline per model.
         for (model_index, model) in self.0.uploaded_models.iter() {
             let uniform_buffer = {
+                let proj_mat = Matrix4::<f32>::identity();
+                let proj_mat = proj_mat.as_slice();
+                let mut mat = [0f32; 16];
+                mat.copy_from_slice(&proj_mat);
+                let uniform_bytes = bytemuck::bytes_of(&mat);
                 let device = DeviceWrap(&self.0.device);
                 device.allocate_and_init_buffer(
                     vk::BufferUsageFlags::UNIFORM_BUFFER,
                     self.0.device_memory_properties,
-                    Matrix4::<f32>::identity().as_slice(),
+                    uniform_bytes,
                 )?
             };
 
@@ -709,6 +731,30 @@ impl<'a> DeviceWrap<'a> {
             &self.0,
         )?)
     }
+
+    pub fn update_buffer<T>(
+        &self,
+        buffer: &mut BufferAndMemory,
+        data: &[T],
+    ) -> Result<(), VulkanError>
+    where
+        T: Copy,
+    {
+        let ptr = unsafe {
+            self.0.map_memory(
+                buffer.memory,
+                0,
+                buffer.allocation_size,
+                vk::MemoryMapFlags::empty(),
+            )
+        }
+        .map_err(VulkanError::VkResultToDo)?;
+        let mut slice = unsafe { Align::new(ptr, align_of::<T>() as u64, buffer.allocation_size) };
+        slice.copy_from_slice(data);
+        unsafe { self.0.unmap_memory(buffer.memory) };
+        Ok(())
+    }
+
     /// Allocate a buffer with usage flags, initialize with data.
     /// TODO: internalize
     pub fn allocate_and_init_buffer<T>(
@@ -740,22 +786,10 @@ impl<'a> DeviceWrap<'a> {
         };
         let buffer_memory = unsafe { self.0.allocate_memory(&allocate_info, None) }
             .map_err(VulkanError::VkResultToDo)?;
-        let buffer = BufferAndMemory::new(buffer, buffer_memory, data.len());
-        let ptr = unsafe {
-            self.0.map_memory(
-                buffer.memory,
-                0,
-                allocation_size,
-                vk::MemoryMapFlags::empty(),
-            )
-        }
-        .map_err(VulkanError::VkResultToDo)?;
-        let mut slice = unsafe { Align::new(ptr, align_of::<T>() as u64, allocation_size) };
-        slice.copy_from_slice(data);
-        unsafe { self.0.unmap_memory(buffer.memory) };
+        let mut buffer = BufferAndMemory::new(buffer, buffer_memory, data.len(), allocation_size);
+        self.update_buffer(&mut buffer, data)?;
         unsafe { self.0.bind_buffer_memory(buffer.buffer, buffer.memory, 0) }
             .map_err(VulkanError::VkResultToDo)?;
-
         Ok(buffer)
     }
 
@@ -772,6 +806,7 @@ impl<'a> DeviceWrap<'a> {
                 .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?,
         ))
     }
+
     pub fn create_fence(&self) -> Result<vk::Fence, VulkanError> {
         let fence_create_info = vk::FenceCreateInfo::builder()
             .flags(vk::FenceCreateFlags::SIGNALED)

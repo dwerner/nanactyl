@@ -60,14 +60,23 @@ pub struct BufferAndMemory {
 
     /// len of the original slice copied from.
     pub len: usize,
+
+    /// len in bytes of the original allocation.
+    pub allocation_size: u64,
 }
 
 impl BufferAndMemory {
-    pub fn new(buffer: vk::Buffer, memory: vk::DeviceMemory, len: usize) -> Self {
+    pub fn new(
+        buffer: vk::Buffer,
+        memory: vk::DeviceMemory,
+        len: usize,
+        allocation_size: u64,
+    ) -> Self {
         Self {
             buffer,
             memory,
             len,
+            allocation_size,
         }
     }
 

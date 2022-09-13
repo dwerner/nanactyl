@@ -131,7 +131,7 @@ impl World {
         self.run_life += *dt;
         self.updates += 1;
         for physical in self.facets.physical.iter_mut() {
-            physical.position += physical.linear_velocity * (dt.as_millis() / 1000) as f32;
+            physical.position += physical.linear_velocity * ((dt.as_millis() as f32) / 1000.0);
         }
     }
 

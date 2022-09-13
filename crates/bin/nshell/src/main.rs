@@ -17,6 +17,7 @@ use world::thing::CameraFacet;
 use world::thing::ModelFacet;
 use world::thing::PhysicalFacet;
 use world::thing::Thing;
+use world::Vector3;
 use world::World;
 
 const FRAME_LENGTH_MS: u64 = 16;
@@ -87,7 +88,8 @@ fn main() {
             };
             let (x, y) = (x as f32, y as f32);
 
-            let physical = PhysicalFacet::new(x * 4.0, y * 4.0, 0.0);
+            let mut physical = PhysicalFacet::new(x * 4.0, y * 4.0, 0.0);
+            physical.linear_velocity = Vector3::new(x, y, 1.0);
             let physical_idx = world.add_physical(physical);
             let model_object = Thing::model_object(physical_idx, model_idx);
             world.add_thing(model_object).unwrap();

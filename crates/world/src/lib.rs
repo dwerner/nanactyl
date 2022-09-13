@@ -12,7 +12,7 @@ mod scene;
 pub mod thing;
 mod tree;
 
-pub use nalgebra::Matrix4;
+pub use nalgebra::{Matrix4, Vector3};
 
 /// Identity of a game object. Used to look up game objects (`Thing`s) within a `World`.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]

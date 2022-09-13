@@ -255,7 +255,6 @@ impl VulkanBase {
 
         required_extension_names.push(ext::DebugUtils::name().as_ptr());
 
-        //TODO: setup VK_LAYER_KHRONOS_validation
         let create_info = vk::InstanceCreateInfo::builder()
             .application_info(application_info)
             .enabled_layer_names(&layers_names_raw)

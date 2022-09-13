@@ -10,7 +10,7 @@ use render::{
     },
     Presenter, RenderScene, RenderState, VulkanBase,
 };
-use world::{thing::ModelIndex, Matrix4};
+use world::{thing::ModelIndex, Matrix4, Vector3};
 
 impl Renderer {
     fn present_with_base(
@@ -61,14 +61,11 @@ impl Renderer {
             vk::SubpassContents::INLINE,
         );
 
-        // TODO: iterate over scene's Things, not uploaded_models.
-        // From there, we can get a model matrix from the physical facet.
-        // FOR NOW: hard-code a matrix.
-
-        for drawable in scene.drawables.iter() {
+        for (index, drawable) in scene.drawables.iter().enumerate() {
             // create a matrix for translating to the given position.
-            let model_mat =
-                Matrix4::<f32>::new_translation(&drawable.pos) * Matrix4::new_scaling(0.1);
+            let model_mat = Matrix4::<f32>::new_translation(&drawable.pos)
+                * Matrix4::new_scaling(0.5)
+                * Matrix4::new_rotation(Vector3::new((index / 3) as f32, (index / 3) as f32, 0.0));
             let model_mat = model_mat.as_slice();
             let mut mat = [0f32; 16];
             mat.copy_from_slice(&model_mat);

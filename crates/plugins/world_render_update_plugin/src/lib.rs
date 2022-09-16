@@ -14,6 +14,7 @@ pub extern "C" fn load(state: &mut LockWorldAndRenderState) {
 
 #[no_mangle]
 pub extern "C" fn update(state: &mut LockWorldAndRenderState, _dt: &Duration) {
+    state.update_models();
     state.update_render_scene().unwrap();
 }
 

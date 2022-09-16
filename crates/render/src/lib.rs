@@ -1,7 +1,8 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::{CStr, CString};
 use std::ops::{Deref, DerefMut};
+use std::time::Instant;
 use std::{sync::Arc, time::Duration};
 
 use ash::extensions::ext;
@@ -13,7 +14,7 @@ use ash::{
 
 use async_lock::{Mutex, MutexGuardArc};
 use core_executor::ThreadExecutorSpawner;
-use nalgebra::{Matrix4, Perspective3, Vector3};
+use nalgebra::Vector3;
 use platform::WinPtr;
 use types::GpuModelRef;
 use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalFacet, PhysicalIndex};
@@ -54,8 +55,7 @@ pub struct RenderState {
     pub enable_validation_layer: bool,
     copy_spawners: Vec<ThreadExecutorSpawner>,
     pub task_spawners: Vec<ThreadExecutorSpawner>,
-    pub models: HashMap<ModelIndex, models::Model>,
-
+    model_upload_queue: VecDeque<(ModelIndex, models::Model)>,
     pub scene: RenderScene,
 }
 
@@ -74,11 +74,11 @@ impl RenderState {
             enable_validation_layer,
             task_spawners: spawners.clone(),
             copy_spawners: spawners,
-            models: HashMap::new(),
             scene: RenderScene {
                 cameras: vec![(physical_facet, camera_facet)],
                 drawables: vec![],
             },
+            model_upload_queue: Default::default(),
         }
     }
 
@@ -93,13 +93,17 @@ impl RenderState {
         index: ModelIndex,
         model: models::Model,
     ) -> Result<(), RenderStateError> {
-        self.models.insert(index, model);
+        self.model_upload_queue.push_front((index, model));
         Ok(())
     }
 
     // Eventually, VulkanBase and VulkanBaseWrapper join together, and this base & presenter pair go away
     pub fn set_base(&mut self, base: VulkanBase) {
         self.vulkan.base = Some(base);
+    }
+
+    pub fn base_mut(&mut self) -> Option<&mut VulkanBase> {
+        self.vulkan.base.as_mut()
     }
 
     pub fn cleanup_base_and_presenter(&mut self) {
@@ -126,12 +130,33 @@ impl RenderState {
         self.vulkan.base.take()
     }
 
+    pub fn drain_upload_queue(&mut self) -> VecDeque<(ModelIndex, models::Model)> {
+        std::mem::replace(&mut self.model_upload_queue, VecDeque::new())
+    }
+
+    pub fn tracked_model(&mut self, index: ModelIndex) -> Option<Instant> {
+        self.vulkan
+            .base
+            .as_ref()?
+            .tracked_models
+            .get(&index)
+            .map(|(_, tracked_instant)| tracked_instant.clone())
+    }
+
     pub fn present(&mut self) {
         if let (Some(present), Some(base)) = (&mut self.vulkan.presenter, &mut self.vulkan.base) {
             present.present(base, &self.scene);
             return;
         }
         println!("present called with no renderer assigned");
+    }
+
+    pub fn update_resources(&mut self) {
+        if let (Some(present), Some(base)) = (&mut self.vulkan.presenter, &mut self.vulkan.base) {
+            present.update_resources(base);
+            return;
+        }
+        println!("update_resources called with no renderer assigned");
     }
 
     pub fn set_presenter(&mut self, presenter: Box<dyn Presenter + Send + Sync>) {
@@ -159,6 +184,7 @@ pub struct VulkanRendererState {
 
 pub trait Presenter {
     fn present(&mut self, base: &mut VulkanBase, scene: &RenderScene);
+    fn update_resources(&mut self, base: &mut VulkanBase);
     fn drop_resources(&mut self, base: &mut VulkanBase);
 }
 
@@ -217,17 +243,22 @@ pub struct VulkanBase {
     pub maybe_debug_utils_loader: Option<ext::DebugUtils>,
     pub maybe_debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
 
-    pub uploaded_models: HashMap<ModelIndex, GpuModelRef>,
+    pub tracked_models: HashMap<ModelIndex, (GpuModelRef, Instant)>,
 }
 
 impl VulkanBase {
     /// Track a model reference for cleanup when VulkanBase is dropped.
     pub fn track_uploaded_model(&mut self, index: ModelIndex, model_ref: GpuModelRef) {
-        self.uploaded_models.insert(index, model_ref);
+        if let Some((existing_model, _instant)) = self
+            .tracked_models
+            .insert(index, (model_ref, Instant::now()))
+        {
+            existing_model.deallocate(self);
+        }
     }
 
     pub fn get_tracked_model(&self, index: impl Into<ModelIndex>) -> Option<&GpuModelRef> {
-        self.uploaded_models.get(&index.into())
+        self.tracked_models.get(&index.into()).map(|(gpu, _)| gpu)
     }
 
     pub fn new(win_ptr: platform::WinPtr, enable_validation_layer: bool) -> Self {
@@ -537,7 +568,7 @@ impl VulkanBase {
             depth_image_memory,
             maybe_debug_utils_loader,
             maybe_debug_call_back,
-            uploaded_models: HashMap::new(),
+            tracked_models: HashMap::new(),
         }
     }
 
@@ -642,9 +673,9 @@ impl Drop for VulkanBase {
             self.device
                 .destroy_fence(self.setup_commands_reuse_fence, None);
 
-            let models: Vec<_> = self.uploaded_models.drain().collect();
-            for (_index, model) in models {
-                model.deallocate(self);
+            let tracked_models: Vec<_> = self.tracked_models.drain().collect();
+            for (_index, (gpu_model, _instant)) in tracked_models {
+                gpu_model.deallocate(self);
             }
 
             self.device.free_memory(self.depth_image_memory, None);
@@ -745,9 +776,14 @@ impl LockWorldAndRenderState {
         };
         // This needs to move to somewhere that owns the assets...
         for (index, model) in models {
-            self.render_state()
-                .queue_model_for_upload(index, model)
-                .expect("should upload");
+            if let Some(_uploaded) = self.render_state().tracked_model(index) {
+                // TODO: handle model updates
+                // model already uploaded
+            } else {
+                self.render_state()
+                    .queue_model_for_upload(index, model)
+                    .expect("should upload");
+            }
         }
     }
 

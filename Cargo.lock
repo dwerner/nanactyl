@@ -86,6 +86,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "asset_loader_plugin"
+version = "0.1.0"
+dependencies = [
+ "models",
+ "world",
+]
+
+[[package]]
 name = "async-channel"
 version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2047,6 +2055,7 @@ dependencies = [
 name = "world_update_plugin"
 version = "0.1.0"
 dependencies = [
+ "models",
  "world",
 ]
 

@@ -9,7 +9,7 @@ pub extern "C" fn load(world: &mut World) {
 
 #[no_mangle]
 pub extern "C" fn update(world: &mut World, dt: &Duration) {
-    world.tick(dt);
+    world.maybe_tick(dt);
 }
 
 #[no_mangle]

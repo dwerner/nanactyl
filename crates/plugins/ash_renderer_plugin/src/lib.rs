@@ -1,4 +1,10 @@
-use std::{collections::HashMap, fs::File, io::BufReader, mem::align_of, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    fs::File,
+    io::BufReader,
+    mem::align_of,
+    time::Duration,
+};
 
 use ash::{util::Align, vk};
 use models::{Image, Vertex};
@@ -69,9 +75,16 @@ impl Renderer {
         let proj_mat =
             Matrix4::new_perspective(500f32 / 500f32, ::std::f32::consts::FRAC_PI_2, 0.01, 100.0);
 
-        for (model_index, model) in base.uploaded_models.iter() {
-            let desc = self.pipeline_descriptions.get_mut(model_index).unwrap();
-            let pipeline = self.graphics_pipelines[model_index];
+        for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
+            // TODO: unified struct for models & pipelines
+            let desc = match self.pipeline_descriptions.get_mut(model_index) {
+                Some(desc) => desc,
+                None => continue,
+            };
+            let pipeline = match self.graphics_pipelines.get(model_index) {
+                Some(pipeline) => pipeline,
+                None => continue,
+            };
 
             {
                 let proj_mat = proj_mat.as_slice();
@@ -89,7 +102,11 @@ impl Renderer {
                 &[desc.descriptor_set],
                 &[],
             );
-            w.cmd_bind_pipeline(base.draw_cmd_buf, vk::PipelineBindPoint::GRAPHICS, pipeline);
+            w.cmd_bind_pipeline(
+                base.draw_cmd_buf,
+                vk::PipelineBindPoint::GRAPHICS,
+                *pipeline,
+            );
             w.cmd_set_viewport(base.draw_cmd_buf, 0, &desc.viewports);
             w.cmd_set_scissor(base.draw_cmd_buf, 0, &desc.scissors);
             w.cmd_bind_vertex_buffers(base.draw_cmd_buf, 0, &[model.vertex_buffer.buffer], &[0]);
@@ -107,7 +124,7 @@ impl Renderer {
                 mat.copy_from_slice(&model_mat);
                 let push_constant_bytes = bytemuck::bytes_of(&mat);
 
-                let model = base.uploaded_models.get(&drawable.model).unwrap();
+                let (model, _) = base.tracked_models.get(&drawable.model).unwrap();
                 w.cmd_push_constants(
                     base.draw_cmd_buf,
                     desc.layout,
@@ -155,6 +172,139 @@ impl Renderer {
         Ok(())
     }
 
+    pub fn rebuild_pipelines_with_base<'a>(
+        &mut self,
+        base: &mut VulkanBase,
+    ) -> Result<(), VulkanError> {
+        if !self.graphics_pipelines.is_empty() {
+            println!("destroying {} pipelines", self.graphics_pipelines.len());
+            unsafe {
+                base.device
+                    .device_wait_idle()
+                    .map_err(VulkanError::VkResultToDo)?;
+
+                for (_, pipeline) in self.graphics_pipelines.iter() {
+                    base.device.destroy_pipeline(*pipeline, None);
+                }
+                for (_, desc) in self.pipeline_descriptions.iter() {
+                    desc.deallocate(&base.device);
+                }
+            }
+        }
+
+        let mut bw = VulkanBaseWrapper::new(base);
+        // TODO: shaders that apply only to certain models need different descriptor sets.
+        //? TODO: any pool can be a thread local, but then any object must be destroyed on that thread.
+
+        let mut pipeline_descriptions = HashMap::new();
+
+        // For now we are creating a pipeline per model.
+        for (model_index, (model, uploaded_instant)) in bw.0.tracked_models.iter() {
+            println!("creating descriptor set, shader module for model {model_index:?} {uploaded_instant:?}");
+            let uniform_buffer = {
+                let proj_mat = Matrix4::<f32>::identity();
+                let proj_mat = proj_mat.as_slice();
+                let mut mat = [0f32; 16];
+                mat.copy_from_slice(&proj_mat);
+                let uniform_bytes = bytemuck::bytes_of(&mat);
+                let device = DeviceWrap(&bw.0.device);
+                device.allocate_and_init_buffer(
+                    vk::BufferUsageFlags::UNIFORM_BUFFER,
+                    bw.0.device_memory_properties,
+                    uniform_bytes,
+                )?
+            };
+
+            let sampler = bw.sampler()?;
+            let desc_set_layout =
+                bw.descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?;
+            let descriptor_sets =
+                bw.allocate_descriptor_sets(self.descriptor_pool, &[desc_set_layout])?;
+            let descriptor_set = descriptor_sets[0];
+
+            VulkanBaseWrapper::update_descriptor_set(
+                &bw.0.device,
+                descriptor_set,
+                &uniform_buffer,
+                model.texture.image_view,
+                sampler,
+            );
+            let mut vertex_spv_file = BufReader::new(
+                File::open(&model.shaders.vertex_shader).map_err(VulkanError::ShaderRead)?,
+            );
+            let mut frag_spv_file = BufReader::new(
+                File::open(&model.shaders.fragment_shader).map_err(VulkanError::ShaderRead)?,
+            );
+
+            let mut shader_stages = ShaderStages::new();
+            shader_stages.add_shader(
+                &bw.0.device,
+                &mut vertex_spv_file,
+                "vertex_main",
+                vk::ShaderStageFlags::VERTEX,
+                vk::PipelineShaderStageCreateFlags::empty(),
+            )?;
+            shader_stages.add_shader(
+                &bw.0.device,
+                &mut frag_spv_file,
+                "fragment_main",
+                vk::ShaderStageFlags::FRAGMENT,
+                vk::PipelineShaderStageCreateFlags::empty(),
+            )?;
+
+            let mut vertex_input_assembly =
+                VertexInputAssembly::new(vk::PrimitiveTopology::TRIANGLE_LIST);
+            vertex_input_assembly.add_binding_description::<Vertex>(0, vk::VertexInputRate::VERTEX);
+            vertex_input_assembly.add_attribute_description(
+                0,
+                0,
+                vk::Format::R32G32B32A32_SFLOAT,
+                offset_of!(Vertex, pos) as u32,
+            );
+            vertex_input_assembly.add_attribute_description(
+                1,
+                0,
+                vk::Format::R32G32B32_SFLOAT,
+                offset_of!(Vertex, normal) as u32,
+            );
+            vertex_input_assembly.add_attribute_description(
+                2,
+                0,
+                vk::Format::R32G32_SFLOAT,
+                offset_of!(Vertex, uv) as u32,
+            );
+
+            let w = DeviceWrap(&bw.0.device);
+
+            pipeline_descriptions.insert(
+                *model_index,
+                PipelineDesc::new(
+                    desc_set_layout,
+                    uniform_buffer,
+                    descriptor_set,
+                    sampler,
+                    w.pipeline_layout(
+                        std::mem::size_of::<Matrix4<f32>>() as u32,
+                        &[desc_set_layout],
+                    )?,
+                    bw.viewports(),
+                    bw.scissors(),
+                    shader_stages,
+                    vertex_input_assembly,
+                ),
+            );
+        }
+
+        let graphics_pipelines =
+            bw.create_graphics_pipelines(&pipeline_descriptions, self.render_pass)?;
+
+        println!("rebuilt {} pipelines", graphics_pipelines.len());
+        self.graphics_pipelines = graphics_pipelines;
+        self.pipeline_descriptions = pipeline_descriptions;
+
+        Ok(())
+    }
+
     fn drop_resources_with_base(&mut self, base: &mut VulkanBase) -> Result<(), VulkanError> {
         unsafe {
             base.device
@@ -182,6 +332,11 @@ impl Presenter for Renderer {
     fn present(&mut self, base: &mut VulkanBase, scene: &RenderScene) {
         self.present_with_base(base, scene).unwrap();
     }
+
+    fn update_resources(&mut self, base: &mut VulkanBase) {
+        self.rebuild_pipelines_with_base(base).unwrap();
+    }
+
     fn drop_resources(&mut self, base: &mut VulkanBase) {
         self.drop_resources_with_base(base).unwrap();
     }
@@ -214,115 +369,15 @@ impl<'a> VulkanBaseWrapper<'a> {
         // TODO: shaders that apply only to certain models need different descriptor sets.
         //? TODO: any pool can be a thread local, but then any object must be destroyed on that thread.
         let descriptor_pool = self.descriptor_pool(10, 4, 4)?;
-
-        let mut pipeline_descriptions = HashMap::new();
-
-        // For now we are creating a pipeline per model.
-        for (model_index, model) in self.0.uploaded_models.iter() {
-            let uniform_buffer = {
-                let proj_mat = Matrix4::<f32>::identity();
-                let proj_mat = proj_mat.as_slice();
-                let mut mat = [0f32; 16];
-                mat.copy_from_slice(&proj_mat);
-                let uniform_bytes = bytemuck::bytes_of(&mat);
-                let device = DeviceWrap(&self.0.device);
-                device.allocate_and_init_buffer(
-                    vk::BufferUsageFlags::UNIFORM_BUFFER,
-                    self.0.device_memory_properties,
-                    uniform_bytes,
-                )?
-            };
-
-            let desc_set_layout =
-                self.descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?;
-            let descriptor_sets =
-                self.allocate_descriptor_sets(descriptor_pool, &[desc_set_layout])?;
-            let descriptor_set = descriptor_sets[0];
-
-            let sampler = self.sampler()?;
-
-            Self::update_descriptor_set(
-                &self.0.device,
-                descriptor_set,
-                &uniform_buffer,
-                model.texture.image_view,
-                sampler,
-            );
-            let mut vertex_spv_file = BufReader::new(
-                File::open(&model.shaders.vertex_shader).map_err(VulkanError::ShaderRead)?,
-            );
-            let mut frag_spv_file = BufReader::new(
-                File::open(&model.shaders.fragment_shader).map_err(VulkanError::ShaderRead)?,
-            );
-
-            let mut shader_stages = ShaderStages::new();
-            shader_stages.add_shader(
-                &self.0.device,
-                &mut vertex_spv_file,
-                "vertex_main",
-                vk::ShaderStageFlags::VERTEX,
-                vk::PipelineShaderStageCreateFlags::empty(),
-            )?;
-            shader_stages.add_shader(
-                &self.0.device,
-                &mut frag_spv_file,
-                "fragment_main",
-                vk::ShaderStageFlags::FRAGMENT,
-                vk::PipelineShaderStageCreateFlags::empty(),
-            )?;
-
-            let mut vertex_input_assembly =
-                VertexInputAssembly::new(vk::PrimitiveTopology::TRIANGLE_LIST);
-            vertex_input_assembly.add_binding_description::<Vertex>(0, vk::VertexInputRate::VERTEX);
-            vertex_input_assembly.add_attribute_description(
-                0,
-                0,
-                vk::Format::R32G32B32A32_SFLOAT,
-                offset_of!(Vertex, pos) as u32,
-            );
-            vertex_input_assembly.add_attribute_description(
-                1,
-                0,
-                vk::Format::R32G32B32_SFLOAT,
-                offset_of!(Vertex, normal) as u32,
-            );
-            vertex_input_assembly.add_attribute_description(
-                2,
-                0,
-                vk::Format::R32G32_SFLOAT,
-                offset_of!(Vertex, uv) as u32,
-            );
-
-            let w = DeviceWrap(&self.0.device);
-
-            pipeline_descriptions.insert(
-                *model_index,
-                PipelineDesc::new(
-                    desc_set_layout,
-                    uniform_buffer,
-                    descriptor_set,
-                    sampler,
-                    w.pipeline_layout(
-                        std::mem::size_of::<Matrix4<f32>>() as u32,
-                        &[desc_set_layout],
-                    )?,
-                    self.viewports(),
-                    self.scissors(),
-                    shader_stages,
-                    vertex_input_assembly,
-                ),
-            );
-        }
-
-        let graphics_pipelines = self.graphics_pipelines(&pipeline_descriptions, render_pass)?;
-
-        Ok(Renderer {
+        let mut renderer = Renderer {
             descriptor_pool,
             framebuffers,
-            graphics_pipelines,
+            graphics_pipelines: HashMap::new(),
             render_pass,
-            pipeline_descriptions,
-        })
+            pipeline_descriptions: HashMap::new(),
+        };
+        renderer.rebuild_pipelines_with_base(self.0)?;
+        Ok(renderer)
     }
 
     pub fn scissors(&self) -> Vec<vk::Rect2D> {
@@ -340,7 +395,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         }]
     }
 
-    pub fn graphics_pipelines(
+    pub fn create_graphics_pipelines(
         &mut self,
         pipeline_descriptions: &HashMap<ModelIndex, PipelineDesc>,
         render_pass: vk::RenderPass,
@@ -1096,33 +1151,26 @@ impl<'a> DeviceWrap<'a> {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn load(state: &mut RenderState) {
-    println!("loaded ash_renderer_plugin...");
-    let mut base = VulkanBase::new(state.win_ptr, state.enable_validation_layer);
+// TODO cleanup pass
+fn upload_models(
+    state: &mut RenderState,
+    mut upload_queue: VecDeque<(ModelIndex, models::Model)>,
+) -> Vec<(ModelIndex, GpuModelRef)> {
+    if upload_queue.is_empty() {
+        return vec![];
+    }
 
-    // Command buffer requirements, thread safe? But cloning pointers
-    // #[derive(Clone)]
-    // struct CommandBufferReqs {
-    //     device: ash::Device,
-    //     queue_family_index: u32,
-    //     queue: vk::Queue,
-    //     device_memory_properties: vk::PhysicalDeviceMemoryProperties,
-    // }
-    // Cloning pointers...
+    let base = state.base_mut().unwrap();
     let device = base.device.clone();
     let queue = base.present_queue.clone();
     let queue_family_index = base.queue_family_index;
     let device_memory_properties = base.device_memory_properties;
-
     let w = DeviceWrap(&device);
     let pool = w.create_command_pool(queue_family_index).unwrap();
     let fence = w.create_fence().unwrap();
-
-    // Store src image buffers for cleanup once complete.
     let mut src_images = Vec::new();
-
-    for (index, model) in state.models.iter() {
+    let mut completed_uploads = Vec::new();
+    for (index, model) in upload_queue.drain(..) {
         println!("loading model at {:?}...", index);
         println!("material {:?}", model.material.path);
 
@@ -1189,7 +1237,7 @@ pub extern "C" fn load(state: &mut RenderState) {
             },
         );
         src_images.push(src_image);
-        base.track_uploaded_model(*index, uploaded_model);
+        completed_uploads.push((index, uploaded_model));
     }
     unsafe {
         device.device_wait_idle().unwrap();
@@ -1201,6 +1249,13 @@ pub extern "C" fn load(state: &mut RenderState) {
         device.destroy_fence(fence, None);
         device.destroy_command_pool(pool, None);
     }
+    completed_uploads
+}
+
+#[no_mangle]
+pub extern "C" fn load(state: &mut RenderState) {
+    println!("loaded ash_renderer_plugin...");
+    let mut base = VulkanBase::new(state.win_ptr, state.enable_validation_layer);
     state.set_presenter(Box::new(
         VulkanBaseWrapper::new(&mut base)
             .renderer()
@@ -1217,6 +1272,19 @@ pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
     if state.updates % 600 == 0 {
         println!("updates: {} dt: {:?}...", state.updates, dt);
     }
+
+    if state.updates % 10 == 0 {
+        let upload_queue = state.drain_upload_queue();
+        let rebuild_resources = !upload_queue.is_empty();
+        for (index, uploaded_model) in upload_models(state, upload_queue) {
+            let base = state.base_mut().unwrap();
+            base.track_uploaded_model(index, uploaded_model);
+        }
+        if rebuild_resources {
+            state.update_resources();
+        }
+    }
+
     state.present();
 }
 

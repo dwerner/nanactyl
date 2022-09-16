@@ -143,7 +143,7 @@ impl GpuModelRef {
             shaders,
         }
     }
-    pub(crate) fn deallocate(&self, base: &mut VulkanBase) {
+    pub fn deallocate(&self, base: &mut VulkanBase) {
         self.index_buffer.deallocate(&base.device);
         self.vertex_buffer.deallocate(&base.device);
         self.texture.deallocate(&base.device);

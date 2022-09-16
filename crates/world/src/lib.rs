@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use models::Model;
 use network::Peer;
@@ -74,7 +74,6 @@ impl WorldFacets {
     }
 }
 
-#[derive(Default)]
 pub struct World {
     pub maybe_camera: Option<Identity>,
     things: Vec<Thing>,
@@ -83,6 +82,7 @@ pub struct World {
     pub updates: u64,
     pub run_life: Duration,
     _network_peers: Vec<Peer>,
+    last_tick: Instant,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -92,8 +92,19 @@ pub enum WorldError {
 }
 
 impl World {
+    const SIM_TICK_DELAY: Duration = Duration::from_millis(16);
+
     pub fn new() -> Self {
-        Default::default()
+        Self {
+            maybe_camera: None,
+            things: vec![],
+            facets: WorldFacets::default(),
+            scene: Scene::default(),
+            updates: 0,
+            run_life: Duration::from_millis(0),
+            _network_peers: vec![],
+            last_tick: Instant::now(),
+        }
     }
 
     pub fn add_thing(&mut self, thing: Thing) -> Result<Identity, WorldError> {
@@ -127,11 +138,19 @@ impl World {
         idx.into()
     }
 
-    pub fn tick(&mut self, dt: &Duration) {
+    pub fn maybe_tick(&mut self, dt: &Duration) {
         self.run_life += *dt;
         self.updates += 1;
-        for physical in self.facets.physical.iter_mut() {
-            physical.position += physical.linear_velocity * ((dt.as_millis() as f32) / 1000.0);
+
+        let now = Instant::now();
+        let since_last_tick = now.duration_since(self.last_tick);
+        if since_last_tick > Self::SIM_TICK_DELAY {
+            for physical in self.facets.physical.iter_mut() {
+                let amount = physical.linear_velocity
+                    * ((since_last_tick.as_micros() as f32) / 1000.0 / 1000.0);
+                physical.position += amount;
+            }
+            self.last_tick = Instant::now();
         }
     }
 

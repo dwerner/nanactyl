@@ -143,6 +143,12 @@ impl RenderState {
             .map(|(_, tracked_instant)| tracked_instant.clone())
     }
 
+    pub fn queued_model(&self, index: ModelIndex) -> bool {
+        self.model_upload_queue
+            .iter()
+            .any(|(queued_idx, _)| index == *queued_idx)
+    }
+
     pub fn present(&mut self) {
         if let (Some(present), Some(base)) = (&mut self.vulkan.presenter, &mut self.vulkan.base) {
             present.present(base, &self.scene);
@@ -779,6 +785,8 @@ impl LockWorldAndRenderState {
             if let Some(_uploaded) = self.render_state().tracked_model(index) {
                 // TODO: handle model updates
                 // model already uploaded
+            } else if self.render_state().queued_model(index) {
+                // model already queued for upload
             } else {
                 self.render_state()
                     .queue_model_for_upload(index, model)

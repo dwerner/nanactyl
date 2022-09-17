@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,6 +24,9 @@ struct CliOpts {
     plugin_dir: String,
 
     #[structopt(long)]
+    cwd: Option<PathBuf>,
+
+    #[structopt(long)]
     backtrace: bool,
 
     #[structopt(long)]
@@ -35,6 +39,10 @@ fn main() {
         println!("Setting RUST_BACKTRACE=1 to enable stack traces.");
         std::env::set_var("RUST_BACKTRACE", "1");
         println!("PWD: {:?}", std::env::current_dir().unwrap());
+    }
+    if let Some(cwd) = opts.cwd {
+        std::env::set_current_dir(cwd).expect("unable to set dir");
+        println!("cwd set to {:?}", std::env::current_dir().unwrap());
     }
 
     plugin_loader::register_tls_dtor_hook!();
@@ -49,7 +57,7 @@ fn main() {
         let mut platform_context = platform::PlatformContext::new().unwrap();
 
         let index = platform_context
-            .add_vulkan_window("nshell", 0, 0, 500, 500)
+            .add_vulkan_window("nshell", 0, 0, 1280, 800)
             .unwrap();
 
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();

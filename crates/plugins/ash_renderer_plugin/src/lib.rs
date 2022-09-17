@@ -10,9 +10,8 @@ use ash::{util::Align, vk};
 use models::{Image, Vertex};
 use render::{
     types::{
-        Attachments, AttachmentsModifier, BufferAndMemory, GpuModelRef, PipelineDesc,
-        ShaderBindingDesc, ShaderDesc, ShaderStage, ShaderStages, Texture, VertexInputAssembly,
-        VulkanError,
+        BufferAndMemory, GpuModelRef, PipelineDesc, ShaderBindingDesc, ShaderDesc, ShaderStage,
+        ShaderStages, Texture, VertexInputAssembly, VulkanError,
     },
     Presenter, RenderScene, RenderState, VulkanBase,
 };
@@ -24,15 +23,34 @@ impl Renderer {
         base: &mut VulkanBase,
         scene: &RenderScene,
     ) -> Result<(), VulkanError> {
-        let (present_index, _) = unsafe {
+        if base.flag_recreate_swapchain {
+            base.recreate_swapchain()?;
+        }
+
+        let present_index = match unsafe {
             base.swapchain_loader.acquire_next_image(
                 base.swapchain,
-                std::u64::MAX,
+                300 * 1000,
                 base.present_complete_semaphore,
                 vk::Fence::null(),
             )
-        }
-        .map_err(VulkanError::SwapchainAquireNextImage)?;
+        } {
+            Ok((index, _suboptimal @ false)) => index,
+            Ok((_index, _suboptimal @ true)) => {
+                println!("will recreate swapchain");
+                base.flag_recreate_swapchain = true;
+                return Ok(());
+            }
+            Err(vk::Result::TIMEOUT) => {
+                //println!("timeout during acquire next swapchain image");
+                return Ok(());
+            }
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                base.flag_recreate_swapchain = true;
+                return Ok(());
+            }
+            Err(err) => return Err(VulkanError::SwapchainAquireNextImage(err)),
+        };
 
         let clear_values = [
             vk::ClearValue {
@@ -48,6 +66,11 @@ impl Renderer {
             },
         ];
 
+        let (scissors, viewports) = {
+            let bw = VulkanBaseWrapper::new(base);
+            (bw.scissors(), bw.viewports())
+        };
+
         let w = DeviceWrap(&base.device);
 
         w.wait_for_fence(base.draw_commands_reuse_fence)?;
@@ -55,8 +78,8 @@ impl Renderer {
         w.begin_command_buffer(base.draw_cmd_buf)?;
 
         let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-            .render_pass(self.render_pass)
-            .framebuffer(self.framebuffers[present_index as usize])
+            .render_pass(base.render_pass)
+            .framebuffer(base.framebuffers[present_index as usize])
             .render_area(base.surface_resolution.into())
             .clear_values(&clear_values);
 
@@ -72,8 +95,12 @@ impl Renderer {
         let viewscale = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -10.0f32)) * scale;
 
         // TODO: do we want to do this every frame?
-        let proj_mat =
-            Matrix4::new_perspective(500f32 / 500f32, ::std::f32::consts::FRAC_PI_2, 0.01, 100.0);
+        let proj_mat = Matrix4::new_perspective(
+            (base.surface_resolution.width / base.surface_resolution.height) as f32,
+            ::std::f32::consts::FRAC_PI_2,
+            0.01,
+            100.0,
+        );
 
         for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
             // TODO: unified struct for models & pipelines
@@ -107,8 +134,8 @@ impl Renderer {
                 vk::PipelineBindPoint::GRAPHICS,
                 *pipeline,
             );
-            w.cmd_set_viewport(base.draw_cmd_buf, 0, &desc.viewports);
-            w.cmd_set_scissor(base.draw_cmd_buf, 0, &desc.scissors);
+            w.cmd_set_viewport(base.draw_cmd_buf, 0, &viewports);
+            w.cmd_set_scissor(base.draw_cmd_buf, 0, &scissors);
             w.cmd_bind_vertex_buffers(base.draw_cmd_buf, 0, &[model.vertex_buffer.buffer], &[0]);
             w.cmd_bind_index_buffer(
                 base.draw_cmd_buf,
@@ -199,8 +226,8 @@ impl Renderer {
         let mut pipeline_descriptions = HashMap::new();
 
         // For now we are creating a pipeline per model.
-        for (model_index, (model, uploaded_instant)) in bw.0.tracked_models.iter() {
-            println!("creating descriptor set, shader module for model {model_index:?} {uploaded_instant:?}");
+        for (model_index, (model, _uploaded_instant)) in bw.0.tracked_models.iter() {
+            println!("creating descriptor set for model {model_index:?}");
             let uniform_buffer = {
                 let proj_mat = Matrix4::<f32>::identity();
                 let proj_mat = proj_mat.as_slice();
@@ -296,7 +323,7 @@ impl Renderer {
         }
 
         let graphics_pipelines =
-            bw.create_graphics_pipelines(&pipeline_descriptions, self.render_pass)?;
+            bw.create_graphics_pipelines(&pipeline_descriptions, bw.0.render_pass)?;
 
         println!("rebuilt {} pipelines", graphics_pipelines.len());
         self.graphics_pipelines = graphics_pipelines;
@@ -319,10 +346,6 @@ impl Renderer {
             }
             base.device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
-            for framebuffer in self.framebuffers.iter() {
-                base.device.destroy_framebuffer(*framebuffer, None);
-            }
-            base.device.destroy_render_pass(self.render_pass, None);
             Ok(())
         }
     }
@@ -362,18 +385,12 @@ impl<'a> VulkanBaseWrapper<'a> {
     }
 
     pub fn renderer(&mut self) -> Result<Renderer, VulkanError> {
-        let (attachments, color, depth) = self.attachments();
-        let render_pass = self.render_pass(attachments.all(), &color, &depth);
-        let framebuffers = self.framebuffers(render_pass)?;
-
         // TODO: shaders that apply only to certain models need different descriptor sets.
         //? TODO: any pool can be a thread local, but then any object must be destroyed on that thread.
         let descriptor_pool = self.descriptor_pool(10, 4, 4)?;
         let mut renderer = Renderer {
             descriptor_pool,
-            framebuffers,
             graphics_pipelines: HashMap::new(),
-            render_pass,
             pipeline_descriptions: HashMap::new(),
         };
         renderer.rebuild_pipelines_with_base(self.0)?;
@@ -601,107 +618,10 @@ impl<'a> VulkanBaseWrapper<'a> {
         unsafe { self.0.device.create_sampler(&sampler_info, None) }
             .map_err(VulkanError::VkResultToDo)
     }
-
-    /// Create attachments for renderpass construction
-    fn attachments(
-        &mut self,
-    ) -> (
-        Attachments,
-        Vec<vk::AttachmentReference>,
-        vk::AttachmentReference,
-    ) {
-        let mut attachments = Attachments::default();
-        let color_attachment_refs = AttachmentsModifier::new(&mut attachments)
-            .add_attachment(
-                vk::AttachmentDescription::builder()
-                    .format(self.0.surface_format.format)
-                    .samples(vk::SampleCountFlags::TYPE_1)
-                    .load_op(vk::AttachmentLoadOp::CLEAR)
-                    .store_op(vk::AttachmentStoreOp::STORE)
-                    .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-                    .build(),
-                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-            )
-            .into_refs();
-        let depth_attachment_ref = AttachmentsModifier::new(&mut attachments).add_single(
-            vk::AttachmentDescription::builder()
-                .samples(vk::SampleCountFlags::TYPE_1)
-                .load_op(vk::AttachmentLoadOp::CLEAR)
-                .format(vk::Format::D16_UNORM)
-                .initial_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-                .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-                .build(),
-            vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        );
-        (attachments, color_attachment_refs, depth_attachment_ref)
-    }
-
-    /// Create a renderpass with attachments
-    fn render_pass(
-        &mut self,
-        all_attachments: &[vk::AttachmentDescription],
-        color_attachment_refs: &[vk::AttachmentReference],
-        depth_attachment_ref: &vk::AttachmentReference,
-    ) -> vk::RenderPass {
-        let dependencies = [vk::SubpassDependency::builder()
-            .src_subpass(vk::SUBPASS_EXTERNAL)
-            .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-            .dst_access_mask(
-                vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-            )
-            .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-            .build()];
-        let subpass = vk::SubpassDescription::builder()
-            .color_attachments(color_attachment_refs)
-            .depth_stencil_attachment(depth_attachment_ref)
-            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-            .build();
-        let subpasses = vec![subpass];
-        let renderpass_create_info = vk::RenderPassCreateInfo::builder()
-            .attachments(all_attachments)
-            .subpasses(&subpasses)
-            .dependencies(&dependencies)
-            .build();
-
-        unsafe {
-            self.0
-                .device
-                .create_render_pass(&renderpass_create_info, None)
-        }
-        .unwrap()
-    }
-
-    /// Consume the renderpass and hand back framebuffers
-    fn framebuffers(
-        &mut self,
-        render_pass: vk::RenderPass,
-    ) -> Result<Vec<vk::Framebuffer>, VulkanError> {
-        let mut framebuffers = Vec::new();
-        for present_image_view in self.0.present_image_views.iter() {
-            let framebuffer_attachments = [*present_image_view, self.0.depth_image_view];
-            let frame_buffer_create_info = vk::FramebufferCreateInfo::builder()
-                .render_pass(render_pass)
-                .attachments(&framebuffer_attachments)
-                .width(self.0.surface_resolution.width)
-                .height(self.0.surface_resolution.height)
-                .layers(1);
-
-            let framebuffer = unsafe {
-                self.0
-                    .device
-                    .create_framebuffer(&frame_buffer_create_info, None)
-            }
-            .map_err(VulkanError::VkResultToDo)?;
-            framebuffers.push(framebuffer);
-        }
-        Ok(framebuffers)
-    }
 }
 pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
-    framebuffers: Vec<vk::Framebuffer>,
     graphics_pipelines: HashMap<ModelIndex, vk::Pipeline>,
-    render_pass: vk::RenderPass,
     pipeline_descriptions: HashMap<ModelIndex, PipelineDesc>,
 }
 

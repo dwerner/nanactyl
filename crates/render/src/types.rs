@@ -51,6 +51,9 @@ pub enum VulkanError {
 
     #[error("submit command buffer error {0:?}")]
     SubmitCommandBuffers(vk::Result),
+
+    #[error("error enumerating physical devices {0:?})")]
+    EnumeratePhysicalDevices(vk::Result),
 }
 
 /// A handle to a Vulkan GPU buffer and it's backing memory.

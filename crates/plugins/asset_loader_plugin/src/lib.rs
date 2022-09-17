@@ -31,7 +31,7 @@ pub extern "C" fn load(world: &mut World) {
     let camera = Thing::camera(phys_idx, camera_idx);
     let camera_thing_id = world
         .add_thing(camera)
-        .expect("unable to add thing to world");
+        .expect("unable to add thing to world.");
 
     // TODO: special purpose hooks for object ids that are relevant?
     world.maybe_camera = Some(camera_thing_id);
@@ -39,17 +39,19 @@ pub extern "C" fn load(world: &mut World) {
     // initialize some state, lots of model_object entities
     for x in -5..5i32 {
         for y in -5..5i32 {
-            let model_idx = if (x + y) % 2 == 0 {
-                cube_model_idx
-            } else {
-                ico_model_idx
-            };
-            let (x, y) = (x as f32, y as f32);
-            let mut physical = PhysicalFacet::new(x * 4.0, y * 4.0, 0.0);
-            physical.linear_velocity = Vector3::new(x, y, 1.0);
-            let physical_idx = world.add_physical(physical);
-            let model_object = Thing::model_object(physical_idx, model_idx);
-            world.add_thing(model_object).unwrap();
+            for z in -5..5i32 {
+                let model_idx = if (x + y) % 2 == 0 {
+                    cube_model_idx
+                } else {
+                    ico_model_idx
+                };
+                let (x, y, z) = (x as f32, y as f32, z as f32);
+                let mut physical = PhysicalFacet::new(x * 4.0, y * 4.0, z * 10.0);
+                physical.linear_velocity = Vector3::new(1.0, 1.0, 1.0);
+                let physical_idx = world.add_physical(physical);
+                let model_object = Thing::model_object(physical_idx, model_idx);
+                world.add_thing(model_object).unwrap();
+            }
         }
     }
 

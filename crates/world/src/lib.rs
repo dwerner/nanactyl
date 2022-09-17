@@ -174,6 +174,7 @@ impl World {
 
     pub fn clear(&mut self) {
         let facets = &mut self.facets;
+        self.things.clear();
         facets.cameras.clear();
         facets.health.clear();
         facets.models.clear();

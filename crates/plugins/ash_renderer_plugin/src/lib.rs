@@ -96,7 +96,7 @@ impl Renderer {
 
         // TODO: do we want to do this every frame?
         let proj_mat = Matrix4::new_perspective(
-            (base.surface_resolution.width / base.surface_resolution.height) as f32,
+            base.surface_resolution.width as f32 / base.surface_resolution.height as f32,
             ::std::f32::consts::FRAC_PI_2,
             0.01,
             100.0,

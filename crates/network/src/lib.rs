@@ -15,7 +15,7 @@ use futures_lite::FutureExt;
 use histogram::Histogram;
 
 const MSG_LEN: usize = size_of::<Message>();
-const PAYLOAD_LEN: usize = 4096;
+const PAYLOAD_LEN: usize = 1024;
 const MAX_UNACKED_PACKETS: usize = 32;
 
 #[derive(thiserror::Error, Debug)]
@@ -50,7 +50,7 @@ pub struct Peer {
     dest: Option<SocketAddr>,
     bytes_sent: usize,
     socket: async_net::UdpSocket,
-    rtt: Histogram,
+    pub rtt_micros: Histogram,
     send_queue: VecDeque<(u16, Instant, bool)>,
     recv_queue: VecDeque<(u16, Instant, bool)>,
     own_final_ackd_sequences: Vec<u16>,
@@ -73,7 +73,7 @@ impl Peer {
             dest: None,
             socket,
             bytes_sent: 0,
-            rtt: Histogram::new(),
+            rtt_micros: Histogram::new(),
             send_queue: VecDeque::new(),
             recv_queue: VecDeque::new(),
             own_final_ackd_sequences: Vec::new(),
@@ -92,7 +92,7 @@ impl Peer {
             dest: Some(dest.parse().unwrap()),
             socket,
             bytes_sent: 0,
-            rtt: Histogram::new(),
+            rtt_micros: Histogram::new(),
             send_queue: VecDeque::new(),
             recv_queue: VecDeque::new(),
             own_final_ackd_sequences: Vec::new(),
@@ -190,7 +190,7 @@ impl Peer {
             if let Some((seq, req_start, ackd @ false)) = self.send_queue.get_mut(index) {
                 *ackd = *bit;
                 self.own_final_ackd_sequences.push(*seq);
-                self.rtt
+                self.rtt_micros
                     .increment(req_start.elapsed().as_micros() as u64)
                     .map_err(RpcError::Histogram)?;
             }
@@ -563,17 +563,17 @@ mod tests {
 
         println!(
             "p1 rtt {:?}, mean {:?}, min {:?}, max {:?}",
-            p1.rtt,
-            p1.rtt.mean(),
-            p1.rtt.minimum(),
-            p1.rtt.maximum()
+            p1.rtt_micros,
+            p1.rtt_micros.mean(),
+            p1.rtt_micros.minimum(),
+            p1.rtt_micros.maximum()
         );
         println!(
             "p2 rtt {:?}, mean {:?}, min {:?}, max {:?}",
-            p2.rtt,
-            p2.rtt.mean(),
-            p2.rtt.minimum(),
-            p2.rtt.maximum()
+            p2.rtt_micros,
+            p2.rtt_micros.mean(),
+            p2.rtt_micros.minimum(),
+            p2.rtt_micros.maximum()
         );
     }
 
@@ -628,10 +628,10 @@ mod tests {
 
         println!(
             "rtt {:?}, mean {:?}, min {:?}, max {:?}",
-            p1.rtt,
-            p1.rtt.mean(),
-            p1.rtt.minimum(),
-            p1.rtt.maximum()
+            p1.rtt_micros,
+            p1.rtt_micros.mean(),
+            p1.rtt_micros.minimum(),
+            p1.rtt_micros.maximum()
         );
     }
 

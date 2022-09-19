@@ -71,5 +71,5 @@ pub extern "C" fn update(world: &mut World, dt: &Duration) {
 #[no_mangle]
 pub extern "C" fn unload(world: &mut World) {
     world.clear();
-    println!("unloaded asset loader plugin ({})", world.updates);
+    println!("unloaded asset loader plugin  ({})", world.updates);
 }

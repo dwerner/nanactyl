@@ -65,7 +65,7 @@ fn main() {
             let nworld = nworld;
             loop {
                 let start = Instant::now();
-                {
+                let (rtt, is_server) = {
                     let world = &mut *nworld.lock().await;
                     match world.poll_connection().await {
                         Ok(_) => (),
@@ -79,10 +79,25 @@ fn main() {
                         }
                         Err(other) => println!("other error {:?}", other),
                     }
-                }
+                    (world.rtt_micros(), world.is_server())
+                };
 
                 let end = Instant::now().saturating_duration_since(start);
-                let wait_for = Duration::from_millis(32).saturating_sub(end);
+                let wait_for = if is_server {
+                    match rtt.percentile(75.0) {
+                        Ok(percentile) if percentile > 16000 => {
+                            println!("rtt > 16ms, increasing delay ({percentile}us)");
+                            Duration::from_micros(64_000).saturating_sub(end)
+                        }
+                        Ok(percentile) => {
+                            println!("rtt < 16ms, decreasing delay ({percentile}us)");
+                            Duration::from_micros(16_000).saturating_sub(end)
+                        }
+                        Err(_) => Duration::from_micros(32).saturating_sub(end),
+                    }
+                } else {
+                    Duration::from_millis(8).saturating_sub(end)
+                };
                 if wait_for > Duration::from_millis(1) {
                     Timer::after(wait_for).await;
                 }

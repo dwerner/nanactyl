@@ -6,6 +6,7 @@ use std::{
 
 use bytemuck::{Pod, PodCastError, Zeroable};
 use core_executor::ThreadExecutorSpawner;
+use histogram::Histogram;
 use models::Model;
 use network::{Peer, RpcError};
 use scene::Scene;
@@ -87,27 +88,9 @@ impl WorldFacets {
     }
 }
 
-pub struct World {
-    pub maybe_camera: Option<Identity>,
-    things: Vec<Thing>,
-    pub facets: WorldFacets,
-    pub scene: Scene,
-    pub updates: u64,
-    pub run_life: Duration,
-    last_tick: Instant,
-
-    // TODO: support more than one connection, for servers
-    connection: Peer,
-
-    maybe_server_addr: Option<SocketAddr>,
-    spawner: ThreadExecutorSpawner,
-}
-
 pub mod wire {
 
-    use std::{io::Cursor, mem::size_of};
-
-    use lzw::{Decoder, LsbReader};
+    use std::mem::size_of;
 
     use super::*;
 
@@ -154,28 +137,18 @@ pub mod wire {
     #[repr(C)]
     pub struct WirePosition(pub u32, pub f32, pub f32, pub f32);
 
-    pub(crate) fn compress_world_updates(
-        values: &[WorldUpdate],
-        passthrough: bool,
-    ) -> Result<Vec<u8>, WorldError> {
+    const ZSTD_LEVEL: i32 = 1;
+    pub(crate) fn compress_world_updates(values: &[WorldUpdate]) -> Result<Vec<u8>, WorldError> {
         let mut sized: [WorldUpdate; NUM_UPDATES_PER_MSG as usize] = unsafe { std::mem::zeroed() };
         sized.copy_from_slice(&values);
         let mut compressed_bytes = vec![];
         let read_bytes = bytemuck::bytes_of(&sized);
-
-        if passthrough {
-            compressed_bytes.extend(read_bytes);
-            return Ok(compressed_bytes);
-        }
-
-        println!("read bytes len {}", read_bytes.len());
-        use lzw::LsbWriter;
-        lzw::encode(
-            Cursor::new(read_bytes),
-            LsbWriter::new(&mut compressed_bytes),
-            8,
-        )
-        .map_err(WorldError::UpdateCompression)?;
+        let encoded =
+            zstd::encode_all(read_bytes, ZSTD_LEVEL).map_err(WorldError::UpdateCompression)?;
+        let len = encoded.len() as u16;
+        let len = bytemuck::bytes_of(&len);
+        compressed_bytes.extend(len);
+        compressed_bytes.extend(encoded);
         Ok(compressed_bytes)
     }
 
@@ -184,22 +157,11 @@ pub mod wire {
         passthrough: bool,
     ) -> Result<Vec<WorldUpdate>, WorldError> {
         let mut decoded_bytes = vec![];
-        let mut total_len = 0;
-        if passthrough {
-            decoded_bytes.extend(&compressed[..UPDATE_PAYLOAD_LEN]);
-        } else {
-            let mut decoder = Decoder::new(LsbReader::new(), 8);
-            loop {
-                let (len, bytes) = decoder
-                    .decode_bytes(&compressed[total_len..])
-                    .map_err(WorldError::UpdateCompression)?;
-                if len == 0 {
-                    break;
-                }
-                total_len += len;
-                decoded_bytes.extend(bytes);
-            }
-        }
+        let len: &u16 = bytemuck::from_bytes(&compressed[0..2]);
+        let len = *len;
+        let decoded = zstd::decode_all(&compressed[2..2 + len as usize])
+            .map_err(WorldError::UpdateDecompression)?;
+        decoded_bytes.extend(decoded);
         let updates: &[WorldUpdate; NUM_UPDATES_PER_MSG as usize] =
             bytemuck::try_from_bytes(&decoded_bytes)
                 .map_err(|err| WorldError::FromBytes(err, decoded_bytes.len()))?;
@@ -210,26 +172,6 @@ pub mod wire {
     mod tests {
 
         use super::*;
-        #[test]
-        fn test_bytemuck_roundtrip() {
-            let values = (0..NUM_UPDATES_PER_MSG)
-                .map(|i| {
-                    let physical = PhysicalIndex(i);
-                    let model = ModelIndex(i);
-                    let wt: WireThing = (Identity(i), Thing::model(physical, model)).into();
-                    let wpos = WirePosition(i, i as f32, i as f32, i as f32);
-                    WorldUpdate {
-                        thing: wt,
-                        position: wpos,
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            let compressed_bytes = compress_world_updates(&values, true).unwrap();
-            println!("compressed_bytes {}", compressed_bytes.len());
-            let decompressed = decompress_world_updates(&compressed_bytes, true).unwrap();
-            assert_eq!(values.len(), decompressed.len());
-        }
 
         #[test]
         fn test_compression_roundtrip() {
@@ -246,9 +188,9 @@ pub mod wire {
                 })
                 .collect::<Vec<_>>();
 
-            let compressed_bytes = compress_world_updates(&values, false).unwrap();
+            let compressed_bytes = compress_world_updates(&values).unwrap();
             println!("compressed_bytes {}", compressed_bytes.len());
-            let decompressed = decompress_world_updates(&compressed_bytes, false).unwrap();
+            let decompressed = decompress_world_updates(&compressed_bytes).unwrap();
             assert_eq!(values.len(), decompressed.len());
         }
     }
@@ -275,8 +217,28 @@ pub enum WorldError {
     FromBytes(PodCastError, usize),
 }
 
+pub struct World {
+    pub maybe_camera: Option<Identity>,
+    things: Vec<Thing>,
+    pub facets: WorldFacets,
+    pub scene: Scene,
+    pub updates: u64,
+    pub run_life: Duration,
+    last_tick: Instant,
+
+    // TODO: support more than one connection, for servers
+    connection: Peer,
+
+    maybe_server_addr: Option<SocketAddr>,
+    spawner: ThreadExecutorSpawner,
+}
+
 impl World {
     const SIM_TICK_DELAY: Duration = Duration::from_millis(16);
+
+    pub fn rtt_micros(&self) -> Histogram {
+        self.connection.rtt_micros.clone()
+    }
 
     pub fn new(maybe_server_addr: Option<SocketAddr>, spawner: ThreadExecutorSpawner) -> Self {
         let connection = match maybe_server_addr {
@@ -317,60 +279,38 @@ impl World {
     pub async fn poll_connection(&mut self) -> Result<(), WorldError> {
         if self.connection.is_connected() {
             // TODO: something better if we have not enough updates
-            if self.is_server() && self.things.len() > NUM_UPDATES_PER_MSG as usize {
-                let iter = self.things.iter().enumerate().map(|(idx, thing)| {
-                    let thing: wire::WireThing = (Identity(idx as u32), thing.clone()).into();
-                    let p = self.facets.physical[idx].position;
-                    wire::WorldUpdate {
-                        thing,
-                        position: wire::WirePosition(idx as u32, p.x, p.y, p.z),
-                    }
-                });
-                // TODO: queuing of packets?
-                let mut updates_sent = 0;
-                loop {
-                    let packet = iter
-                        .clone()
-                        .take(NUM_UPDATES_PER_MSG as usize)
-                        .collect::<Vec<_>>();
-                    let compressed = wire::compress_world_updates(&packet, true)?;
-
-                    let _seq = self
-                        .connection
-                        .send(&compressed)
-                        .await
-                        .map_err(WorldError::Network)?;
-
-                    updates_sent += 1;
-
-                    let _data = self
-                        .connection
-                        .recv_with_timeout(Duration::from_millis(1))
-                        .await
-                        .map_err(WorldError::Network)?;
-
-                    if packet.len() < NUM_UPDATES_PER_MSG as usize {
-                        break;
-                    }
-                }
-                if updates_sent > 0 {
-                    println!("sent {updates_sent} updates");
-                }
+            if self.is_server() && self.things.len() >= NUM_UPDATES_PER_MSG as usize {
+                let packet = self
+                    .things
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, thing)| {
+                        let thing: wire::WireThing = (Identity(idx as u32), thing.clone()).into();
+                        let p = self.facets.physical[idx].position;
+                        wire::WorldUpdate {
+                            thing,
+                            position: wire::WirePosition(idx as u32, p.x, p.y, p.z),
+                        }
+                    })
+                    .take(NUM_UPDATES_PER_MSG as usize)
+                    .collect::<Vec<_>>();
+                let compressed = wire::compress_world_updates(&packet)?;
+                let _seq = self.connection.send(&compressed).await; // .map_err(WorldError::Network)?;
+                let _data = self
+                    .connection
+                    .recv_with_timeout(Duration::from_millis(0))
+                    .await; //.map_err(WorldError::Network)?;
             } else {
                 let data = self
                     .connection
-                    .recv_with_timeout(Duration::from_millis(1))
+                    .recv_with_timeout(Duration::from_millis(0))
                     .await
                     .map_err(WorldError::Network)?;
 
-                // update world from bytes
                 let decompressed_updates = decompress_world_updates(
                     &data.try_ref().map_err(WorldError::UpdateFromBytes)?.payload,
-                    true,
+                    false,
                 )?;
-
-                //println!("as client, applying {} updates", decompressed_updates.len());
-
                 for wire::WorldUpdate { thing, position } in decompressed_updates {
                     let (id, thing): (Identity, Thing) = thing.into();
                     match self.things.get_mut(id.0 as usize) {
@@ -395,7 +335,7 @@ impl World {
         Ok(())
     }
 
-    fn is_server(&mut self) -> bool {
+    pub fn is_server(&mut self) -> bool {
         self.maybe_server_addr.is_none()
     }
 

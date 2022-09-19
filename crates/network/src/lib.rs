@@ -1,3 +1,4 @@
+use core::num;
 use std::{
     collections::VecDeque,
     io,
@@ -7,39 +8,46 @@ use std::{
 };
 
 use async_io::Timer;
+use async_net::SocketAddr;
 use bitvec::view::BitView;
 use bytemuck::{AnyBitPattern, NoUninit, PodCastError};
 use futures_lite::FutureExt;
 use histogram::Histogram;
 
 const MSG_LEN: usize = size_of::<Message>();
-const PAYLOAD_LEN: usize = 256;
+const PAYLOAD_LEN: usize = 4096;
 const MAX_UNACKED_PACKETS: usize = 32;
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcError {
+    #[error("connect error {0:?}")]
+    Connect(io::Error),
     #[error("binding error {0:?}")]
     Bind(io::Error),
     #[error("receive error {0:?}")]
     Receive(io::Error),
     #[error("receive error {0:?}")]
     Send(io::Error),
+
     #[error("from bytes error {0:?}")]
     FromBytes(PodCastError),
+
     #[error("histogram error {0:?}")]
     Histogram(&'static str),
     #[error("request timed out")]
     Timeout,
     #[error("payload too large at {0} bytes")]
     PayloadTooLarge(usize),
+    #[error("not connected")]
+    NotConnected,
 }
 
 pub struct Peer {
     _id: u8,
     seq: u16,
     remote_seq: u16,
-    bind: String,
-    dest: String,
+    bind: SocketAddr,
+    dest: Option<SocketAddr>,
     bytes_sent: usize,
     socket: async_net::UdpSocket,
     rtt: Histogram,
@@ -49,7 +57,30 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub async fn bind(addr: &str, dest: &str) -> Result<Self, RpcError> {
+    pub fn is_connected(&self) -> bool {
+        self.dest.is_some()
+    }
+
+    pub async fn bind_only(addr: &str) -> Result<Self, RpcError> {
+        let socket = async_net::UdpSocket::bind(addr)
+            .await
+            .map_err(RpcError::Bind)?;
+        Ok(Self {
+            _id: 123,
+            seq: 0,
+            remote_seq: 0,
+            bind: addr.parse().unwrap(),
+            dest: None,
+            socket,
+            bytes_sent: 0,
+            rtt: Histogram::new(),
+            send_queue: VecDeque::new(),
+            recv_queue: VecDeque::new(),
+            own_final_ackd_sequences: Vec::new(),
+        })
+    }
+
+    pub async fn bind_dest(addr: &str, dest: &str) -> Result<Self, RpcError> {
         let socket = async_net::UdpSocket::bind(addr)
             .await
             .map_err(RpcError::Bind)?;
@@ -57,8 +88,8 @@ impl Peer {
             _id: 123, // TODO think about id
             seq: 0,
             remote_seq: 0,
-            bind: addr.to_string(),
-            dest: dest.to_string(),
+            bind: addr.parse().unwrap(),
+            dest: Some(dest.parse().unwrap()),
             socket,
             bytes_sent: 0,
             rtt: Histogram::new(),
@@ -78,19 +109,41 @@ impl Peer {
     ) -> Result<Typed<Message>, RpcError> {
         let mut buf = vec![0; MSG_LEN];
 
-        let recv_future = self.socket.recv(&mut buf);
-        let num_bytes = match maybe_timeout_duration {
-            Some(timeout_duration) => {
-                recv_future
-                    .or(async {
-                        Timer::after(timeout_duration).await;
-                        Err(io::ErrorKind::TimedOut.into())
-                    })
-                    .await
+        let num_bytes = if self.dest.is_none() {
+            let (num_bytes, addr) = match maybe_timeout_duration {
+                Some(timeout_duration) => {
+                    self.socket
+                        .recv_from(&mut buf)
+                        .or(async {
+                            Timer::after(timeout_duration).await;
+                            Err(io::ErrorKind::TimedOut.into())
+                        })
+                        .await
+                }
+                None => self.socket.recv_from(&mut buf).await,
             }
-            None => recv_future.await,
-        }
-        .map_err(RpcError::Receive)?;
+            .map_err(RpcError::Receive)?;
+            self.socket
+                .connect(&addr)
+                .await
+                .map_err(RpcError::Connect)?;
+            self.dest = Some(addr);
+            num_bytes
+        } else {
+            match maybe_timeout_duration {
+                Some(timeout_duration) => {
+                    self.socket
+                        .recv(&mut buf)
+                        .or(async {
+                            Timer::after(timeout_duration).await;
+                            Err(io::ErrorKind::TimedOut.into())
+                        })
+                        .await
+                }
+                None => self.socket.recv(&mut buf).await,
+            }
+            .map_err(RpcError::Receive)?
+        };
 
         let bytes = buf[..num_bytes].to_vec();
 
@@ -178,7 +231,7 @@ impl Peer {
         let bytes = bytemuck::bytes_of(&msg);
         self.bytes_sent += self
             .socket
-            .send_to(bytes, &self.dest)
+            .send_to(bytes, &self.dest.ok_or(RpcError::NotConnected)?)
             .await
             .map_err(RpcError::Send)?;
         Ok(msg.seq)
@@ -287,10 +340,10 @@ where
 #[derive(bytemuck::Pod, bytemuck::Zeroable, Copy, Clone, PartialEq, Debug)]
 #[repr(C)]
 pub struct Message {
-    seq: u16,
-    ack: u16,
-    ack_bits: u32,
-    payload: [u8; PAYLOAD_LEN],
+    pub seq: u16,
+    pub ack: u16,
+    pub ack_bits: u32,
+    pub payload: [u8; PAYLOAD_LEN],
 }
 
 fn advance_maybe_wrap(seq: u16) -> u16 {
@@ -345,11 +398,29 @@ mod tests {
     }
 
     #[smol_potat::test]
-    async fn test_send_queue() {
-        let mut p1 = Peer::bind("127.0.0.1:8084", "127.0.0.1:8085")
+    async fn test_server_style_connections() {
+        let mut server = Peer::bind_only("127.0.0.1:8084").await.unwrap();
+
+        let client_addr = "127.0.0.1:8085";
+        let mut client = Peer::bind_dest(client_addr.clone(), "127.0.0.1:8084")
             .await
             .unwrap();
-        let mut p2 = Peer::bind("127.0.0.1:8085", "127.0.0.1:8084")
+
+        client.send(b"stuff").await.unwrap();
+        server.recv().await.unwrap();
+
+        assert_eq!(
+            server.socket.peer_addr().unwrap(),
+            client_addr.parse().unwrap()
+        )
+    }
+
+    #[smol_potat::test]
+    async fn test_send_queue() {
+        let mut p1 = Peer::bind_dest("127.0.0.1:8084", "127.0.0.1:8085")
+            .await
+            .unwrap();
+        let mut p2 = Peer::bind_dest("127.0.0.1:8085", "127.0.0.1:8084")
             .await
             .unwrap();
 
@@ -428,7 +499,7 @@ mod tests {
         let start = Instant::now();
         let p1_task = std::thread::spawn(|| {
             futures_lite::future::block_on(async move {
-                let mut p1 = Peer::bind("127.0.0.1:9082", "127.0.0.1:8083")
+                let mut p1 = Peer::bind_dest("127.0.0.1:9082", "127.0.0.1:8083")
                     .await
                     .unwrap();
                 for _x in 0..100 {
@@ -457,7 +528,7 @@ mod tests {
         });
         let p2_task = std::thread::spawn(|| {
             futures_lite::future::block_on(async move {
-                let mut p2 = Peer::bind("127.0.0.1:8083", "127.0.0.1:9082")
+                let mut p2 = Peer::bind_dest("127.0.0.1:8083", "127.0.0.1:9082")
                     .await
                     .unwrap();
                 for _ in 0..101 {
@@ -508,10 +579,10 @@ mod tests {
 
     #[smol_potat::test]
     async fn playing_with_udp2() {
-        let mut p1 = Peer::bind("127.0.0.1:8080", "127.0.0.1:8081")
+        let mut p1 = Peer::bind_dest("127.0.0.1:8080", "127.0.0.1:8081")
             .await
             .unwrap();
-        let mut p2 = Peer::bind("127.0.0.1:8081", "127.0.0.1:8080")
+        let mut p2 = Peer::bind_dest("127.0.0.1:8081", "127.0.0.1:8080")
             .await
             .unwrap();
 

@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bytemuck = "1.12.1"
+core_executor = { path = "../core_executor" }
+lzw = "0.10"
 models = { path = "../models" }
 network = { path = "../network" }
 nalgebra = "0.31.1"
 thiserror = "1.0.33"
+futures-lite = "1.12.0"

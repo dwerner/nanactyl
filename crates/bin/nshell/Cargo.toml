@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 async-lock = "2.5.0"
-core_executor = {path = "../../core_executor"}
+core_executor = { path = "../../core_executor" }
 futures-lite = "1.12.0"
 futures-util = "0.3.23"
 input = { path = "../../input" }
@@ -14,5 +14,6 @@ platform = { path = "../../platform" }
 plugin_loader = { path = "../../plugin_loader" }
 render = { path = "../../render" }
 world = { path = "../../world" }
+network = { path = "../../network" }
 smol = "1.2.5"
 structopt = "0.3.26"

@@ -1,4 +1,6 @@
 use std::future::Future;
+use std::io;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -14,6 +16,7 @@ use plugin_loader::PluginCheck;
 use plugin_loader::PluginError;
 use render::LockWorldAndRenderState;
 use render::RenderState;
+use smol::Timer;
 use world::World;
 
 const FRAME_LENGTH_MS: u64 = 16;
@@ -31,6 +34,9 @@ struct CliOpts {
 
     #[structopt(long)]
     disable_validation_layer: bool,
+
+    #[structopt(long)]
+    connect_to_server: Option<SocketAddr>,
 }
 
 fn main() {
@@ -50,15 +56,56 @@ fn main() {
     let executor = CoreAffinityExecutor::new(8);
     let mut spawners = executor.spawners();
 
-    let world = world::World::new();
+    let world = world::World::new(opts.connect_to_server, spawners[7].clone());
     let world = Arc::new(Mutex::new(world));
+
+    let nworld = Arc::clone(&world);
+    let _net_shutdown = spawners[6].spawn_with_shutdown(|mut shutdown| {
+        Box::pin(async move {
+            let nworld = nworld;
+            loop {
+                let start = Instant::now();
+                {
+                    let world = &mut *nworld.lock().await;
+                    match world.poll_connection().await {
+                        Ok(_) => (),
+                        Err(world::WorldError::Network(network::RpcError::Receive(recv)))
+                            if recv.kind() == io::ErrorKind::TimedOut =>
+                        {
+                            //println!("recv timeout {:?}", recv)
+                        }
+                        Err(world::WorldError::Network(network::RpcError::Timeout)) => {
+                            println!("app timeout")
+                        }
+                        Err(other) => println!("other error {:?}", other),
+                    }
+                }
+
+                let end = Instant::now().saturating_duration_since(start);
+                let wait_for = Duration::from_millis(32).saturating_sub(end);
+                if wait_for > Duration::from_millis(1) {
+                    Timer::after(wait_for).await;
+                }
+                if shutdown.should_exit() {
+                    break;
+                }
+            }
+            println!("network update task ending");
+        })
+    });
 
     future::block_on(async move {
         let mut platform_context = platform::PlatformContext::new().unwrap();
 
-        let index = platform_context
-            .add_vulkan_window("nshell", 0, 0, 1280, 800)
-            .unwrap();
+        let index = if opts.connect_to_server.is_some() {
+            platform_context
+                .add_vulkan_window("nshell-client", 640, 0, 640, 400)
+                .unwrap()
+        } else {
+            platform_context
+                .add_vulkan_window("nshell-server", 0, 0, 640, 400)
+                .unwrap()
+        };
 
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();
 

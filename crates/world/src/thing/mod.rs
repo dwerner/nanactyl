@@ -11,6 +11,29 @@ pub struct CameraIndex(pub(crate) u32);
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct ModelIndex(pub(crate) u32);
 
+impl From<u32> for CameraIndex {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+impl From<u32> for PhysicalIndex {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+impl From<u32> for ModelIndex {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+impl From<u32> for HealthIndex {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
 impl From<usize> for CameraIndex {
     fn from(value: usize) -> Self {
         Self(value as u32)
@@ -78,8 +101,6 @@ pub struct PhysicalFacet {
     pub position: Vector3<f32>,
     pub linear_velocity: Vector3<f32>,
     pub angular_velocity: Vector3<f32>,
-    pub body: Shape,
-    pub mass: f32,
 }
 
 impl PhysicalFacet {
@@ -88,12 +109,6 @@ impl PhysicalFacet {
             position: Vector3::new(x, y, z),
             linear_velocity: Vector3::new(0.0, 0.0, 0.0),
             angular_velocity: Vector3::identity(),
-            body: Shape::Box {
-                width: 1.0,
-                height: 1.0,
-                depth: 1.0,
-            },
-            mass: 1.0,
         }
     }
 }
@@ -194,7 +209,7 @@ pub struct Thing {
 }
 
 impl Thing {
-    pub fn model_object(phys: PhysicalIndex, model: ModelIndex) -> Self {
+    pub fn model(phys: PhysicalIndex, model: ModelIndex) -> Self {
         Thing {
             facets: ThingType::ModelObject { phys, model },
         }

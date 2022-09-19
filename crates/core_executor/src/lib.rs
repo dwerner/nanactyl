@@ -151,7 +151,7 @@ impl ThreadExecutorSpawner {
     //```
     pub fn spawn_with_shutdown<T, F>(&mut self, task_fn: T)
     where
-        F: Future<Output = ()> + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
         T: FnOnce(channel::TaskWithShutdown) -> F,
     {
         let (killer, shutdown) = channel::TaskWithShutdown::new();

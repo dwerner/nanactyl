@@ -8,7 +8,7 @@ use world::{
 #[no_mangle]
 pub extern "C" fn load(world: &mut World) {
     let ico_model = models::Model::load(
-        "assets/models/static/ico.obj",
+        "assets/models/static/tank.obj",
         "assets/shaders/vertex_rustgpu.spv",
         "assets/shaders/fragment_rustgpu.spv",
     )
@@ -39,19 +39,20 @@ pub extern "C" fn load(world: &mut World) {
     // initialize some state, lots of model_object entities
     for x in -5..5i32 {
         for y in -5..5i32 {
-            for z in -5..5i32 {
-                let model_idx = if (x + y) % 2 == 0 {
-                    cube_model_idx
-                } else {
-                    ico_model_idx
-                };
-                let (x, y, z) = (x as f32, y as f32, z as f32);
-                let mut physical = PhysicalFacet::new(x * 4.0, y * 4.0, z * 10.0);
-                physical.linear_velocity = Vector3::new(1.0, 1.0, 1.0);
-                let physical_idx = world.add_physical(physical);
-                let model_object = Thing::model_object(physical_idx, model_idx);
-                world.add_thing(model_object).unwrap();
-            }
+            let z = 0.0;
+            // for z in -5..5i32 {
+            let model_idx = if (x + y) % 2 == 0 {
+                cube_model_idx
+            } else {
+                ico_model_idx
+            };
+            let (x, y, z) = (x as f32, y as f32, z as f32);
+            let mut physical = PhysicalFacet::new(x * 4.0, y * 4.0, z * 10.0);
+            physical.linear_velocity = Vector3::new(1.0, 1.0, 1.0);
+            let physical_idx = world.add_physical(physical);
+            let model_object = Thing::model(physical_idx, model_idx);
+            world.add_thing(model_object).unwrap();
+            // }
         }
     }
 

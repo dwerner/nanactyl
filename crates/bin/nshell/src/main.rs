@@ -9,6 +9,8 @@ use std::time::Instant;
 use async_lock::Mutex;
 use core_executor::CoreAffinityExecutor;
 use futures_lite::future;
+use input::wire::ControllerState;
+use input::DeviceEvent;
 use input::EngineEvent;
 use plugin_loader::Plugin;
 use plugin_loader::PluginCheck;
@@ -120,12 +122,13 @@ fn main() {
         }
 
         let mut frame = 0u64;
+        let mut controllers: [ControllerState; 2] = unsafe { std::mem::zeroed() };
         'frame_loop: loop {
             frame_start = Instant::now();
 
             platform_context.pump_events();
             if let Some(EngineEvent::ExitToDesktop) =
-                handle_input_events(platform_context.peek_events())
+                handle_input_events(platform_context.peek_events(), &mut controllers)
             {
                 break 'frame_loop;
             }
@@ -166,6 +169,8 @@ fn main() {
                 .await
                 .unwrap();
 
+            let controllers = controllers.clone();
+
             let nworld = Arc::clone(&world);
             let _join_result = futures_util::future::join3(
                 spawners[1].spawn(call_plugin_update_async(
@@ -179,9 +184,28 @@ fn main() {
                     &last_frame_elapsed,
                 )),
                 spawners[3].spawn(Box::pin(async move {
-                    if let Err(err) = nworld.lock().await.poll_connection().await {
-                        println!("error during poll_connection {:?}", err);
-                    }
+                    let mut world = nworld.lock().await;
+
+                    // TODO: fix sized issue (> 96)
+                    if world.is_server() && world.things.len() >= 96 {
+                        match world.pump_connection_as_server().await {
+                            Ok(controller_state) => {
+                                //println!("got controller state from client {controller_state:?}");
+                                // TODO: support N controllers, or just one per client?
+                                world.set_client_controller_state(controller_state[0]);
+                            }
+                            Err(err) => println!("error pumping connection {:?}", err),
+                        }
+                    } else {
+                        match world.pump_connection_as_client(controllers).await {
+                            Err(world::WorldError::Network(network::RpcError::Receive(kind)))
+                                if kind.kind() == std::io::ErrorKind::TimedOut => {}
+                            Err(err) => {
+                                println!("error pumping connection {:?}", err);
+                            }
+                            _ => (),
+                        }
+                    };
                 })),
             )
             .await;
@@ -232,18 +256,32 @@ where
     })
 }
 
-fn handle_input_events(events: &[EngineEvent]) -> Option<EngineEvent> {
+fn handle_input_events(
+    events: &[EngineEvent],
+    controllers: &mut [ControllerState; 2],
+) -> Option<EngineEvent> {
     if !events.is_empty() {
         for event in events {
             match event {
                 EngineEvent::Continue => {
                     //println!("nothing event");
                 }
+                EngineEvent::InputDevice(DeviceEvent::GameControllerAdded(id)) => {
+                    println!("gamepad {id} added");
+                    controllers[*id as usize] = ControllerState::new(*id as u8);
+                }
+                EngineEvent::InputDevice(DeviceEvent::GameControllerRemoved(id)) => {
+                    println!("gamepad {id} removed");
+                    controllers[*id as usize] = unsafe { std::mem::zeroed() };
+                }
                 EngineEvent::InputDevice(input_device_event) => {
                     println!("input device event {:?}", input_device_event);
                 }
                 EngineEvent::Input(input_event) => {
-                    println!("input event {:?}", input_event);
+                    let id = input_event.id() as u32;
+                    controllers.get_mut(id as usize).map(|controller| {
+                        controller.update_with_event(input_event);
+                    });
                 }
                 ret @ EngineEvent::ExitToDesktop => {
                     println!("Got {:?}", ret);

@@ -1,7 +1,8 @@
 /// Input events
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(u8)]
 pub enum Button {
-    Left,
+    Left = 0,
     Up,
     LeftUp,
     RightUp,
@@ -16,11 +17,22 @@ pub enum Button {
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum InputEvent {
-    ButtonPressed(Button),
-    ButtonReleased(Button),
+    ButtonPressed(u8, Button),
+    ButtonReleased(u8, Button),
+    AxisMotion(u8, u8, i8),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+impl InputEvent {
+    pub fn id(&self) -> u8 {
+        match self {
+            InputEvent::ButtonPressed(id, _)
+            | InputEvent::ButtonReleased(id, _)
+            | InputEvent::AxisMotion(id, _, _) => *id,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum DeviceEvent {
     JoystickAdded(u32),
     JoystickRemoved(u32),
@@ -42,4 +54,64 @@ pub enum EngineEvent {
 
     /// Game loop should break and we should exit.
     ExitToDesktop,
+}
+
+pub mod wire {
+    use bitvec::view::BitView;
+    use bytemuck::{Pod, Zeroable};
+
+    use super::*;
+
+    #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+    #[repr(C)]
+    pub struct Axis {
+        value: i8,
+    }
+
+    #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+    #[repr(C)]
+    pub struct ControllerState {
+        id: u8,
+        axes: [Axis; 7],
+        // bitvec
+        buttons: u16,
+    }
+
+    impl ControllerState {
+        pub fn new(id: u8) -> Self {
+            Self {
+                id,
+                axes: [Axis { value: 0 }; 7],
+                buttons: 0b0000000000000000,
+            }
+        }
+
+        pub fn update_with_event(&mut self, event: &InputEvent) {
+            match event {
+                InputEvent::ButtonPressed(id, button) if self.id == *id => {
+                    self.set_button_bit(*button as u8, true);
+                }
+                InputEvent::ButtonReleased(id, button) if self.id == *id => {
+                    self.set_button_bit(*button as u8, false);
+                }
+                InputEvent::AxisMotion(id, axis, value) if self.id == *id => {
+                    self.axes[*axis as usize].value = *value;
+                }
+                _ => {}
+            }
+        }
+
+        fn set_button_bit(&mut self, button: u8, value: bool) {
+            let buttons = self.buttons.view_bits_mut::<bitvec::prelude::Lsb0>();
+            buttons.set(button as usize, value);
+        }
+
+        pub fn button_state(&self, button: Button) -> bool {
+            let buttons = self.buttons.view_bits::<bitvec::prelude::Lsb0>();
+            match buttons.get(button as usize) {
+                Some(val) => *val,
+                None => false,
+            }
+        }
+    }
 }

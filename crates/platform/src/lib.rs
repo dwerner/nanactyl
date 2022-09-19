@@ -151,14 +151,36 @@ impl PlatformContext {
         match event {
             SdlEvent::ControllerButtonDown {
                 timestamp: _,
-                which: _,
+                which,
                 button,
-            } => return EngineEvent::Input(InputEvent::ButtonPressed(button_to_button(*button))),
+            } => {
+                return EngineEvent::Input(InputEvent::ButtonPressed(
+                    *which as u8,
+                    button_to_button(*button),
+                ))
+            }
             SdlEvent::ControllerButtonUp {
                 timestamp: _,
-                which: _,
+                which,
                 button,
-            } => return EngineEvent::Input(InputEvent::ButtonReleased(button_to_button(*button))),
+            } => {
+                return EngineEvent::Input(InputEvent::ButtonReleased(
+                    *which as u8,
+                    button_to_button(*button),
+                ))
+            }
+            SdlEvent::ControllerAxisMotion {
+                timestamp: _,
+                which,
+                axis,
+                value,
+            } => {
+                return EngineEvent::Input(InputEvent::AxisMotion(
+                    *which as u8,
+                    *axis as u8,
+                    (*value >> 8) as i8,
+                ))
+            }
             SdlEvent::ControllerDeviceAdded {
                 timestamp: _,
                 which: controller_index,

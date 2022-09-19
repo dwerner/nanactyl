@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     io,
     net::SocketAddr,
     time::{Duration, Instant},
@@ -6,6 +7,7 @@ use std::{
 
 use bytemuck::{Pod, PodCastError, Zeroable};
 use histogram::Histogram;
+use input::{wire::ControllerState, Button};
 use models::Model;
 use network::{Peer, RpcError};
 use scene::Scene;
@@ -67,6 +69,10 @@ impl WorldFacets {
         self.cameras.get(index.0 as usize)
     }
 
+    pub fn camera_mut(&mut self, index: CameraIndex) -> Option<&mut CameraFacet> {
+        self.cameras.get_mut(index.0 as usize)
+    }
+
     pub fn model_iter(&self) -> impl Iterator<Item = (ModelIndex, &Model)> {
         self.models
             .iter()
@@ -80,6 +86,10 @@ impl WorldFacets {
 
     pub fn physical(&self, index: PhysicalIndex) -> Option<&PhysicalFacet> {
         self.physical.get(index.0 as usize)
+    }
+
+    pub fn physical_mut(&mut self, index: PhysicalIndex) -> Option<&mut PhysicalFacet> {
+        self.physical.get_mut(index.0 as usize)
     }
 
     pub fn health(&self, index: HealthIndex) -> Option<&HealthFacet> {
@@ -239,7 +249,7 @@ pub enum WorldError {
 
 pub struct World {
     pub maybe_camera: Option<Identity>,
-    things: Vec<Thing>,
+    pub things: Vec<Thing>,
     pub facets: WorldFacets,
     pub scene: Scene,
     pub updates: u64,
@@ -248,6 +258,7 @@ pub struct World {
 
     // TODO: support more than one connection, for servers
     connection: Peer,
+    client_controller_state: Option<ControllerState>,
 
     maybe_server_addr: Option<SocketAddr>,
 }
@@ -298,21 +309,15 @@ impl World {
             last_tick: Instant::now(),
             maybe_server_addr,
             connection,
+            client_controller_state: None,
         }
     }
 
-    pub async fn poll_connection(&mut self) -> Result<(), WorldError> {
-        // TODO: something better if we have not enough updates to send
-        // this is really down to the datastructure we chose, [WorldUpdate;NUM_UPDATES_PER_MSG]
-        if self.is_server() && self.things.len() >= NUM_UPDATES_PER_MSG as usize {
-            self.poll_server_connection().await?;
-        } else if self.connection.is_connected() {
-            self.poll_client_connection().await?;
-        }
-        Ok(())
+    pub fn set_client_controller_state(&mut self, state: ControllerState) {
+        self.client_controller_state = Some(state);
     }
 
-    pub async fn poll_server_connection(&mut self) -> Result<(), WorldError> {
+    pub async fn pump_connection_as_server(&mut self) -> Result<[ControllerState; 2], WorldError> {
         let packet = self
             .things
             .iter()
@@ -332,14 +337,28 @@ impl World {
             .collect::<Vec<_>>();
         let compressed = wire::compress_world_updates(&packet)?;
         let _seq = self.connection.send(&compressed).await;
-        let _data = self
+        let client_controller_data = self
             .connection
             .recv_with_timeout(Duration::from_millis(0))
-            .await;
-        Ok(())
+            .await
+            .map_err(WorldError::Network)?;
+
+        let payload = client_controller_data
+            .try_ref()
+            .map_err(WorldError::Network)?
+            .payload;
+        let len: &u16 = bytemuck::from_bytes(&payload[0..2]);
+        let len = *len;
+        let cast: &[ControllerState; 2] =
+            bytemuck::try_from_bytes(&payload[2..2 + len as usize])
+                .map_err(|err| WorldError::FromBytes(err, payload.len()))?;
+        Ok(*cast)
     }
 
-    pub async fn poll_client_connection(&mut self) -> Result<(), WorldError> {
+    pub async fn pump_connection_as_client(
+        &mut self,
+        controllers: [ControllerState; 2],
+    ) -> Result<(), WorldError> {
         let data = self
             .connection
             .recv_with_timeout(Duration::from_millis(0))
@@ -368,7 +387,14 @@ impl World {
                 None => println!("no physical facet at index {}", position.0),
             }
         }
-        Ok(match self.connection.send(b"moar plz").await {
+
+        let mut msg_bytes = vec![];
+        let controller_state_bytes = bytemuck::bytes_of(&controllers);
+
+        msg_bytes.extend(bytemuck::bytes_of(&(controller_state_bytes.len() as u16)));
+        msg_bytes.extend(controller_state_bytes);
+
+        Ok(match self.connection.send(&msg_bytes).await {
             Ok(_) => (),
             Err(_) => (),
         })
@@ -416,14 +442,24 @@ impl World {
         if self.is_server() {
             let now = Instant::now();
             let since_last_tick = now.duration_since(self.last_tick);
+            let action_scale = (since_last_tick.as_micros() as f32) / 1000.0 / 1000.0;
             if since_last_tick > Self::SIM_TICK_DELAY {
+                {
+                    if let Some(client_controller) = self.client_controller_state.clone() {
+                        if let Some(camera) = self.facets.physical_mut(0usize.into()) {
+                            if client_controller.button_state(Button::Up) {
+                                camera.linear_velocity.x = 1.0;
+                            } else {
+                                camera.linear_velocity.x = 0.0;
+                            }
+                        }
+                    }
+                }
                 for physical in self.facets.physical.iter_mut() {
-                    let linear = physical.linear_velocity
-                        * ((since_last_tick.as_micros() as f32) / 1000.0 / 1000.0);
+                    let linear = physical.linear_velocity * action_scale;
                     physical.position += linear;
 
-                    let angular = physical.angular_velocity
-                        * ((since_last_tick.as_micros() as f32) / 1000.0 / 1000.0);
+                    let angular = physical.angular_velocity * action_scale;
                     physical.orientation += angular;
                 }
                 self.last_tick = Instant::now();

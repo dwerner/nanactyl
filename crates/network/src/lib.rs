@@ -486,7 +486,7 @@ mod tests {
         p1.recv().await.unwrap();
 
         // finally, we walk each bit and ensure that it matches the sender's queue.
-        let expected_ack_bits = expected_ack_bits.view_bits::<bitvec::prelude::Lsb0>();
+        let expected_ack_bits = expected_ack_bits.view_bits::<bitvec::prelude::lsb0>();
         for (index, bit) in expected_ack_bits[..p1.send_queue.len()].iter().enumerate() {
             let (_, _, ackd) = p1.send_queue[index];
             assert_eq!(bit, ackd, "ack bit not matched for index {}", index);

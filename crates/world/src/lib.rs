@@ -1,11 +1,10 @@
 use std::{
     io,
-    net::{SocketAddr, SocketAddrV4},
+    net::SocketAddr,
     time::{Duration, Instant},
 };
 
 use bytemuck::{Pod, PodCastError, Zeroable};
-use core_executor::ThreadExecutorSpawner;
 use histogram::Histogram;
 use models::Model;
 use network::{Peer, RpcError};
@@ -90,40 +89,55 @@ impl WorldFacets {
 
 pub mod wire {
 
-    use std::mem::size_of;
-
     use super::*;
 
     pub(crate) const NUM_UPDATES_PER_MSG: u32 = 96;
-    pub(crate) const UPDATE_PAYLOAD_LEN: usize =
-        size_of::<WorldUpdate>() * NUM_UPDATES_PER_MSG as usize;
 
     #[derive(Debug, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
     pub struct WorldUpdate {
+        pub id: u32,
         pub thing: WireThing,
         pub position: WirePosition,
+
+        // FOR RIGHT NOW, only support y axis rotation
+        pub y_rotation: f32,
     }
 
-    impl From<(Identity, Thing)> for WireThing {
-        fn from((id, thing): (Identity, Thing)) -> Self {
-            let (tag, phys, facet) = match thing.facets {
-                thing::ThingType::Camera { phys, camera } => (0, phys.0, camera.0),
-                thing::ThingType::ModelObject { phys, model } => (1, phys.0, model.0),
-            };
-            Self(id.0, tag, phys, facet)
+    impl From<&Thing> for WireThing {
+        fn from(thing: &Thing) -> Self {
+            match thing.facets {
+                thing::ThingType::Camera { phys, camera } => Self {
+                    tag: 0,
+                    phys: phys.0,
+                    facet: camera.0 as u16,
+                    _pad: 0,
+                },
+                thing::ThingType::ModelObject { phys, model } => Self {
+                    tag: 1,
+                    phys: phys.0,
+                    facet: model.0 as u16,
+                    _pad: 0,
+                },
+            }
         }
     }
 
-    impl From<WireThing> for (Identity, Thing) {
+    impl From<WireThing> for Thing {
         fn from(wt: WireThing) -> Self {
             match wt {
-                WireThing(id, 0, phys, camera) => {
-                    (id.into(), Thing::camera(phys.into(), camera.into()))
-                }
-                WireThing(id, 1, phys, model) => {
-                    (id.into(), Thing::model(phys.into(), model.into()))
-                }
+                WireThing {
+                    tag: 0,
+                    phys,
+                    facet,
+                    ..
+                } => Thing::camera(phys.into(), facet.into()),
+                WireThing {
+                    tag: 1,
+                    phys,
+                    facet,
+                    ..
+                } => Thing::model(phys.into(), facet.into()),
                 _ => unreachable!(),
             }
         }
@@ -131,13 +145,18 @@ pub mod wire {
 
     #[derive(Debug, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
-    pub struct WireThing(pub u32, pub u32, pub u32, pub u32);
+    pub struct WireThing {
+        pub tag: u8,
+        _pad: u8,
+        pub facet: u16,
+        pub phys: u32,
+    }
 
     #[derive(Debug, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
-    pub struct WirePosition(pub u32, pub f32, pub f32, pub f32);
+    pub struct WirePosition(pub f32, pub f32, pub f32);
 
-    const ZSTD_LEVEL: i32 = 1;
+    const ZSTD_LEVEL: i32 = 3;
     pub(crate) fn compress_world_updates(values: &[WorldUpdate]) -> Result<Vec<u8>, WorldError> {
         let mut sized: [WorldUpdate; NUM_UPDATES_PER_MSG as usize] = unsafe { std::mem::zeroed() };
         sized.copy_from_slice(&values);
@@ -154,7 +173,6 @@ pub mod wire {
 
     pub(crate) fn decompress_world_updates(
         compressed: &[u8],
-        passthrough: bool,
     ) -> Result<Vec<WorldUpdate>, WorldError> {
         let mut decoded_bytes = vec![];
         let len: &u16 = bytemuck::from_bytes(&compressed[0..2]);
@@ -179,11 +197,13 @@ pub mod wire {
                 .map(|i| {
                     let physical = PhysicalIndex(i);
                     let model = ModelIndex(i);
-                    let wt: WireThing = (Identity(i), Thing::model(physical, model)).into();
-                    let wpos = WirePosition(i, i as f32, i as f32, i as f32);
+                    let wt: WireThing = Thing::model(physical, model).into();
+                    let wpos = WirePosition(i as f32, i as f32, i as f32);
                     WorldUpdate {
+                        id: i,
                         thing: wt,
                         position: wpos,
+                        y_rotation: 0.0,
                     }
                 })
                 .collect::<Vec<_>>();
@@ -230,7 +250,6 @@ pub struct World {
     connection: Peer,
 
     maybe_server_addr: Option<SocketAddr>,
-    spawner: ThreadExecutorSpawner,
 }
 
 impl World {
@@ -240,7 +259,7 @@ impl World {
         self.connection.rtt_micros.clone()
     }
 
-    pub fn new(maybe_server_addr: Option<SocketAddr>, spawner: ThreadExecutorSpawner) -> Self {
+    pub fn new(maybe_server_addr: Option<SocketAddr>, wait_for_client: bool) -> Self {
         let connection = match maybe_server_addr {
             Some(addr) => {
                 let conn = futures_lite::future::block_on(async move {
@@ -256,7 +275,14 @@ impl World {
                 // We will run as a server, accepting new connections.
                 let conn = futures_lite::future::block_on(async move {
                     let mut client = Peer::bind_only("0.0.0.0:12002").await.unwrap();
-                    client.recv().await.unwrap();
+                    if wait_for_client {
+                        client.recv().await.unwrap();
+                    } else {
+                        client
+                            .recv_with_timeout(Duration::from_millis(8))
+                            .await
+                            .unwrap();
+                    }
                     client
                 });
                 conn
@@ -272,67 +298,80 @@ impl World {
             last_tick: Instant::now(),
             maybe_server_addr,
             connection,
-            spawner,
         }
     }
 
     pub async fn poll_connection(&mut self) -> Result<(), WorldError> {
-        if self.connection.is_connected() {
-            // TODO: something better if we have not enough updates
-            if self.is_server() && self.things.len() >= NUM_UPDATES_PER_MSG as usize {
-                let packet = self
-                    .things
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, thing)| {
-                        let thing: wire::WireThing = (Identity(idx as u32), thing.clone()).into();
-                        let p = self.facets.physical[idx].position;
-                        wire::WorldUpdate {
-                            thing,
-                            position: wire::WirePosition(idx as u32, p.x, p.y, p.z),
-                        }
-                    })
-                    .take(NUM_UPDATES_PER_MSG as usize)
-                    .collect::<Vec<_>>();
-                let compressed = wire::compress_world_updates(&packet)?;
-                let _seq = self.connection.send(&compressed).await; // .map_err(WorldError::Network)?;
-                let _data = self
-                    .connection
-                    .recv_with_timeout(Duration::from_millis(0))
-                    .await; //.map_err(WorldError::Network)?;
-            } else {
-                let data = self
-                    .connection
-                    .recv_with_timeout(Duration::from_millis(0))
-                    .await
-                    .map_err(WorldError::Network)?;
+        // TODO: something better if we have not enough updates to send
+        // this is really down to the datastructure we chose, [WorldUpdate;NUM_UPDATES_PER_MSG]
+        if self.is_server() && self.things.len() >= NUM_UPDATES_PER_MSG as usize {
+            self.poll_server_connection().await?;
+        } else if self.connection.is_connected() {
+            self.poll_client_connection().await?;
+        }
+        Ok(())
+    }
 
-                let decompressed_updates = decompress_world_updates(
-                    &data.try_ref().map_err(WorldError::UpdateFromBytes)?.payload,
-                    false,
-                )?;
-                for wire::WorldUpdate { thing, position } in decompressed_updates {
-                    let (id, thing): (Identity, Thing) = thing.into();
-                    match self.things.get_mut(id.0 as usize) {
-                        Some(t) => *t = thing,
-                        None => println!("thing not found at index {}", id.0),
-                    };
-                    match self.facets.physical.get_mut(position.0 as usize) {
-                        Some(phys) => {
-                            phys.position = Vector3::new(position.1, position.2, position.3);
-                        }
-                        None => println!("no physical facet at index {}", position.0),
-                    }
+    pub async fn poll_server_connection(&mut self) -> Result<(), WorldError> {
+        let packet = self
+            .things
+            .iter()
+            .enumerate()
+            .map(|(idx, thing)| {
+                let id = idx as u32;
+                let thing: wire::WireThing = thing.into();
+                let p = &self.facets.physical[thing.phys as usize];
+                wire::WorldUpdate {
+                    id,
+                    thing,
+                    position: wire::WirePosition(p.position.x, p.position.y, p.position.z),
+                    y_rotation: p.orientation.y,
                 }
-                // as the client
-                match self.connection.send(b"moar plz").await {
-                    Ok(_) => (),
-                    Err(_) => (),
+            })
+            .take(NUM_UPDATES_PER_MSG as usize)
+            .collect::<Vec<_>>();
+        let compressed = wire::compress_world_updates(&packet)?;
+        let _seq = self.connection.send(&compressed).await;
+        let _data = self
+            .connection
+            .recv_with_timeout(Duration::from_millis(0))
+            .await;
+        Ok(())
+    }
+
+    pub async fn poll_client_connection(&mut self) -> Result<(), WorldError> {
+        let data = self
+            .connection
+            .recv_with_timeout(Duration::from_millis(0))
+            .await
+            .map_err(WorldError::Network)?;
+        let decompressed_updates = decompress_world_updates(
+            &data.try_ref().map_err(WorldError::UpdateFromBytes)?.payload,
+        )?;
+        for wire::WorldUpdate {
+            id,
+            thing,
+            position,
+            y_rotation,
+        } in decompressed_updates
+        {
+            let thing: Thing = thing.into();
+            match self.things.get_mut(id as usize) {
+                Some(t) => *t = thing,
+                None => println!("thing not found at index {}", id),
+            };
+            match self.facets.physical.get_mut(id as usize) {
+                Some(phys) => {
+                    phys.position = Vector3::new(position.0, position.1, position.2);
+                    phys.orientation.y = y_rotation;
                 }
+                None => println!("no physical facet at index {}", position.0),
             }
         }
-
-        Ok(())
+        Ok(match self.connection.send(b"moar plz").await {
+            Ok(_) => (),
+            Err(_) => (),
+        })
     }
 
     pub fn is_server(&mut self) -> bool {
@@ -379,12 +418,18 @@ impl World {
             let since_last_tick = now.duration_since(self.last_tick);
             if since_last_tick > Self::SIM_TICK_DELAY {
                 for physical in self.facets.physical.iter_mut() {
-                    let amount = physical.linear_velocity
+                    let linear = physical.linear_velocity
                         * ((since_last_tick.as_micros() as f32) / 1000.0 / 1000.0);
-                    physical.position += amount;
+                    physical.position += linear;
+
+                    let angular = physical.angular_velocity
+                        * ((since_last_tick.as_micros() as f32) / 1000.0 / 1000.0);
+                    physical.orientation += angular;
                 }
                 self.last_tick = Instant::now();
             }
+        } else {
+            // try to predict, but dont be suprised if an update corrects it (rubber-banding tho)
         }
     }
 

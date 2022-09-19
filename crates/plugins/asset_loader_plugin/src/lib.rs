@@ -25,34 +25,35 @@ pub extern "C" fn load(world: &mut World) {
     let cube_model_facet = ModelFacet::new(cube_model);
     let cube_model_idx = world.add_model(cube_model_facet);
 
-    let physical = PhysicalFacet::new(0.0, 0.0, 0.0);
-    let camera_idx = world.add_camera(CameraFacet::new(&physical));
-    let phys_idx = world.add_physical(physical);
-    let camera = Thing::camera(phys_idx, camera_idx);
-    let camera_thing_id = world
-        .add_thing(camera)
-        .expect("unable to add thing to world.");
-
-    // TODO: special purpose hooks for object ids that are relevant?
-    world.maybe_camera = Some(camera_thing_id);
+    for camera in 0..2 {
+        let mut physical = PhysicalFacet::new(0.0, 2.0, -10.0);
+        //physical.linear_velocity.z = 1.0;
+        physical.angular_velocity.y = 0.1 + camera as f32;
+        let camera_facet = CameraFacet::new(&physical);
+        let camera_idx = world.add_camera(camera_facet);
+        let phys_idx = world.add_physical(physical);
+        let camera = Thing::camera(phys_idx, camera_idx);
+        let _camera_thing_id = world
+            .add_thing(camera)
+            .expect("unable to add thing to world.");
+    }
 
     // initialize some state, lots of model_object entities
-    for x in -5..5i32 {
-        for y in -5..5i32 {
-            let z = 0.0;
-            // for z in -5..5i32 {
-            let model_idx = if (x + y) % 2 == 0 {
+    for i in -4..4i32 {
+        for j in -6..6i32 {
+            let model_idx = if (i + j) % 2 == 0 {
                 cube_model_idx
             } else {
                 ico_model_idx
             };
-            let (x, y, z) = (x as f32, y as f32, z as f32);
-            let mut physical = PhysicalFacet::new(x * 4.0, y * 4.0, z * 10.0);
-            physical.linear_velocity = Vector3::new(1.0, 1.0, 1.0);
+            let (x, z) = (i as f32, j as f32);
+            let mut physical = PhysicalFacet::new(x * 4.0, 2.0, z * 10.0);
+            physical.orientation.y = j as f32 * 4.0;
+            //physical.linear_velocity = Vector3::new(x, 0.0, z);
+            physical.angular_velocity.y = 1.0;
             let physical_idx = world.add_physical(physical);
             let model_object = Thing::model(physical_idx, model_idx);
             world.add_thing(model_object).unwrap();
-            // }
         }
     }
 
@@ -71,5 +72,5 @@ pub extern "C" fn update(world: &mut World, dt: &Duration) {
 #[no_mangle]
 pub extern "C" fn unload(world: &mut World) {
     world.clear();
-    println!("unloaded asset loader plugin  ({})", world.updates);
+    println!("unloaded asset loader plugin ({})", world.updates);
 }

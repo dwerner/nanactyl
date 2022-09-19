@@ -161,7 +161,7 @@ impl ThreadExecutorSpawner {
 
     pub fn spawn<T>(
         &mut self,
-        task: Pin<Box<dyn Future<Output = T> + Send + Sync>>,
+        task: Pin<Box<dyn Future<Output = T> + Send>>,
     ) -> impl Future<Output = Result<T, Closed>>
     where
         T: std::fmt::Debug + Send + Sync + 'static,

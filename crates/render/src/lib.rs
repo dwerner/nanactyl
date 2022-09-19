@@ -14,7 +14,6 @@ use ash::{
 };
 
 use async_lock::{Mutex, MutexGuardArc};
-use core_executor::ThreadExecutorSpawner;
 use nalgebra::Vector3;
 use platform::WinPtr;
 use types::{Attachments, AttachmentsModifier, GpuModelRef, VulkanError};
@@ -54,29 +53,20 @@ pub struct RenderState {
     pub win_ptr: WinPtr,
     vulkan: VulkanRendererState,
     pub enable_validation_layer: bool,
-    copy_spawners: Vec<ThreadExecutorSpawner>,
-    pub task_spawners: Vec<ThreadExecutorSpawner>,
     model_upload_queue: VecDeque<(ModelIndex, models::Model)>,
     pub scene: RenderScene,
 }
 
 impl RenderState {
-    pub fn new(
-        win_ptr: WinPtr,
-        enable_validation_layer: bool,
-        spawners: Vec<ThreadExecutorSpawner>,
-    ) -> Self {
-        let physical_facet = PhysicalFacet::new(0.0, 0.0, 0.0);
-        let camera_facet = CameraFacet::new(&physical_facet);
+    pub fn new(win_ptr: WinPtr, enable_validation_layer: bool, is_server: bool) -> Self {
         Self {
             updates: 0,
             win_ptr,
             vulkan: VulkanRendererState::default(),
             enable_validation_layer,
-            task_spawners: spawners.clone(),
-            copy_spawners: spawners,
             scene: RenderScene {
-                cameras: vec![(physical_facet, camera_facet)],
+                active_camera: if is_server { 0 } else { 1 },
+                cameras: vec![],
                 drawables: vec![],
             },
             model_upload_queue: Default::default(),
@@ -113,14 +103,6 @@ impl RenderState {
         {
             presenter.drop_resources(&mut base);
         }
-    }
-
-    pub fn create_spawners(&mut self) {
-        self.task_spawners = self.copy_spawners.clone();
-    }
-
-    pub fn cleanup_spawners(&mut self) {
-        self.task_spawners.drain(..);
     }
 
     pub fn take_presenter(&mut self) -> Option<Box<dyn Presenter + Send + Sync>> {
@@ -171,7 +153,8 @@ impl RenderState {
     }
 
     pub fn update_scene(&mut self, scene: RenderScene) -> Result<(), SceneError> {
-        self.scene = scene;
+        self.scene.drawables = scene.drawables;
+        self.scene.cameras = scene.cameras;
         Ok(())
     }
 }
@@ -179,7 +162,6 @@ impl RenderState {
 impl Drop for RenderState {
     fn drop(&mut self) {
         self.cleanup_base_and_presenter();
-        self.cleanup_spawners();
     }
 }
 
@@ -1087,6 +1069,7 @@ pub struct LockWorldAndRenderState {
 
 pub struct RenderScene {
     // TODO: should this just be indices?
+    pub active_camera: usize,
     pub cameras: Vec<(PhysicalFacet, CameraFacet)>,
     pub drawables: Vec<SceneModelRef>,
 }
@@ -1094,15 +1077,15 @@ pub struct RenderScene {
 pub struct SceneModelRef {
     pub model: ModelIndex,
     pub pos: Vector3<f32>,
+    pub orientation: Vector3<f32>,
 }
 
 impl LockWorldAndRenderState {
     pub fn update_render_scene(&mut self) -> Result<(), SceneError> {
-        let camera_id = self.world().maybe_camera.ok_or(SceneError::NoCameraFound)?;
         let camera = self
             .world()
-            .thing_as_ref(camera_id)
-            .ok_or_else(|| SceneError::ThingNotFound(camera_id))?;
+            .thing_as_ref(0u32.into())
+            .ok_or_else(|| SceneError::ThingNotFound(0u32.into()))?;
 
         let (phys_facet, camera_facet) = match camera.facets {
             world::thing::ThingType::Camera { phys, camera } => {
@@ -1121,20 +1104,23 @@ impl LockWorldAndRenderState {
         let mut drawables = Vec::new();
         for thing in self.world().things() {
             if let world::thing::ThingType::ModelObject { phys, model } = &thing.facets {
+                let facet = self
+                    .world()
+                    .facets
+                    .physical(*phys)
+                    .ok_or_else(|| SceneError::NoSuchPhys(*phys))?;
+
                 drawables.push(SceneModelRef {
                     model: *model,
-                    pos: self
-                        .world()
-                        .facets
-                        .physical(*phys)
-                        .ok_or_else(|| SceneError::NoSuchPhys(*phys))?
-                        .position
-                        .clone(),
+                    pos: facet.position.clone(),
+                    orientation: facet.orientation.clone(),
                 });
             }
         }
+        let cam = (phys_facet, camera_facet);
         let scene = RenderScene {
-            cameras: vec![(phys_facet, camera_facet)],
+            active_camera: 0,
+            cameras: vec![cam.clone(), cam],
             drawables,
         };
 

@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -16,7 +15,6 @@ use plugin_loader::PluginCheck;
 use plugin_loader::PluginError;
 use render::LockWorldAndRenderState;
 use render::RenderState;
-use smol::Timer;
 use world::World;
 
 const FRAME_LENGTH_MS: u64 = 16;
@@ -56,58 +54,8 @@ fn main() {
     let executor = CoreAffinityExecutor::new(8);
     let mut spawners = executor.spawners();
 
-    let world = world::World::new(opts.connect_to_server, spawners[7].clone());
+    let world = world::World::new(opts.connect_to_server, true);
     let world = Arc::new(Mutex::new(world));
-
-    let nworld = Arc::clone(&world);
-    let _net_shutdown = spawners[6].spawn_with_shutdown(|mut shutdown| {
-        Box::pin(async move {
-            let nworld = nworld;
-            loop {
-                let start = Instant::now();
-                let (rtt, is_server) = {
-                    let world = &mut *nworld.lock().await;
-                    match world.poll_connection().await {
-                        Ok(_) => (),
-                        Err(world::WorldError::Network(network::RpcError::Receive(recv)))
-                            if recv.kind() == io::ErrorKind::TimedOut =>
-                        {
-                            //println!("recv timeout {:?}", recv)
-                        }
-                        Err(world::WorldError::Network(network::RpcError::Timeout)) => {
-                            println!("app timeout")
-                        }
-                        Err(other) => println!("other error {:?}", other),
-                    }
-                    (world.rtt_micros(), world.is_server())
-                };
-
-                let end = Instant::now().saturating_duration_since(start);
-                let wait_for = if is_server {
-                    match rtt.percentile(75.0) {
-                        Ok(percentile) if percentile > 16000 => {
-                            println!("rtt > 16ms, increasing delay ({percentile}us)");
-                            Duration::from_micros(64_000).saturating_sub(end)
-                        }
-                        Ok(percentile) => {
-                            println!("rtt < 16ms, decreasing delay ({percentile}us)");
-                            Duration::from_micros(16_000).saturating_sub(end)
-                        }
-                        Err(_) => Duration::from_micros(32).saturating_sub(end),
-                    }
-                } else {
-                    Duration::from_millis(8).saturating_sub(end)
-                };
-                if wait_for > Duration::from_millis(1) {
-                    Timer::after(wait_for).await;
-                }
-                if shutdown.should_exit() {
-                    break;
-                }
-            }
-            println!("network update task ending");
-        })
-    });
 
     future::block_on(async move {
         let mut platform_context = platform::PlatformContext::new().unwrap();
@@ -154,12 +102,11 @@ fn main() {
             .unwrap()
             .into_shared();
 
-        let render_exec = core_executor::CoreAffinityExecutor::new(4);
         // state needs to be dropped on the same thread as it was created
         let render_state = RenderState::new(
             win_ptr,
             !opts.disable_validation_layer,
-            render_exec.spawners(),
+            opts.connect_to_server.is_none(),
         )
         .into_shared();
 
@@ -183,8 +130,8 @@ fn main() {
                 break 'frame_loop;
             }
 
-            // Essentially, check plugins for updates every 6 seconds
-            if frame % (60 * 6) == 0 {
+            // Essentially, check plugins for updates every 2 seconds
+            if frame % (60 * 2) == 0 {
                 check_plugin_async(&asset_loader_plugin, &world).await;
 
                 check_plugin(
@@ -219,7 +166,8 @@ fn main() {
                 .await
                 .unwrap();
 
-            let _join_result = futures_util::future::join(
+            let nworld = Arc::clone(&world);
+            let _join_result = futures_util::future::join3(
                 spawners[1].spawn(call_plugin_update_async(
                     &ash_renderer_plugin,
                     &render_state,
@@ -230,6 +178,11 @@ fn main() {
                     &world,
                     &last_frame_elapsed,
                 )),
+                spawners[3].spawn(Box::pin(async move {
+                    if let Err(err) = nworld.lock().await.poll_connection().await {
+                        println!("error during poll_connection {:?}", err);
+                    }
+                })),
             )
             .await;
 

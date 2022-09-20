@@ -194,14 +194,14 @@ fn main() {
                                 // TODO: support N controllers, or just one per client?
                                 world.set_client_controller_state(controller_state[0]);
                             }
-                            Err(err) => println!("error pumping connection {:?}", err),
+                            Err(err) => println!("error pumping server connection {:?}", err),
                         }
                     } else {
                         match world.pump_connection_as_client(controllers).await {
                             Err(world::WorldError::Network(network::RpcError::Receive(kind)))
                                 if kind.kind() == std::io::ErrorKind::TimedOut => {}
                             Err(err) => {
-                                println!("error pumping connection {:?}", err);
+                                println!("error pumping client connection {:?}", err);
                             }
                             _ => (),
                         }

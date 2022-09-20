@@ -442,15 +442,31 @@ impl World {
         if self.is_server() {
             let now = Instant::now();
             let since_last_tick = now.duration_since(self.last_tick);
-            let action_scale = (since_last_tick.as_micros() as f32) / 1000.0 / 1000.0;
+            let action_scale = since_last_tick.as_micros() as f32 / 1000.0 / 1000.0;
             if since_last_tick > Self::SIM_TICK_DELAY {
                 {
+                    let mut speed = 2.0;
                     if let Some(client_controller) = self.client_controller_state.clone() {
                         if let Some(camera) = self.facets.physical_mut(0usize.into()) {
-                            if client_controller.button_state(Button::Up) {
-                                camera.linear_velocity.x = 1.0;
+                            if client_controller.button_state(Button::Cancel) {
+                                speed = 5.0;
                             } else {
-                                camera.linear_velocity.x = 0.0;
+                                speed = 2.0;
+                            }
+                            if client_controller.button_state(Button::Down) {
+                                camera.linear_velocity.z = -1.0 * speed;
+                            } else if client_controller.button_state(Button::Up) {
+                                camera.linear_velocity.z = speed;
+                            } else {
+                                camera.linear_velocity.z = 0.0;
+                            }
+
+                            if client_controller.button_state(Button::Left) {
+                                camera.angular_velocity.y = -1.0 * speed;
+                            } else if client_controller.button_state(Button::Right) {
+                                camera.angular_velocity.y = speed;
+                            } else {
+                                camera.angular_velocity.y = 0.0;
                             }
                         }
                     }

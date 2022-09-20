@@ -28,7 +28,7 @@ pub extern "C" fn load(world: &mut World) {
     for camera in 0..2 {
         let mut physical = PhysicalFacet::new(0.0, 2.0, -10.0);
         //physical.linear_velocity.z = 1.0;
-        physical.angular_velocity.y = 0.1 + camera as f32;
+        //physical.angular_velocity.y = 0.1 + camera as f32;
         let camera_facet = CameraFacet::new(&physical);
         let camera_idx = world.add_camera(camera_facet);
         let phys_idx = world.add_physical(physical);

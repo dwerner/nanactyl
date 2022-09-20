@@ -124,7 +124,7 @@ impl PhysicalFacet {
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self {
             position: Vector3::new(x, y, z),
-            orientation: Vector3::new(0.0, 0.0, 0.0),
+            orientation: Vector3::zeros(),
             linear_velocity: Vector3::new(0.0, 0.0, 0.0),
             angular_velocity: Vector3::new(0.0, 0.0, 0.0),
         }

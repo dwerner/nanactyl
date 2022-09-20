@@ -17,7 +17,7 @@ use async_lock::{Mutex, MutexGuardArc};
 use nalgebra::Vector3;
 use platform::WinPtr;
 use types::{Attachments, AttachmentsModifier, GpuModelRef, VulkanError};
-use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalFacet, PhysicalIndex};
+use world::thing::{CameraFacet, ModelIndex, PhysicalFacet, PhysicalIndex};
 use world::{Identity, World};
 
 pub mod types;
@@ -44,8 +44,9 @@ pub enum SceneError {
     ThingNotFound(Identity),
     #[error("no phys facet at index {0:?}")]
     NoSuchPhys(PhysicalIndex),
-    #[error("no camera facet at index {0:?}")]
-    NoSuchCamera(CameraIndex),
+
+    #[error("world error {0:?}")]
+    World(world::WorldError),
 }
 
 pub struct RenderState {
@@ -1083,7 +1084,14 @@ pub struct SceneModelRef {
 impl LockWorldAndRenderState {
     pub fn update_render_scene(&mut self) -> Result<(), SceneError> {
         // TODO Fix hardcoded cameras.
-        let cameras = vec![self.get_camera_facet(0u32)?, self.get_camera_facet(1u32)?];
+        let cameras = vec![
+            self.world()
+                .get_camera_facet(0u32.into())
+                .map_err(SceneError::World)?,
+            self.world()
+                .get_camera_facet(1u32.into())
+                .map_err(SceneError::World)?,
+        ];
         let mut drawables = Vec::new();
         for thing in self.world().things() {
             if let world::thing::ThingType::ModelObject { phys, model } = &thing.facets {
@@ -1108,33 +1116,6 @@ impl LockWorldAndRenderState {
         };
         self.render_state().update_scene(scene)?;
         Ok(())
-    }
-
-    fn get_camera_facet(
-        &mut self,
-        cam_id: u32,
-    ) -> Result<(PhysicalFacet, CameraFacet), SceneError> {
-        // TODO fix hardcoded locations of cameras that rely on
-        // camera 0 and 1 being the first 2 things added to the world.
-        let camera = self
-            .world()
-            .thing_as_ref(cam_id.into())
-            .ok_or_else(|| SceneError::ThingNotFound(cam_id.into()))?;
-
-        let (phys_facet, camera_facet) = match camera.facets {
-            world::thing::ThingType::Camera { phys, camera } => {
-                let world_facets = &self.world().facets;
-                let camera = world_facets
-                    .camera(camera)
-                    .ok_or_else(|| SceneError::NoCameraFound)?;
-                let phys = world_facets
-                    .physical(phys)
-                    .ok_or_else(|| SceneError::NoCameraFound)?;
-                (phys.clone(), camera.clone())
-            }
-            _ => return Err(SceneError::NoCameraFound),
-        };
-        Ok((phys_facet, camera_facet))
     }
 
     pub fn update_models(&mut self) {

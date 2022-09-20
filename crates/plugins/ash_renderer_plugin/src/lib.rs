@@ -15,7 +15,7 @@ use render::{
     },
     Presenter, RenderScene, RenderState, VulkanBase,
 };
-use world::{thing::ModelIndex, Matrix4, Vector3};
+use world::{thing::ModelIndex, Matrix4};
 
 impl Renderer {
     fn present_with_base(
@@ -89,19 +89,25 @@ impl Renderer {
             vk::SubpassContents::INLINE,
         );
 
-        let (phys_cam, camera) = &scene.cameras[scene.active_camera];
+        let (phys_cam, _camera) = &scene.cameras[scene.active_camera];
 
         let scale = Matrix4::new_scaling(0.5);
-        let rotation = Matrix4::new_rotation(phys_cam.orientation);
-        let viewscale = Matrix4::new_translation(&phys_cam.position) * scale;
-
         // TODO: do we want to do this every frame?
+        let rotation = Matrix4::new_rotation(phys_cam.orientation);
+        let viewscale = scale * rotation * Matrix4::new_translation(&phys_cam.position); // look;
+
+        // let look = Matrix4::look_at_lh(
+        //     &phys_cam.position.into(),
+        //     &camera.forward(&phys_cam).into(),
+        //     &camera.right(phys_cam),
+        // );
+
         let proj_mat = Matrix4::new_perspective(
             base.surface_resolution.width as f32 / base.surface_resolution.height as f32,
             ::std::f32::consts::FRAC_PI_2,
             0.01,
             100.0,
-        ) * rotation;
+        ) * viewscale;
 
         for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
             // TODO: unified struct for models & pipelines
@@ -146,8 +152,7 @@ impl Renderer {
             );
             for drawable in scene.drawables.iter().filter(|p| p.model == *model_index) {
                 // create a matrix for translating to the given position.
-                let model_mat = viewscale
-                    * Matrix4::<f32>::new_translation(&drawable.pos)
+                let model_mat = Matrix4::<f32>::new_translation(&drawable.pos)
                     * Matrix4::<f32>::new_rotation(drawable.orientation.clone());
                 let model_mat = model_mat.as_slice();
                 let mut mat = [0f32; 16];

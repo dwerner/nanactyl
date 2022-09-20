@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use world::{
     thing::{CameraFacet, ModelFacet, PhysicalFacet, Thing},
-    Vector3, World,
+    World,
 };
 
 #[no_mangle]
@@ -25,8 +25,8 @@ pub extern "C" fn load(world: &mut World) {
     let cube_model_facet = ModelFacet::new(cube_model);
     let cube_model_idx = world.add_model(cube_model_facet);
 
-    for camera in 0..2 {
-        let mut physical = PhysicalFacet::new(0.0, 2.0, -10.0);
+    for _ in 0..2 {
+        let physical = PhysicalFacet::new(0.0, 2.0, -10.0);
         //physical.linear_velocity.z = 1.0;
         //physical.angular_velocity.y = 0.1 + camera as f32;
         let camera_facet = CameraFacet::new(&physical);

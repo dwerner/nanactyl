@@ -12,7 +12,7 @@ use network::{Peer, RpcError, PAYLOAD_LEN};
 use scene::Scene;
 use thing::{
     CameraFacet, CameraIndex, HealthFacet, HealthIndex, ModelFacet, ModelIndex, PhysicalFacet,
-    PhysicalIndex, Thing,
+    PhysicalIndex, Thing, ThingType,
 };
 
 mod scene;
@@ -248,6 +248,18 @@ pub enum WorldError {
 
     #[error("Error pod casting update from bytes {0:?} len {1}")]
     FromBytes(PodCastError, usize),
+
+    #[error("no camera facet at index {0:?}")]
+    NoSuchCamera(CameraIndex),
+
+    #[error("no camera found in scene")]
+    NoCameraFound,
+
+    #[error("thing with id {0:?} not found in scene")]
+    ThingNotFound(Identity),
+
+    #[error("no phys facet at index {0:?}")]
+    NoSuchPhys(PhysicalIndex),
 }
 
 pub struct World {
@@ -316,6 +328,48 @@ impl World {
             client_controller_state: None,
             server_controller_state: None,
         }
+    }
+
+    pub fn get_camera_facet(
+        &self,
+        cam_id: Identity,
+    ) -> Result<(PhysicalFacet, CameraFacet), WorldError> {
+        // TODO fix hardcoded locations of cameras that rely on
+        // camera 0 and 1 being the first 2 things added to the world.
+        let camera = self
+            .thing_as_ref(cam_id)
+            .ok_or_else(|| WorldError::ThingNotFound(cam_id))?;
+
+        let (phys_facet, camera_facet) = match camera.facets {
+            ThingType::Camera { phys, camera } => {
+                let world_facets = &self.facets;
+                let camera = world_facets
+                    .camera(camera)
+                    .ok_or_else(|| WorldError::NoCameraFound)?;
+                let phys = world_facets
+                    .physical(phys)
+                    .ok_or_else(|| WorldError::NoCameraFound)?;
+                (phys.clone(), camera.clone())
+            }
+            _ => return Err(WorldError::NoCameraFound),
+        };
+        Ok((phys_facet, camera_facet))
+    }
+
+    pub fn camera_facet_indices(
+        &self,
+        cam_id: Identity,
+    ) -> Result<(PhysicalIndex, CameraIndex), WorldError> {
+        // TODO fix hardcoded locations of cameras that rely on
+        // camera 0 and 1 being the first 2 things added to the world.
+        let camera = self
+            .thing_as_ref(cam_id)
+            .ok_or_else(|| WorldError::ThingNotFound(cam_id))?;
+
+        Ok(match camera.facets {
+            ThingType::Camera { phys, camera } => (phys, camera),
+            _ => return Err(WorldError::NoCameraFound),
+        })
     }
 
     pub fn set_client_controller_state(&mut self, state: ControllerState) {
@@ -455,10 +509,12 @@ impl World {
             if since_last_tick > Self::SIM_TICK_DELAY {
                 {
                     if let Some(server_controller) = self.server_controller_state.clone() {
-                        self.move_camera_based_on_controller_state(&server_controller, 0u32.into());
+                        self.move_camera_based_on_controller_state(&server_controller, 0u32.into())
+                            .unwrap();
                     }
                     if let Some(client_controller) = self.client_controller_state.clone() {
-                        self.move_camera_based_on_controller_state(&client_controller, 1u32.into());
+                        self.move_camera_based_on_controller_state(&client_controller, 1u32.into())
+                            .unwrap();
                     }
                 }
                 for physical in self.facets.physical.iter_mut() {
@@ -478,33 +534,45 @@ impl World {
     fn move_camera_based_on_controller_state(
         &mut self,
         controller: &ControllerState,
-        phys: PhysicalIndex,
-    ) {
+        thing_id: Identity,
+    ) -> Result<(), WorldError> {
+        let (phys_idx, cam_idx) = self.camera_facet_indices(thing_id)?;
+
+        let cam = self
+            .facets
+            .camera(cam_idx)
+            .ok_or_else(|| WorldError::NoSuchCamera(cam_idx))?
+            .clone();
+
+        let pcam = self
+            .facets
+            .physical_mut(phys_idx)
+            .ok_or_else(|| WorldError::NoSuchCamera(cam_idx))?;
+
         // TODO: move the get_camera_facet method up into World, and use that here.
         // kludge! this relies on the first two phys facets being the cameras 0,1
-        if let Some(camera) = self.facets.physical_mut(phys) {
-            // a speed-up 'run' effect if cancel is held down while moving
-            let speed = if controller.button_state(Button::Cancel) {
-                5.0
-            } else {
-                2.0
-            };
-            if controller.button_state(Button::Down) {
-                camera.linear_velocity.z = -1.0 * speed;
-            } else if controller.button_state(Button::Up) {
-                camera.linear_velocity.z = speed;
-            } else {
-                camera.linear_velocity.z = 0.0;
-            }
-
-            if controller.button_state(Button::Left) {
-                camera.angular_velocity.y = -1.0 * speed;
-            } else if controller.button_state(Button::Right) {
-                camera.angular_velocity.y = speed;
-            } else {
-                camera.angular_velocity.y = 0.0;
-            }
+        // a speed-up 'run' effect if cancel is held down while moving
+        let speed = if controller.button_state(Button::Cancel) {
+            5.0
+        } else {
+            2.0
+        };
+        if controller.button_state(Button::Down) {
+            pcam.linear_velocity += cam.forward(pcam) * (-1.0 * speed);
+        } else if controller.button_state(Button::Up) {
+            pcam.linear_velocity += cam.forward(pcam) * speed;
+        } else {
+            pcam.linear_velocity = Vector3::zeros();
         }
+
+        if controller.button_state(Button::Left) {
+            pcam.angular_velocity.y = -1.0 * speed;
+        } else if controller.button_state(Button::Right) {
+            pcam.angular_velocity.y = speed;
+        } else {
+            pcam.angular_velocity.y = 0.0;
+        }
+        Ok(())
     }
 
     pub fn things(&self) -> &[Thing] {

@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     io,
     net::SocketAddr,
     time::{Duration, Instant},
@@ -9,7 +8,7 @@ use bytemuck::{Pod, PodCastError, Zeroable};
 use histogram::Histogram;
 use input::{wire::ControllerState, Button};
 use models::Model;
-use network::{Peer, RpcError};
+use network::{Peer, RpcError, PAYLOAD_LEN};
 use scene::Scene;
 use thing::{
     CameraFacet, CameraIndex, HealthFacet, HealthIndex, ModelFacet, ModelIndex, PhysicalFacet,
@@ -103,7 +102,7 @@ pub mod wire {
 
     pub(crate) const NUM_UPDATES_PER_MSG: u32 = 96;
 
-    #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+    #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
     pub struct WorldUpdate {
         pub id: u32,
@@ -153,7 +152,7 @@ pub mod wire {
         }
     }
 
-    #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+    #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
     pub struct WireThing {
         pub tag: u8,
@@ -162,19 +161,21 @@ pub mod wire {
         pub phys: u32,
     }
 
-    #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+    #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
     pub struct WirePosition(pub f32, pub f32, pub f32);
 
     const ZSTD_LEVEL: i32 = 3;
     pub(crate) fn compress_world_updates(values: &[WorldUpdate]) -> Result<Vec<u8>, WorldError> {
-        let mut sized: [WorldUpdate; NUM_UPDATES_PER_MSG as usize] = unsafe { std::mem::zeroed() };
+        let mut sized: [WorldUpdate; NUM_UPDATES_PER_MSG as usize] =
+            [WorldUpdate::default(); NUM_UPDATES_PER_MSG as usize];
         sized.copy_from_slice(&values);
         let mut compressed_bytes = vec![];
         let read_bytes = bytemuck::bytes_of(&sized);
         let encoded =
             zstd::encode_all(read_bytes, ZSTD_LEVEL).map_err(WorldError::UpdateCompression)?;
-        let len = encoded.len() as u16;
+        let len = encoded.len();
+        let len = len.min(PAYLOAD_LEN) as u16;
         let len = bytemuck::bytes_of(&len);
         compressed_bytes.extend(len);
         compressed_bytes.extend(encoded);
@@ -187,6 +188,7 @@ pub mod wire {
         let mut decoded_bytes = vec![];
         let len: &u16 = bytemuck::from_bytes(&compressed[0..2]);
         let len = *len;
+        let len = len.min(PAYLOAD_LEN as u16);
         let decoded = zstd::decode_all(&compressed[2..2 + len as usize])
             .map_err(WorldError::UpdateDecompression)?;
         decoded_bytes.extend(decoded);
@@ -207,7 +209,8 @@ pub mod wire {
                 .map(|i| {
                     let physical = PhysicalIndex(i);
                     let model = ModelIndex(i);
-                    let wt: WireThing = Thing::model(physical, model).into();
+                    let model = Thing::model(physical, model);
+                    let wt: WireThing = (&model).into();
                     let wpos = WirePosition(i as f32, i as f32, i as f32);
                     WorldUpdate {
                         id: i,
@@ -259,6 +262,7 @@ pub struct World {
     // TODO: support more than one connection, for servers
     connection: Peer,
     client_controller_state: Option<ControllerState>,
+    server_controller_state: Option<ControllerState>,
 
     maybe_server_addr: Option<SocketAddr>,
 }
@@ -310,11 +314,16 @@ impl World {
             maybe_server_addr,
             connection,
             client_controller_state: None,
+            server_controller_state: None,
         }
     }
 
     pub fn set_client_controller_state(&mut self, state: ControllerState) {
         self.client_controller_state = Some(state);
+    }
+
+    pub fn set_server_controller_state(&mut self, state: ControllerState) {
+        self.server_controller_state = Some(state);
     }
 
     pub async fn pump_connection_as_server(&mut self) -> Result<[ControllerState; 2], WorldError> {
@@ -390,8 +399,8 @@ impl World {
 
         let mut msg_bytes = vec![];
         let controller_state_bytes = bytemuck::bytes_of(&controllers);
-
-        msg_bytes.extend(bytemuck::bytes_of(&(controller_state_bytes.len() as u16)));
+        let len = controller_state_bytes.len().min(PAYLOAD_LEN);
+        msg_bytes.extend(bytemuck::bytes_of(&(len as u16)));
         msg_bytes.extend(controller_state_bytes);
 
         Ok(match self.connection.send(&msg_bytes).await {
@@ -400,7 +409,7 @@ impl World {
         })
     }
 
-    pub fn is_server(&mut self) -> bool {
+    pub fn is_server(&self) -> bool {
         self.maybe_server_addr.is_none()
     }
 
@@ -445,30 +454,11 @@ impl World {
             let action_scale = since_last_tick.as_micros() as f32 / 1000.0 / 1000.0;
             if since_last_tick > Self::SIM_TICK_DELAY {
                 {
-                    let mut speed = 2.0;
+                    if let Some(server_controller) = self.server_controller_state.clone() {
+                        self.move_camera_based_on_controller_state(&server_controller, 0u32.into());
+                    }
                     if let Some(client_controller) = self.client_controller_state.clone() {
-                        if let Some(camera) = self.facets.physical_mut(0usize.into()) {
-                            if client_controller.button_state(Button::Cancel) {
-                                speed = 5.0;
-                            } else {
-                                speed = 2.0;
-                            }
-                            if client_controller.button_state(Button::Down) {
-                                camera.linear_velocity.z = -1.0 * speed;
-                            } else if client_controller.button_state(Button::Up) {
-                                camera.linear_velocity.z = speed;
-                            } else {
-                                camera.linear_velocity.z = 0.0;
-                            }
-
-                            if client_controller.button_state(Button::Left) {
-                                camera.angular_velocity.y = -1.0 * speed;
-                            } else if client_controller.button_state(Button::Right) {
-                                camera.angular_velocity.y = speed;
-                            } else {
-                                camera.angular_velocity.y = 0.0;
-                            }
-                        }
+                        self.move_camera_based_on_controller_state(&client_controller, 1u32.into());
                     }
                 }
                 for physical in self.facets.physical.iter_mut() {
@@ -482,6 +472,38 @@ impl World {
             }
         } else {
             // try to predict, but dont be suprised if an update corrects it (rubber-banding tho)
+        }
+    }
+
+    fn move_camera_based_on_controller_state(
+        &mut self,
+        controller: &ControllerState,
+        phys: PhysicalIndex,
+    ) {
+        // TODO: move the get_camera_facet method up into World, and use that here.
+        // kludge! this relies on the first two phys facets being the cameras 0,1
+        if let Some(camera) = self.facets.physical_mut(phys) {
+            // a speed-up 'run' effect if cancel is held down while moving
+            let speed = if controller.button_state(Button::Cancel) {
+                5.0
+            } else {
+                2.0
+            };
+            if controller.button_state(Button::Down) {
+                camera.linear_velocity.z = -1.0 * speed;
+            } else if controller.button_state(Button::Up) {
+                camera.linear_velocity.z = speed;
+            } else {
+                camera.linear_velocity.z = 0.0;
+            }
+
+            if controller.button_state(Button::Left) {
+                camera.angular_velocity.y = -1.0 * speed;
+            } else if controller.button_state(Button::Right) {
+                camera.angular_velocity.y = speed;
+            } else {
+                camera.angular_velocity.y = 0.0;
+            }
         }
     }
 

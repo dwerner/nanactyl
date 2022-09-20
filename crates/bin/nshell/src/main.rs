@@ -122,13 +122,13 @@ fn main() {
         }
 
         let mut frame = 0u64;
-        let mut controllers: [ControllerState; 2] = unsafe { std::mem::zeroed() };
+        let mut own_controllers: [ControllerState; 2] = Default::default();
         'frame_loop: loop {
             frame_start = Instant::now();
 
             platform_context.pump_events();
             if let Some(EngineEvent::ExitToDesktop) =
-                handle_input_events(platform_context.peek_events(), &mut controllers)
+                handle_input_events(platform_context.peek_events(), &mut own_controllers)
             {
                 break 'frame_loop;
             }
@@ -169,7 +169,7 @@ fn main() {
                 .await
                 .unwrap();
 
-            let controllers = controllers.clone();
+            let own_controllers = own_controllers.clone();
 
             let nworld = Arc::clone(&world);
             let _join_result = futures_util::future::join3(
@@ -193,11 +193,12 @@ fn main() {
                                 //println!("got controller state from client {controller_state:?}");
                                 // TODO: support N controllers, or just one per client?
                                 world.set_client_controller_state(controller_state[0]);
+                                world.set_server_controller_state(own_controllers[0]);
                             }
                             Err(err) => println!("error pumping server connection {:?}", err),
                         }
                     } else {
-                        match world.pump_connection_as_client(controllers).await {
+                        match world.pump_connection_as_client(own_controllers).await {
                             Err(world::WorldError::Network(network::RpcError::Receive(kind)))
                                 if kind.kind() == std::io::ErrorKind::TimedOut => {}
                             Err(err) => {
@@ -272,7 +273,7 @@ fn handle_input_events(
                 }
                 EngineEvent::InputDevice(DeviceEvent::GameControllerRemoved(id)) => {
                     println!("gamepad {id} removed");
-                    controllers[*id as usize] = unsafe { std::mem::zeroed() };
+                    controllers[*id as usize] = Default::default();
                 }
                 EngineEvent::InputDevice(input_device_event) => {
                     println!("input device event {:?}", input_device_event);

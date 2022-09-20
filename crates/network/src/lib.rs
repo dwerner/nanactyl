@@ -14,7 +14,7 @@ use futures_lite::FutureExt;
 use histogram::Histogram;
 
 const MSG_LEN: usize = size_of::<Message>();
-const PAYLOAD_LEN: usize = 1024;
+pub const PAYLOAD_LEN: usize = 1024;
 const MAX_UNACKED_PACKETS: usize = 32;
 
 #[derive(thiserror::Error, Debug)]
@@ -486,7 +486,7 @@ mod tests {
         p1.recv().await.unwrap();
 
         // finally, we walk each bit and ensure that it matches the sender's queue.
-        let expected_ack_bits = expected_ack_bits.view_bits::<bitvec::prelude::lsb0>();
+        let expected_ack_bits = expected_ack_bits.view_bits::<bitvec::prelude::Lsb0>();
         for (index, bit) in expected_ack_bits[..p1.send_queue.len()].iter().enumerate() {
             let (_, _, ackd) = p1.send_queue[index];
             assert_eq!(bit, ackd, "ack bit not matched for index {}", index);

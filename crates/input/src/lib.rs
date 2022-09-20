@@ -62,13 +62,13 @@ pub mod wire {
 
     use super::*;
 
-    #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+    #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
     pub struct Axis {
         value: i8,
     }
 
-    #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+    #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
     pub struct ControllerState {
         id: u8,

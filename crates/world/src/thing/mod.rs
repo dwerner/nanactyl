@@ -135,6 +135,7 @@ impl PhysicalFacet {
 pub struct CameraFacet {
     pub view: Matrix4<f32>,
     pub perspective: Perspective3<f32>,
+    pub associated_model: Option<ModelIndex>,
 }
 
 #[derive(Debug)]
@@ -158,9 +159,14 @@ impl CameraFacet {
                 0.0,    // near
                 1000.0, //far
             ),
+            associated_model: None,
         };
         c.update_view_matrix(phys);
         c
+    }
+
+    pub fn set_associated_model(&mut self, model: ModelIndex) {
+        self.associated_model = Some(model);
     }
 
     pub fn set_perspective(&mut self, fov: f32, aspect: f32, near: f32, far: f32) {
@@ -178,7 +184,6 @@ impl CameraFacet {
             let x = -rx.cos() * ry.sin();
             let y = rx.sin();
             let z = rx.cos() * ry.cos();
-            // Expected 4 arguments? No, not really. Not an error, actually rust-analyzer breaking.
             Vector3::new(x, y, z)
         };
         vec.normalize()

@@ -149,6 +149,21 @@ impl PlatformContext {
     /// Evaluate an event from SDL, modify state internally and surface an engine event event if it's relevant to the event loop.
     fn evaluate_event(&mut self, event: &SdlEvent) -> EngineEvent {
         match event {
+            SdlEvent::Quit { .. }
+            | SdlEvent::KeyDown {
+                keycode: Some(Keycode::Escape),
+                ..
+            } => return EngineEvent::ExitToDesktop,
+            SdlEvent::KeyDown {
+                keycode: Some(key), ..
+            } => {
+                return EngineEvent::Input(InputEvent::KeyPressed(keycode_to_button(*key)));
+            }
+            SdlEvent::KeyUp {
+                keycode: Some(key), ..
+            } => {
+                return EngineEvent::Input(InputEvent::KeyReleased(keycode_to_button(*key)));
+            }
             SdlEvent::ControllerButtonDown {
                 timestamp: _,
                 which,
@@ -210,11 +225,6 @@ impl PlatformContext {
             } => {
                 return EngineEvent::InputDevice(DeviceEvent::GameControllerRemoved(*which));
             }
-            SdlEvent::Quit { .. }
-            | SdlEvent::KeyDown {
-                keycode: Some(Keycode::Escape),
-                ..
-            } => return EngineEvent::ExitToDesktop,
             _ => {}
         }
         EngineEvent::Continue
@@ -225,6 +235,18 @@ impl PlatformContext {
     //     self.audio_subsystem
     //         .open_playback(device, spec, get_callback)
     // }
+}
+
+fn keycode_to_button(button: sdl2::keyboard::Keycode) -> Button {
+    match button {
+        sdl2::keyboard::Keycode::Space => Button::Ok,
+        sdl2::keyboard::Keycode::C => Button::Cancel,
+        sdl2::keyboard::Keycode::Up => Button::Up,
+        sdl2::keyboard::Keycode::Down => Button::Down,
+        sdl2::keyboard::Keycode::Left => Button::Left,
+        sdl2::keyboard::Keycode::Right => Button::Right,
+        _ => Button::Unmapped,
+    }
 }
 
 fn button_to_button(button: sdl2::controller::Button) -> Button {

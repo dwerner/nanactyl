@@ -14,10 +14,10 @@ use ash::{
 };
 
 use async_lock::{Mutex, MutexGuardArc};
-use nalgebra::Vector3;
+use nalgebra::{Matrix4, Vector3};
 use platform::WinPtr;
 use types::{Attachments, AttachmentsModifier, GpuModelRef, VulkanError};
-use world::thing::{CameraFacet, ModelIndex, PhysicalFacet, PhysicalIndex};
+use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalFacet, PhysicalIndex};
 use world::{Identity, World};
 
 pub mod types;
@@ -44,7 +44,8 @@ pub enum SceneError {
     ThingNotFound(Identity),
     #[error("no phys facet at index {0:?}")]
     NoSuchPhys(PhysicalIndex),
-
+    #[error("no camera facet at index {0:?}")]
+    NoSuchCamera(CameraIndex),
     #[error("world error {0:?}")]
     World(world::WorldError),
 }
@@ -1084,29 +1085,58 @@ pub struct SceneModelRef {
 impl LockWorldAndRenderState {
     pub fn update_render_scene(&mut self) -> Result<(), SceneError> {
         // TODO Fix hardcoded cameras.
-        let cameras = vec![
-            self.world()
-                .get_camera_facet(0u32.into())
-                .map_err(SceneError::World)?,
-            self.world()
-                .get_camera_facet(1u32.into())
-                .map_err(SceneError::World)?,
-        ];
-        let mut drawables = Vec::new();
-        for thing in self.world().things() {
-            if let world::thing::ThingType::ModelObject { phys, model } = &thing.facets {
-                let facet = self
-                    .world()
-                    .facets
-                    .physical(*phys)
-                    .ok_or_else(|| SceneError::NoSuchPhys(*phys))?;
+        let c1 = self
+            .world()
+            .get_camera_facet(0u32.into())
+            .map_err(SceneError::World)?;
+        let c2 = self
+            .world()
+            .get_camera_facet(1u32.into())
+            .map_err(SceneError::World)?;
 
-                drawables.push(SceneModelRef {
-                    model: *model,
-                    pos: facet.position.clone(),
-                    orientation: facet.orientation.clone(),
-                });
-            }
+        let cameras = vec![c1, c2];
+        let mut drawables = vec![];
+
+        for thing in self.world().things() {
+            let model_ref = match &thing.facets {
+                world::thing::ThingType::Camera { phys, camera } => {
+                    let phys = self
+                        .world()
+                        .facets
+                        .physical(*phys)
+                        .ok_or_else(|| SceneError::NoSuchPhys(*phys))?;
+                    let cam = self
+                        .world()
+                        .facets
+                        .camera(*camera)
+                        .ok_or_else(|| SceneError::NoSuchCamera(*camera))?;
+
+                    let forward = cam.forward(phys) * -2.0;
+                    let pos = Matrix4::new_translation(&forward).transform_vector(&phys.position);
+                    //let pos = phys.position + forward;
+                    //println!("forward {forward:?}, pos {pos:?}");
+
+                    SceneModelRef {
+                        model: cam.associated_model.unwrap(),
+                        pos,
+                        orientation: phys.orientation.clone(),
+                    }
+                }
+                world::thing::ThingType::ModelObject { phys, model } => {
+                    let facet = self
+                        .world()
+                        .facets
+                        .physical(*phys)
+                        .ok_or_else(|| SceneError::NoSuchPhys(*phys))?;
+
+                    SceneModelRef {
+                        model: *model,
+                        pos: facet.position.clone(),
+                        orientation: facet.orientation.clone(),
+                    }
+                }
+            };
+            drawables.push(model_ref);
         }
         let active_camera = if self.world().is_server() { 0 } else { 1 };
         let scene = RenderScene {

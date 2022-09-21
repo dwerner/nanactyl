@@ -9,7 +9,7 @@ use std::time::Instant;
 use async_lock::Mutex;
 use core_executor::CoreAffinityExecutor;
 use futures_lite::future;
-use input::wire::ControllerState;
+use input::wire::InputState;
 use input::DeviceEvent;
 use input::EngineEvent;
 use plugin_loader::Plugin;
@@ -122,7 +122,7 @@ fn main() {
         }
 
         let mut frame = 0u64;
-        let mut own_controllers: [ControllerState; 2] = Default::default();
+        let mut own_controllers: [InputState; 2] = Default::default();
         'frame_loop: loop {
             frame_start = Instant::now();
 
@@ -169,7 +169,7 @@ fn main() {
                 .await
                 .unwrap();
 
-            let own_controllers = own_controllers.clone();
+            let own_controller = own_controllers.clone();
 
             let nworld = Arc::clone(&world);
             let _join_result = futures_util::future::join3(
@@ -259,7 +259,7 @@ where
 
 fn handle_input_events(
     events: &[EngineEvent],
-    controllers: &mut [ControllerState; 2],
+    controllers: &mut [InputState; 2],
 ) -> Option<EngineEvent> {
     if !events.is_empty() {
         for event in events {
@@ -269,7 +269,7 @@ fn handle_input_events(
                 }
                 EngineEvent::InputDevice(DeviceEvent::GameControllerAdded(id)) => {
                     println!("gamepad {id} added");
-                    controllers[*id as usize] = ControllerState::new(*id as u8);
+                    controllers[*id as usize] = InputState::new(*id as u8);
                 }
                 EngineEvent::InputDevice(DeviceEvent::GameControllerRemoved(id)) => {
                     println!("gamepad {id} removed");
@@ -279,10 +279,7 @@ fn handle_input_events(
                     println!("input device event {:?}", input_device_event);
                 }
                 EngineEvent::Input(input_event) => {
-                    let id = input_event.id() as u32;
-                    controllers.get_mut(id as usize).map(|controller| {
-                        controller.update_with_event(input_event);
-                    });
+                    controllers[0].update_with_event(input_event);
                 }
                 ret @ EngineEvent::ExitToDesktop => {
                     println!("Got {:?}", ret);

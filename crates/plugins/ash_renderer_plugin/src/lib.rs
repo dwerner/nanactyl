@@ -152,8 +152,8 @@ impl Renderer {
             );
             for drawable in scene.drawables.iter().filter(|p| p.model == *model_index) {
                 // create a matrix for translating to the given position.
-                let model_mat = Matrix4::<f32>::new_translation(&drawable.pos)
-                    * Matrix4::<f32>::new_rotation(drawable.orientation.clone());
+                let model_mat = Matrix4::<f32>::new_translation(&(-1.0 * drawable.pos))
+                    * Matrix4::<f32>::new_rotation(-drawable.orientation.clone());
                 let model_mat = model_mat.as_slice();
                 let mut mat = [0f32; 16];
                 mat.copy_from_slice(&model_mat);
@@ -441,7 +441,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
                 front_face: vk::FrontFace::COUNTER_CLOCKWISE,
                 line_width: 1.0,
-                polygon_mode: vk::PolygonMode::FILL,
+                polygon_mode: vk::PolygonMode::LINE,
                 ..Default::default()
             };
 

@@ -6,7 +6,7 @@ use std::{
 
 use bytemuck::{Pod, PodCastError, Zeroable};
 use histogram::Histogram;
-use input::{wire::ControllerState, Button};
+use input::{wire::InputState, Button};
 use models::Model;
 use network::{Peer, RpcError, PAYLOAD_LEN};
 use scene::Scene;
@@ -273,8 +273,8 @@ pub struct World {
 
     // TODO: support more than one connection, for servers
     connection: Peer,
-    client_controller_state: Option<ControllerState>,
-    server_controller_state: Option<ControllerState>,
+    client_controller_state: Option<InputState>,
+    server_controller_state: Option<InputState>,
 
     maybe_server_addr: Option<SocketAddr>,
 }
@@ -372,15 +372,15 @@ impl World {
         })
     }
 
-    pub fn set_client_controller_state(&mut self, state: ControllerState) {
+    pub fn set_client_controller_state(&mut self, state: InputState) {
         self.client_controller_state = Some(state);
     }
 
-    pub fn set_server_controller_state(&mut self, state: ControllerState) {
+    pub fn set_server_controller_state(&mut self, state: InputState) {
         self.server_controller_state = Some(state);
     }
 
-    pub async fn pump_connection_as_server(&mut self) -> Result<[ControllerState; 2], WorldError> {
+    pub async fn pump_connection_as_server(&mut self) -> Result<[InputState; 2], WorldError> {
         let packet = self
             .things
             .iter()
@@ -412,15 +412,14 @@ impl World {
             .payload;
         let len: &u16 = bytemuck::from_bytes(&payload[0..2]);
         let len = *len;
-        let cast: &[ControllerState; 2] =
-            bytemuck::try_from_bytes(&payload[2..2 + len as usize])
-                .map_err(|err| WorldError::FromBytes(err, payload.len()))?;
+        let cast: &[InputState; 2] = bytemuck::try_from_bytes(&payload[2..2 + len as usize])
+            .map_err(|err| WorldError::FromBytes(err, payload.len()))?;
         Ok(*cast)
     }
 
     pub async fn pump_connection_as_client(
         &mut self,
-        controllers: [ControllerState; 2],
+        controllers: [InputState; 2],
     ) -> Result<(), WorldError> {
         let data = self
             .connection
@@ -533,7 +532,7 @@ impl World {
 
     fn move_camera_based_on_controller_state(
         &mut self,
-        controller: &ControllerState,
+        controller: &InputState,
         thing_id: Identity,
     ) -> Result<(), WorldError> {
         let (phys_idx, cam_idx) = self.camera_facet_indices(thing_id)?;
@@ -557,10 +556,17 @@ impl World {
         } else {
             2.0
         };
+
+        // FOR NOW: this works ok but needs work.
+
+        let rot = Matrix4::new_rotation(-1.0 * pcam.orientation);
+        let forward = cam.forward(pcam);
         if controller.button_state(Button::Down) {
-            pcam.linear_velocity += cam.forward(pcam) * (-1.0 * speed);
+            let transform = rot * Matrix4::new_scaling(-1.0 * speed);
+            pcam.linear_velocity += transform.transform_vector(&forward);
         } else if controller.button_state(Button::Up) {
-            pcam.linear_velocity += cam.forward(pcam) * speed;
+            let transform = rot * Matrix4::new_scaling(speed);
+            pcam.linear_velocity += transform.transform_vector(&forward);
         } else {
             pcam.linear_velocity = Vector3::zeros();
         }

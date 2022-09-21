@@ -17,19 +17,11 @@ pub enum Button {
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum InputEvent {
+    KeyPressed(Button),
+    KeyReleased(Button),
     ButtonPressed(u8, Button),
     ButtonReleased(u8, Button),
     AxisMotion(u8, u8, i8),
-}
-
-impl InputEvent {
-    pub fn id(&self) -> u8 {
-        match self {
-            InputEvent::ButtonPressed(id, _)
-            | InputEvent::ButtonReleased(id, _)
-            | InputEvent::AxisMotion(id, _, _) => *id,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -70,14 +62,14 @@ pub mod wire {
 
     #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
-    pub struct ControllerState {
+    pub struct InputState {
         id: u8,
         axes: [Axis; 7],
         // bitvec
         buttons: u16,
     }
 
-    impl ControllerState {
+    impl InputState {
         pub fn new(id: u8) -> Self {
             Self {
                 id,
@@ -96,6 +88,14 @@ pub mod wire {
                 }
                 InputEvent::AxisMotion(id, axis, value) if self.id == *id => {
                     self.axes[*axis as usize].value = *value;
+                }
+
+                // FOR NOW: we send keypresses as button presses for the equivalent controls
+                InputEvent::KeyPressed(key) => {
+                    self.set_button_bit(*key as u8, true);
+                }
+                InputEvent::KeyReleased(key) => {
+                    self.set_button_bit(*key as u8, false);
                 }
                 _ => {}
             }

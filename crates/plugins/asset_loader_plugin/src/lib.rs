@@ -26,13 +26,14 @@ pub extern "C" fn load(world: &mut World) {
     let cube_model_idx = world.add_model(cube_model_facet);
 
     for _ in 0..2 {
-        let physical = PhysicalFacet::new(0.0, 2.0, -10.0);
-        //physical.linear_velocity.z = 1.0;
-        //physical.angular_velocity.y = 0.1 + camera as f32;
-        let camera_facet = CameraFacet::new(&physical);
+        let physical = PhysicalFacet::new(0.0, 3.0, -10.0);
+        let mut camera_facet = CameraFacet::new(&physical);
+        camera_facet.set_associated_model(ico_model_idx);
+
         let camera_idx = world.add_camera(camera_facet);
         let phys_idx = world.add_physical(physical);
         let camera = Thing::camera(phys_idx, camera_idx);
+
         let _camera_thing_id = world
             .add_thing(camera)
             .expect("unable to add thing to world.");
@@ -65,9 +66,7 @@ pub extern "C" fn load(world: &mut World) {
 }
 
 #[no_mangle]
-pub extern "C" fn update(world: &mut World, dt: &Duration) {
-    world.maybe_tick(dt);
-}
+pub extern "C" fn update(world: &mut World, dt: &Duration) {}
 
 #[no_mangle]
 pub extern "C" fn unload(world: &mut World) {

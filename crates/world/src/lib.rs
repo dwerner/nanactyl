@@ -280,7 +280,7 @@ pub struct World {
 }
 
 impl World {
-    const SIM_TICK_DELAY: Duration = Duration::from_millis(16);
+    const SIM_TICK_DELAY: Duration = Duration::from_millis(8);
 
     pub fn rtt_micros(&self) -> Histogram {
         self.connection.rtt_micros.clone()

@@ -20,6 +20,9 @@ pub enum VulkanError {
     #[error("vk result ({0:?}) todo: assign a real error variant")]
     VkResultToDo(vk::Result),
 
+    #[error("vk result ({0:?}) during present")]
+    Present(vk::Result),
+
     #[error("invalid CString from &'static str")]
     InvalidCString(NulError),
 
@@ -30,7 +33,7 @@ pub enum VulkanError {
     Image(image::ImageError),
 
     #[error("swapchain acquire next image error {0:?}")]
-    SwapchainAquireNextImage(vk::Result),
+    SwapchainAcquireNextImage(vk::Result),
 
     #[error("no scene to present")]
     NoSceneToPresent,

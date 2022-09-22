@@ -49,7 +49,9 @@ impl Renderer {
                 base.flag_recreate_swapchain = true;
                 return Ok(());
             }
-            Err(err) => return Err(VulkanError::SwapchainAquireNextImage(err)),
+            Err(err) => {
+                return Err(VulkanError::SwapchainAcquireNextImage(err));
+            }
         };
 
         let clear_values = [
@@ -198,11 +200,22 @@ impl Renderer {
             ..Default::default()
         };
 
-        unsafe {
+        match unsafe {
             base.swapchain_loader
                 .queue_present(base.present_queue, &present_info)
-        }
-        .map_err(VulkanError::VkResultToDo)?;
+        } {
+            Ok(_suboptimal @ false) => {}
+            Ok(_suboptimal @ true) => {
+                base.flag_recreate_swapchain = true;
+                return Ok(());
+            }
+            Err(vk::Result::TIMEOUT) => return Ok(()),
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                base.flag_recreate_swapchain = true;
+                return Ok(());
+            }
+            Err(vk_err) => return Err(VulkanError::Present(vk_err)),
+        };
 
         Ok(())
     }

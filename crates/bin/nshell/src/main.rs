@@ -169,8 +169,6 @@ fn main() {
                 .await
                 .unwrap();
 
-            let own_controller = own_controllers.clone();
-
             let nworld = Arc::clone(&world);
             let _join_result = futures_util::future::join3(
                 spawners[1].spawn(call_plugin_update_async(

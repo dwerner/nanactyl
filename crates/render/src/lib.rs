@@ -715,6 +715,7 @@ impl VulkanBase {
             .present_mode(present_mode)
             .clipped(true)
             .image_array_layers(1)
+            .old_swapchain(self.swapchain)
             .build();
 
         let swapchain = unsafe {
@@ -1097,7 +1098,7 @@ impl LockWorldAndRenderState {
         let cameras = vec![c1, c2];
         let mut drawables = vec![];
 
-        for thing in self.world().things() {
+        for (id, thing) in self.world().things().iter().enumerate() {
             let model_ref = match &thing.facets {
                 world::thing::ThingType::Camera { phys, camera } => {
                     let phys = self
@@ -1111,10 +1112,13 @@ impl LockWorldAndRenderState {
                         .camera(*camera)
                         .ok_or_else(|| SceneError::NoSuchCamera(*camera))?;
 
-                    let forward = cam.forward(phys) * -2.0;
+                    let forward = cam.forward(phys) * 3.0;
                     let pos = Matrix4::new_translation(&forward).transform_vector(&phys.position);
                     //let pos = phys.position + forward;
-                    //println!("forward {forward:?}, pos {pos:?}");
+                    println!(
+                        "thing {} forward z {}, position z {} pos z {}",
+                        id, forward.z, phys.position.z, pos.z
+                    );
 
                     SceneModelRef {
                         model: cam.associated_model.unwrap(),

@@ -1080,7 +1080,7 @@ pub struct RenderScene {
 pub struct SceneModelRef {
     pub model: ModelIndex,
     pub pos: Vector3<f32>,
-    pub orientation: Vector3<f32>,
+    pub angles: Vector3<f32>,
 }
 
 impl LockWorldAndRenderState {
@@ -1112,18 +1112,16 @@ impl LockWorldAndRenderState {
                         .camera(*camera)
                         .ok_or_else(|| SceneError::NoSuchCamera(*camera))?;
 
-                    let forward = cam.forward(phys) * 3.0;
-                    let pos = Matrix4::new_translation(&forward).transform_vector(&phys.position);
-                    //let pos = phys.position + forward;
-                    println!(
-                        "thing {} forward z {}, position z {} pos z {}",
-                        id, forward.z, phys.position.z, pos.z
-                    );
+                    let right = cam.right(phys) * -1.0;
+                    let forward = cam.forward(phys);
+                    let pos = phys.position
+                        + Vector3::new(right.x + forward.x, -2.0, right.z + forward.z);
+                    let angles = Vector3::new(0.0, phys.angles.y - 1.57, 0.0);
 
                     SceneModelRef {
                         model: cam.associated_model.unwrap(),
                         pos,
-                        orientation: phys.orientation.clone(),
+                        angles,
                     }
                 }
                 world::thing::ThingType::ModelObject { phys, model } => {
@@ -1136,7 +1134,7 @@ impl LockWorldAndRenderState {
                     SceneModelRef {
                         model: *model,
                         pos: facet.position.clone(),
-                        orientation: facet.orientation.clone(),
+                        angles: facet.angles.clone(),
                     }
                 }
             };

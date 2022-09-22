@@ -95,7 +95,7 @@ impl Renderer {
 
         let scale = Matrix4::new_scaling(0.5);
         // TODO: do we want to do this every frame?
-        let rotation = Matrix4::new_rotation(phys_cam.orientation);
+        let rotation = Matrix4::new_rotation(phys_cam.angles);
         let viewscale = scale * rotation * Matrix4::new_translation(&phys_cam.position); // look;
 
         // let look = Matrix4::look_at_lh(
@@ -154,8 +154,8 @@ impl Renderer {
             );
             for drawable in scene.drawables.iter().filter(|p| p.model == *model_index) {
                 // create a matrix for translating to the given position.
-                let model_mat = Matrix4::<f32>::new_translation(&(-1.0 * drawable.pos))
-                    * Matrix4::<f32>::new_rotation(-drawable.orientation.clone());
+                let model_mat = Matrix4::new_translation(&(-drawable.pos))
+                    * Matrix4::new_rotation(-drawable.angles.clone());
                 let model_mat = model_mat.as_slice();
                 let mut mat = [0f32; 16];
                 mat.copy_from_slice(&model_mat);
@@ -454,7 +454,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
                 front_face: vk::FrontFace::COUNTER_CLOCKWISE,
                 line_width: 1.0,
-                polygon_mode: vk::PolygonMode::LINE,
+                polygon_mode: vk::PolygonMode::FILL,
                 ..Default::default()
             };
 
@@ -1157,7 +1157,8 @@ fn upload_models(
             dest_texture,
             vertex_buffer,
             index_buffer,
-            // TODO: generate this from model metadata! hardcoing this for now to move forward with model rendering
+            // TODO: generate this from model metadata!
+            // hardcoding this for now to move forward with model rendering
             ShaderDesc {
                 desc_set_layout_bindings: vec![
                     ShaderBindingDesc {

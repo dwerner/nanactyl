@@ -393,7 +393,7 @@ impl World {
                     id,
                     thing,
                     position: wire::WirePosition(p.position.x, p.position.y, p.position.z),
-                    y_rotation: p.orientation.y,
+                    y_rotation: p.angles.y,
                 }
             })
             .take(NUM_UPDATES_PER_MSG as usize)
@@ -444,7 +444,7 @@ impl World {
             match self.facets.physical.get_mut(id as usize) {
                 Some(phys) => {
                     phys.position = Vector3::new(position.0, position.1, position.2);
-                    phys.orientation.y = y_rotation;
+                    phys.angles.y = y_rotation;
                 }
                 None => println!("no physical facet at index {}", position.0),
             }
@@ -521,7 +521,7 @@ impl World {
                     physical.position += linear;
 
                     let angular = physical.angular_velocity * action_scale;
-                    physical.orientation += angular;
+                    physical.angles += angular;
                 }
                 self.last_tick = Instant::now();
             }
@@ -537,9 +537,9 @@ impl World {
     ) -> Result<(), WorldError> {
         let (phys_idx, cam_idx) = self.camera_facet_indices(thing_id)?;
 
-        let cam = self
+        let mut cam = self
             .facets
-            .camera(cam_idx)
+            .camera_mut(cam_idx)
             .ok_or_else(|| WorldError::NoSuchCamera(cam_idx))?
             .clone();
 
@@ -559,13 +559,13 @@ impl World {
 
         // FOR NOW: this works ok but needs work.
 
-        let rot = Matrix4::new_rotation(-1.0 * pcam.orientation);
-        let forward = cam.forward(pcam);
+        let rot = Matrix4::new_rotation(-1.0 * pcam.angles);
+        let forward = rot.transform_vector(&Vector3::new(0.0, 0.0, 1.0));
         if controller.button_state(Button::Down) {
-            let transform = rot * Matrix4::new_scaling(-1.0 * speed);
+            let transform = cam.view * Matrix4::new_scaling(-1.0 * speed);
             pcam.linear_velocity += transform.transform_vector(&forward);
         } else if controller.button_state(Button::Up) {
-            let transform = rot * Matrix4::new_scaling(speed);
+            let transform = cam.view * Matrix4::new_scaling(speed);
             pcam.linear_velocity += transform.transform_vector(&forward);
         } else {
             pcam.linear_velocity = Vector3::zeros();
@@ -578,6 +578,8 @@ impl World {
         } else {
             pcam.angular_velocity.y = 0.0;
         }
+        cam.update_view_matrix(pcam);
+
         Ok(())
     }
 

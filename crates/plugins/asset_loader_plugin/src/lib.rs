@@ -26,7 +26,7 @@ pub extern "C" fn load(world: &mut World) {
     let cube_model_idx = world.add_model(cube_model_facet);
 
     for _ in 0..2 {
-        let physical = PhysicalFacet::new(0.0, 3.0, -10.0);
+        let physical = PhysicalFacet::new(0.0, 4.0, -10.0);
         let mut camera_facet = CameraFacet::new(&physical);
         camera_facet.set_associated_model(ico_model_idx);
 
@@ -49,7 +49,7 @@ pub extern "C" fn load(world: &mut World) {
             };
             let (x, z) = (i as f32, j as f32);
             let mut physical = PhysicalFacet::new(x * 4.0, 2.0, z * 10.0);
-            physical.orientation.y = j as f32 * 4.0;
+            physical.angles.y = j as f32 * 4.0;
             //physical.linear_velocity = Vector3::new(x, 0.0, z);
             physical.angular_velocity.y = 1.0;
             let physical_idx = world.add_physical(physical);

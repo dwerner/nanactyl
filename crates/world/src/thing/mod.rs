@@ -115,7 +115,7 @@ pub enum Shape {
 #[derive(Debug, Clone)]
 pub struct PhysicalFacet {
     pub position: Vector3<f32>,
-    pub orientation: Vector3<f32>,
+    pub angles: Vector3<f32>,
     pub linear_velocity: Vector3<f32>,
     pub angular_velocity: Vector3<f32>,
 }
@@ -124,7 +124,7 @@ impl PhysicalFacet {
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self {
             position: Vector3::new(x, y, z),
-            orientation: Vector3::zeros(),
+            angles: Vector3::zeros(),
             linear_velocity: Vector3::new(0.0, 0.0, 0.0),
             angular_velocity: Vector3::new(0.0, 0.0, 0.0),
         }
@@ -178,8 +178,8 @@ impl CameraFacet {
     }
 
     pub fn forward(&self, phys: &PhysicalFacet) -> Vector3<f32> {
-        let rx = phys.angular_velocity.x;
-        let ry = phys.angular_velocity.y;
+        let rx = phys.angles.x;
+        let ry = phys.angles.y;
         let vec = {
             let x = -rx.cos() * ry.sin();
             let y = rx.sin();

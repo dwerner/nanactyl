@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use input::{Button, DeviceEvent, EngineEvent, InputEvent};
-
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
-use sdl2::{
-    controller::GameController, event::Event as SdlEvent, haptic::Haptic, keyboard::Keycode,
-};
+use sdl2::controller::GameController;
+use sdl2::event::Event as SdlEvent;
+use sdl2::haptic::Haptic;
+use sdl2::keyboard::Keycode;
 
 #[derive(thiserror::Error, Debug)]
 pub enum PlatformError {

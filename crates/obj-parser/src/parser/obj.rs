@@ -1,10 +1,9 @@
+use std::io::BufRead;
+use std::str;
+
 /// http://paulbourke.net/dataformats/obj/
 ///
 use crate::parser::common::*;
-
-use std::str;
-
-use std::io::BufRead;
 
 #[derive(PartialEq, Eq, Debug)]
 pub struct FaceIndex(pub u32, pub Option<u32>, pub Option<u32>);
@@ -154,10 +153,11 @@ where
 #[cfg(test)]
 mod tests {
 
-    use super::*;
     use std::error::Error;
     use std::fs::File;
     use std::io::BufReader;
+
+    use super::*;
 
     #[test]
     fn parser_can_read_from_file() -> Result<(), Box<dyn Error>> {

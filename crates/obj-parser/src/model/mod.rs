@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::fs::File;
+use std::io;
 use std::io::BufReader;
 use std::path::Path;
-use std::{collections::HashMap, io};
 
 use crate::parser::mtl::{MtlLine, MtlParser};
 use crate::parser::obj::{FaceIndex, ObjLine, ObjParser};
@@ -212,8 +213,9 @@ pub struct Interleaved {
 #[cfg(test)]
 mod tests {
 
-    use super::*;
     use std::error::Error;
+
+    use super::*;
 
     #[test]
     fn cube_format_interleaved() -> Result<(), Box<dyn Error>> {

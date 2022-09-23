@@ -1,7 +1,9 @@
+use std::collections::HashSet;
+use std::ffi::c_void;
+
 use cstr::cstr;
 use once_cell::sync::Lazy;
 use proc_maps::Pid;
-use std::{collections::HashSet, ffi::c_void};
 
 // TODO document black magic:
 // Redefine and inject our own wrapper around the registration of thread-local destructors.

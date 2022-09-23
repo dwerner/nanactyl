@@ -1,11 +1,11 @@
-/// http://paulbourke.net/dataformats/mtl/
-///
-use super::common::*;
+use std::io::BufRead;
+use std::str;
 
 use nom::eol;
 
-use std::io::BufRead;
-use std::str;
+/// http://paulbourke.net/dataformats/mtl/
+///
+use super::common::*;
 
 #[derive(PartialEq, Debug)]
 pub enum MtlLine {
@@ -157,11 +157,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::error::Error;
     use std::fs::File;
     use std::io::BufReader;
+
+    use super::*;
     pub fn read_file(filename: &str) -> Result<MtlParser<BufReader<File>>, Box<dyn Error>> {
         let file = File::open(filename)?;
         let reader = BufReader::new(file);

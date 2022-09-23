@@ -3,16 +3,12 @@ use std::collections::{HashMap, VecDeque};
 use std::ffi::{CStr, CString};
 use std::mem;
 use std::ops::{Deref, DerefMut};
-use std::time::Instant;
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use ash::extensions::ext;
-use ash::vk;
-use ash::{
-    extensions::khr::{Surface, Swapchain},
-    Device, Entry,
-};
-
+use ash::extensions::khr::{Surface, Swapchain};
+use ash::{vk, Device, Entry};
 use async_lock::{Mutex, MutexGuardArc};
 use nalgebra::{Matrix4, Vector3};
 use platform::WinPtr;

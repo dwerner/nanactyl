@@ -1,4 +1,6 @@
-use std::{future::Future, pin::Pin, thread::JoinHandle};
+use std::future::Future;
+use std::pin::Pin;
+use std::thread::JoinHandle;
 
 use async_channel::Sender;
 use async_executor::LocalExecutor;
@@ -202,11 +204,11 @@ mod tests {
 
     use std::pin::Pin;
 
-    use crate::channel::Bichannel;
-
-    use super::*;
     use async_executor::LocalExecutor;
     use futures_lite::{future, FutureExt};
+
+    use super::*;
+    use crate::channel::Bichannel;
 
     #[test]
     fn test_bichannel() {

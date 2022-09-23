@@ -1,9 +1,7 @@
 use std::time::Duration;
 
-use world::{
-    thing::{CameraFacet, ModelFacet, PhysicalFacet, Thing},
-    World,
-};
+use world::thing::{CameraFacet, ModelFacet, PhysicalFacet, Thing};
+use world::World;
 
 #[no_mangle]
 pub extern "C" fn load(world: &mut World) {

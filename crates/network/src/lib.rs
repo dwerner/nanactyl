@@ -1,10 +1,8 @@
-use std::{
-    collections::VecDeque,
-    io,
-    marker::PhantomData,
-    mem::size_of,
-    time::{Duration, Instant},
-};
+use std::collections::VecDeque;
+use std::io;
+use std::marker::PhantomData;
+use std::mem::size_of;
+use std::time::{Duration, Instant};
 
 use async_io::Timer;
 use async_net::SocketAddr;

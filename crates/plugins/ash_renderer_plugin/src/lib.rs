@@ -1,21 +1,19 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    fs::File,
-    io::BufReader,
-    mem::align_of,
-    time::Duration,
-};
+use std::collections::{HashMap, VecDeque};
+use std::fs::File;
+use std::io::BufReader;
+use std::mem::align_of;
+use std::time::Duration;
 
-use ash::{util::Align, vk};
+use ash::util::Align;
+use ash::vk;
 use models::{Image, Vertex};
-use render::{
-    types::{
-        BufferAndMemory, GpuModelRef, PipelineDesc, ShaderBindingDesc, ShaderDesc, ShaderStage,
-        ShaderStages, Texture, VertexInputAssembly, VulkanError,
-    },
-    Presenter, RenderScene, RenderState, VulkanBase,
+use render::types::{
+    BufferAndMemory, GpuModelRef, PipelineDesc, ShaderBindingDesc, ShaderDesc, ShaderStage,
+    ShaderStages, Texture, VertexInputAssembly, VulkanError,
 };
-use world::{thing::ModelIndex, Matrix4};
+use render::{Presenter, RenderScene, RenderState, VulkanBase};
+use world::thing::ModelIndex;
+use world::Matrix4;
 
 impl Renderer {
     fn present_with_base(

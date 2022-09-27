@@ -312,14 +312,14 @@ impl Renderer {
             vertex_input_assembly.add_attribute_description(
                 1,
                 0,
-                vk::Format::R32G32B32_SFLOAT,
-                offset_of!(Vertex, normal) as u32,
+                vk::Format::R32G32_SFLOAT,
+                offset_of!(Vertex, uv) as u32,
             );
             vertex_input_assembly.add_attribute_description(
                 2,
                 0,
-                vk::Format::R32G32_SFLOAT,
-                offset_of!(Vertex, uv) as u32,
+                vk::Format::R32G32B32_SFLOAT,
+                offset_of!(Vertex, normal) as u32,
             );
 
             let w = DeviceWrap(&bw.0.device);

@@ -1112,7 +1112,7 @@ impl LockWorldAndRenderState {
                         .camera(*camera)
                         .ok_or_else(|| SceneError::NoSuchCamera(*camera))?;
 
-                    let right = cam.right(phys) * -1.0;
+                    let right = cam.right(phys);
                     let forward = cam.forward(phys);
                     let pos = phys.position
                         + Vector3::new(right.x + forward.x, -2.0, right.z + forward.z);

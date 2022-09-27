@@ -55,7 +55,7 @@ pub trait Identifyable {
 pub struct WorldFacets {
     cameras: Vec<CameraFacet>,
     models: Vec<ModelFacet>,
-    physical: Vec<PhysicalFacet>,
+    pub physical: Vec<PhysicalFacet>,
     health: Vec<HealthFacet>,
 }
 
@@ -269,18 +269,18 @@ pub struct World {
     pub scene: Scene,
     pub updates: u64,
     pub run_life: Duration,
-    last_tick: Instant,
+    pub last_tick: Instant,
 
     // TODO: support more than one connection, for servers
     connection: Peer,
-    client_controller_state: Option<InputState>,
-    server_controller_state: Option<InputState>,
+    pub client_controller_state: Option<InputState>,
+    pub server_controller_state: Option<InputState>,
 
     maybe_server_addr: Option<SocketAddr>,
 }
 
 impl World {
-    const SIM_TICK_DELAY: Duration = Duration::from_millis(8);
+    pub const SIM_TICK_DELAY: Duration = Duration::from_millis(8);
 
     pub fn rtt_micros(&self) -> Histogram {
         self.connection.rtt_micros.clone()
@@ -497,91 +497,7 @@ impl World {
         idx.into()
     }
 
-    pub fn maybe_tick(&mut self, dt: &Duration) {
-        self.run_life += *dt;
-        self.updates += 1;
-
-        if self.is_server() {
-            let now = Instant::now();
-            let since_last_tick = now.duration_since(self.last_tick);
-            let action_scale = since_last_tick.as_micros() as f32 / 1000.0 / 1000.0;
-            if since_last_tick > Self::SIM_TICK_DELAY {
-                {
-                    if let Some(server_controller) = self.server_controller_state.clone() {
-                        self.move_camera_based_on_controller_state(&server_controller, 0u32.into())
-                            .unwrap();
-                    }
-                    if let Some(client_controller) = self.client_controller_state.clone() {
-                        self.move_camera_based_on_controller_state(&client_controller, 1u32.into())
-                            .unwrap();
-                    }
-                }
-                for physical in self.facets.physical.iter_mut() {
-                    let linear = physical.linear_velocity * action_scale;
-                    physical.position += linear;
-
-                    let angular = physical.angular_velocity * action_scale;
-                    physical.angles += angular;
-                }
-                self.last_tick = Instant::now();
-            }
-        } else {
-            // try to predict, but dont be suprised if an update corrects it (rubber-banding tho)
-        }
-    }
-
-    fn move_camera_based_on_controller_state(
-        &mut self,
-        controller: &InputState,
-        thing_id: Identity,
-    ) -> Result<(), WorldError> {
-        let (phys_idx, cam_idx) = self.camera_facet_indices(thing_id)?;
-
-        let mut cam = self
-            .facets
-            .camera_mut(cam_idx)
-            .ok_or_else(|| WorldError::NoSuchCamera(cam_idx))?
-            .clone();
-
-        let pcam = self
-            .facets
-            .physical_mut(phys_idx)
-            .ok_or_else(|| WorldError::NoSuchCamera(cam_idx))?;
-
-        // TODO: move the get_camera_facet method up into World, and use that here.
-        // kludge! this relies on the first two phys facets being the cameras 0,1
-        // a speed-up 'run' effect if cancel is held down while moving
-        let speed = if controller.button_state(Button::Cancel) {
-            5.0
-        } else {
-            2.0
-        };
-
-        // FOR NOW: this works ok but needs work.
-
-        let rot = Matrix4::new_rotation(-1.0 * pcam.angles);
-        let forward = rot.transform_vector(&Vector3::new(0.0, 0.0, 1.0));
-        if controller.button_state(Button::Down) {
-            let transform = cam.view * Matrix4::new_scaling(-1.0 * speed);
-            pcam.linear_velocity += transform.transform_vector(&forward);
-        } else if controller.button_state(Button::Up) {
-            let transform = cam.view * Matrix4::new_scaling(speed);
-            pcam.linear_velocity += transform.transform_vector(&forward);
-        } else {
-            pcam.linear_velocity = Vector3::zeros();
-        }
-
-        if controller.button_state(Button::Left) {
-            pcam.angular_velocity.y = -1.0 * speed;
-        } else if controller.button_state(Button::Right) {
-            pcam.angular_velocity.y = speed;
-        } else {
-            pcam.angular_velocity.y = 0.0;
-        }
-        cam.update_view_matrix(pcam);
-
-        Ok(())
-    }
+    pub fn maybe_tick(&mut self, dt: &Duration) {}
 
     pub fn things(&self) -> &[Thing] {
         &self.things

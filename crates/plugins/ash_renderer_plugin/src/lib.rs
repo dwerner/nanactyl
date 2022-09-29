@@ -155,7 +155,11 @@ impl Renderer {
             for drawable in scene.drawables.iter().filter(|p| p.model == *model_index) {
                 // create a matrix for translating to the given position.
                 let model_mat = Matrix4::new_translation(&(-drawable.pos))
-                    * Matrix4::new_rotation(-drawable.angles.clone());
+                    * Matrix4::from_euler_angles(
+                        drawable.angles.x,
+                        drawable.angles.y,
+                        1.57 * 2.0, //-drawable.angles.z,
+                    );
                 let model_mat = model_mat.as_slice();
                 let mut mat = [0f32; 16];
                 mat.copy_from_slice(&model_mat);

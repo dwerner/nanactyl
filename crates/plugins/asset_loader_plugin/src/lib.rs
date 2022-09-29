@@ -8,7 +8,7 @@ use world::{
 #[no_mangle]
 pub extern "C" fn load(world: &mut World) {
     let ico_model = models::Model::load(
-        "assets/models/static/tank.obj",
+        "assets/models/static/tank_smooth.obj",
         "assets/shaders/vertex_rustgpu.spv",
         "assets/shaders/fragment_rustgpu.spv",
     )
@@ -36,7 +36,7 @@ pub extern "C" fn load(world: &mut World) {
 
         let _camera_thing_id = world
             .add_thing(camera)
-            .expect("unable to add thing to world.");
+            .expect("unable to add thing to world");
     }
 
     // initialize some state, lots of model_object entities

@@ -5,10 +5,9 @@ use std::time::{Duration, Instant, SystemTimeError, UNIX_EPOCH};
 use std::{fs, io};
 
 use async_lock::Mutex;
+use core_executor::ThreadExecutorSpawner;
 use libloading::Library;
 use tempdir::TempDir;
-
-use core_executor::ThreadExecutorSpawner;
 
 include!(concat!(env!("OUT_DIR"), "/const_gen.rs"));
 
@@ -336,16 +335,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::Write};
+    use std::fs::File;
+    use std::io::Write;
 
     use ::function_name::named;
     use cmd_lib::run_cmd;
     use core_executor::ThreadExecutor;
 
+    use super::*;
     use crate as plugin_loader;
     use crate::register_tls_dtor_hook;
-
-    use super::*;
 
     fn generate_plugin_for_test(global_scope: &str, operation: &str) -> String {
         [

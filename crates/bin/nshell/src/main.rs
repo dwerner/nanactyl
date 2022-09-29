@@ -3,20 +3,15 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_lock::Mutex;
 use core_executor::CoreAffinityExecutor;
 use futures_lite::future;
 use input::wire::InputState;
-use input::DeviceEvent;
-use input::EngineEvent;
-use plugin_loader::Plugin;
-use plugin_loader::PluginCheck;
-use plugin_loader::PluginError;
-use render::LockWorldAndRenderState;
-use render::RenderState;
+use input::{DeviceEvent, EngineEvent};
+use plugin_loader::{Plugin, PluginCheck, PluginError};
+use render::{LockWorldAndRenderState, RenderState};
 use world::World;
 
 const FRAME_LENGTH_MS: u64 = 16;

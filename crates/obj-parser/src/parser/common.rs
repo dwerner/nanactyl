@@ -1,7 +1,7 @@
-use nom::{digit, eol};
-
 use std::str;
 use std::str::FromStr;
+
+use nom::{digit, eol};
 
 named!(pub whitespace, eat_separator!(&b" \t"[..]));
 
@@ -89,8 +89,9 @@ named!(pub float_pair< &[u8], (f32,f32) >,  sp!(tuple!(float, float)));
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use nom::IResult;
+
+    use super::*;
 
     #[test]
     fn can_parse_signed_floats() {

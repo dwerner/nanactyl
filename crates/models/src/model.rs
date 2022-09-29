@@ -1,6 +1,5 @@
 use std::fmt::Debug;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use image::GenericImageView;

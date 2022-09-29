@@ -1,12 +1,11 @@
-use std::{
-    io,
-    net::SocketAddr,
-    time::{Duration, Instant},
-};
+use std::io;
+use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 
 use bytemuck::{Pod, PodCastError, Zeroable};
 use histogram::Histogram;
-use input::{wire::InputState, Button};
+use input::wire::InputState;
+use input::Button;
 use models::Model;
 use network::{Peer, RpcError, PAYLOAD_LEN};
 use scene::Scene;

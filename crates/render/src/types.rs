@@ -1,9 +1,7 @@
-use std::{
-    collections::HashMap,
-    ffi::{CString, NulError},
-    io,
-    path::PathBuf,
-};
+use std::collections::HashMap;
+use std::ffi::{CString, NulError};
+use std::io;
+use std::path::PathBuf;
 
 use ash::vk;
 

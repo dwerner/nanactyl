@@ -1,8 +1,6 @@
-use std::{
-    env, fs,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::{env, fs};
 
 use const_gen::{const_declaration, CompileConst};
 

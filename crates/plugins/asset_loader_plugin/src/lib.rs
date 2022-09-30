@@ -57,6 +57,21 @@ pub extern "C" fn load(world: &mut World) {
         }
     }
 
+    {
+        let arena_model = models::Model::load(
+            "assets/models/static/arena.obj",
+            "assets/shaders/vertex_rustgpu.spv",
+            "assets/shaders/fragment_rustgpu.spv",
+        )
+        .unwrap();
+        let arena_physical = PhysicalFacet::new(0.0, 0.0, 0.0, &arena_model.mesh);
+        let model_facet = ModelFacet::new(arena_model);
+        let arena_model_idx = world.add_model(model_facet);
+        let arena_phys_idx = world.add_physical(arena_physical);
+        let arena_thing = Thing::model(arena_phys_idx, arena_model_idx);
+        world.add_thing(arena_thing).unwrap();
+    }
+
     println!(
         "loaded asset loader plugin (updates {}) - models {}",
         world.updates,

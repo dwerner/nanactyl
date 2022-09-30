@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use bytemuck::{Pod, PodCastError, Zeroable};
 use histogram::Histogram;
+
 use input::wire::InputState;
-use input::Button;
 use models::Model;
 use network::{Peer, RpcError, PAYLOAD_LEN};
 use scene::Scene;
@@ -496,7 +496,7 @@ impl World {
         idx.into()
     }
 
-    pub fn maybe_tick(&mut self, dt: &Duration) {}
+    pub fn maybe_tick(&mut self, _dt: &Duration) {}
 
     pub fn things(&self) -> &[Thing] {
         &self.things

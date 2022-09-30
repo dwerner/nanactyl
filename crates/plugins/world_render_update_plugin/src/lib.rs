@@ -41,7 +41,7 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
     let cameras = vec![c1, c2];
     let mut drawables = vec![];
 
-    for (id, thing) in zelf.world().things().iter().enumerate() {
+    for (_id, thing) in zelf.world().things().iter().enumerate() {
         let model_ref = match &thing.facets {
             world::thing::ThingType::Camera { phys, camera } => {
                 let phys = zelf

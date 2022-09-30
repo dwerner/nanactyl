@@ -10,7 +10,8 @@ use ash::extensions::ext;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry};
 use async_lock::{Mutex, MutexGuardArc};
-use nalgebra::{Matrix4, Vector3};
+use nalgebra::Vector3;
+
 use platform::WinPtr;
 use types::{Attachments, AttachmentsModifier, GpuModelRef, VulkanError};
 use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalFacet, PhysicalIndex};
@@ -1094,7 +1095,7 @@ impl LockWorldAndRenderState {
         let cameras = vec![c1, c2];
         let mut drawables = vec![];
 
-        for (id, thing) in self.world().things().iter().enumerate() {
+        for (_id, thing) in self.world().things().iter().enumerate() {
             let model_ref = match &thing.facets {
                 world::thing::ThingType::Camera { phys, camera } => {
                     let phys = self

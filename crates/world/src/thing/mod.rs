@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use nalgebra::{Matrix4, Perspective3, Vector3};
+use nalgebra::{Matrix4, Perspective3, Point3, Vector3};
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct PhysicalIndex(pub(crate) u32);
@@ -112,22 +112,51 @@ pub enum Shape {
     Sphere { radius: f32 },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PhysicalFacet {
     pub position: Vector3<f32>,
     pub angles: Vector3<f32>,
     pub linear_velocity: Vector3<f32>,
     pub angular_velocity: Vector3<f32>,
+    pub phys_mesh: parry3d::shape::TriMesh,
 }
 
 impl PhysicalFacet {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
+    pub fn new(x: f32, y: f32, z: f32, mesh: &models::Mesh) -> Self {
         Self {
             position: Vector3::new(x, y, z),
             angles: Vector3::zeros(),
             linear_velocity: Vector3::new(0.0, 0.0, 0.0),
             angular_velocity: Vector3::new(0.0, 0.0, 0.0),
+            phys_mesh: parry3d::shape::TriMesh::new(
+                mesh.vertices
+                    .iter()
+                    .map(|vertex| Point3::new(vertex.pos[0], vertex.pos[1], vertex.pos[2]))
+                    .collect(),
+                mesh.indices
+                    .windows(3)
+                    .flat_map(|w| {
+                        if w.len() == 3 {
+                            Some([w[0], w[1], w[2]])
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            ),
         }
+    }
+}
+
+impl std::fmt::Debug for PhysicalFacet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PhysicalFacet")
+            .field("position", &self.position)
+            .field("angles", &self.angles)
+            .field("linear_velocity", &self.linear_velocity)
+            .field("angular_velocity", &self.angular_velocity)
+            .field("phys_mesh", &self.phys_mesh.num_triangles())
+            .finish()
     }
 }
 

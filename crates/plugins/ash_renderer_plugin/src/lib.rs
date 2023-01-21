@@ -525,7 +525,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             let pipeline = unsafe {
                 self.0.device.create_graphics_pipelines(
                     vk::PipelineCache::null(),
-                    &[graphics_pipeline_info.build()],
+                    &[*graphics_pipeline_info],
                     None,
                 )
             }
@@ -573,6 +573,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
     }
 
+    /// Allocates a descriptor set.
     pub fn allocate_descriptor_sets(
         &self,
         pool: vk::DescriptorPool,
@@ -585,6 +586,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             .map_err(VulkanError::VkResultToDo)
     }
 
+    /// Creates a descriptor set layout from the provided `ShaderBindingDesc` struct.
     pub fn descriptor_set_layout(
         &self,
         bindings: Vec<ShaderBindingDesc>,
@@ -604,6 +606,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         Ok(layout)
     }
 
+    /// Creates a descriptor pool with the provided parameters.
     pub fn descriptor_pool(
         &mut self,
         max_sets: u32,
@@ -631,6 +634,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         .map_err(VulkanError::VkResultToDo)
     }
 
+    /// Creates a sampler.
     pub fn sampler(&self) -> Result<vk::Sampler, VulkanError> {
         // start preparing shader related structures
         let sampler_info = vk::SamplerCreateInfo {
@@ -650,16 +654,19 @@ impl<'a> VulkanBaseWrapper<'a> {
             .map_err(VulkanError::VkResultToDo)
     }
 }
+
+/// Renderer struct owning the descriptor pool, pipelines and descriptions.
 pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
     graphics_pipelines: HashMap<ModelIndex, vk::Pipeline>,
     pipeline_descriptions: HashMap<ModelIndex, PipelineDesc>,
 }
 
+/// Newtype over `ash::Device` allowing our own methods to be implemented.
 pub struct DeviceWrap<'a>(&'a ash::Device);
 
 impl<'a> DeviceWrap<'a> {
-    /// push_constants_byte_len must be len in bytes and a multiple of 4
+    /// Create a pipeline layout. Note `push_constants_len` must be len in bytes and a multiple of 4
     pub fn pipeline_layout(
         &self,
         push_constants_len: u32,
@@ -738,6 +745,7 @@ impl<'a> DeviceWrap<'a> {
         )?)
     }
 
+    /// Updates a buffer binding on the GPU with the given data.
     pub fn update_buffer<T>(
         &self,
         buffer: &mut BufferAndMemory,
@@ -799,6 +807,7 @@ impl<'a> DeviceWrap<'a> {
         Ok(buffer)
     }
 
+    /// Find the memory type index and get the size for the given buffer.
     pub fn memorytype_index_and_size_for_buffer(
         &self,
         buffer: vk::Buffer,
@@ -813,6 +822,7 @@ impl<'a> DeviceWrap<'a> {
         ))
     }
 
+    /// Create a fence on the GPU.
     pub fn create_fence(&self) -> Result<vk::Fence, VulkanError> {
         let fence_create_info = vk::FenceCreateInfo::builder()
             .flags(vk::FenceCreateFlags::SIGNALED)
@@ -820,6 +830,8 @@ impl<'a> DeviceWrap<'a> {
         unsafe { self.0.create_fence(&fence_create_info, None) }.map_err(VulkanError::VkResultToDo)
     }
 
+
+    /// Copy buffer to an image.
     pub fn cmd_copy_buffer_to_image(
         &self,
         src_image: &BufferAndMemory,
@@ -847,6 +859,7 @@ impl<'a> DeviceWrap<'a> {
         }
     }
 
+    /// Submit queue.
     pub fn queue_submit(
         &self,
         fence: vk::Fence,
@@ -857,12 +870,14 @@ impl<'a> DeviceWrap<'a> {
             .map_err(VulkanError::SubmitCommandBuffers)
     }
 
+    /// End command buffer.
     pub fn end_command_buffer(&self, command_buffer: vk::CommandBuffer) -> Result<(), VulkanError> {
         unsafe { self.0.end_command_buffer(command_buffer) }.map_err(VulkanError::EndCommandBuffer)
     }
 
+    /// Insert a barrier end.
     // just a few flags are different between * and *_end versions, but need to
-    // better understand the
+    // better understand the ... <half-written note>
     pub fn cmd_pipeline_barrier_end(&self, image: vk::Image, command_buffer: vk::CommandBuffer) {
         let texture_barrier_end = vk::ImageMemoryBarrier {
             src_access_mask: vk::AccessFlags::TRANSFER_WRITE,
@@ -891,6 +906,7 @@ impl<'a> DeviceWrap<'a> {
         };
     }
 
+    /// Insert a barrier start.
     pub fn cmd_pipeline_barrier_start(&self, image: vk::Image, command_buffer: vk::CommandBuffer) {
         let texture_barrier = vk::ImageMemoryBarrier {
             dst_access_mask: vk::AccessFlags::TRANSFER_WRITE,
@@ -917,6 +933,7 @@ impl<'a> DeviceWrap<'a> {
         }
     }
 
+    /// Bind image data to a `BufferAndMemory`.
     pub fn copy_image_to_transfer_src_buffer(
         &self,
         image: &Image,
@@ -935,6 +952,7 @@ impl<'a> DeviceWrap<'a> {
         .map(|image| (image_extent, image))
     }
 
+    /// Begin a command buffer.
     pub fn begin_command_buffer(
         &self,
         command_buffer: vk::CommandBuffer,
@@ -949,6 +967,7 @@ impl<'a> DeviceWrap<'a> {
         .map_err(VulkanError::BeginCommandBuffer)
     }
 
+    /// Allocate a command buffer. TODO: could be more than a single buffer.
     pub fn allocate_command_buffers(
         &self,
         pool: vk::CommandPool,
@@ -965,6 +984,7 @@ impl<'a> DeviceWrap<'a> {
         .map_err(VulkanError::VkResultToDo)
     }
 
+    /// Creates a command pool.
     pub fn create_command_pool(
         &self,
         queue_family_index: u32,
@@ -977,10 +997,12 @@ impl<'a> DeviceWrap<'a> {
             .map_err(VulkanError::VkResultToDo)
     }
 
+    /// Resets a fence.
     pub fn reset_fence(&self, fence: vk::Fence) -> Result<(), VulkanError> {
         unsafe { self.0.reset_fences(&[fence]) }.map_err(VulkanError::FenceReset)
     }
 
+    /// Record beginning of render pass.
     pub fn cmd_begin_render_pass(
         &self,
         draw_command_buffer: vk::CommandBuffer,
@@ -993,6 +1015,7 @@ impl<'a> DeviceWrap<'a> {
         }
     }
 
+    /// Records a binding to descriptor sets.
     pub fn cmd_bind_descriptor_sets(
         &self,
         draw_cmd_buf: vk::CommandBuffer,
@@ -1014,6 +1037,7 @@ impl<'a> DeviceWrap<'a> {
         }
     }
 
+    /// Records a binding to a pipeline.
     pub fn cmd_bind_pipeline(
         &self,
         cmd: vk::CommandBuffer,
@@ -1025,16 +1049,19 @@ impl<'a> DeviceWrap<'a> {
         }
     }
 
+    /// Records setting a viewport.
     pub fn cmd_set_viewport(&self, cmd: vk::CommandBuffer, first: u32, viewports: &[vk::Viewport]) {
         unsafe {
             self.0.cmd_set_viewport(cmd, first, viewports);
         }
     }
 
+    /// Records setting scissor.
     pub fn cmd_set_scissor(&self, cmd: vk::CommandBuffer, first: u32, scissors: &[vk::Rect2D]) {
         unsafe { self.0.cmd_set_scissor(cmd, first, scissors) }
     }
 
+    /// Records binding a vertex buffer.
     pub fn cmd_bind_vertex_buffers(
         &self,
         command_buffer: vk::CommandBuffer,
@@ -1048,6 +1075,7 @@ impl<'a> DeviceWrap<'a> {
         }
     }
 
+    /// Records binding an image buffer.
     pub fn cmd_bind_index_buffer(
         &self,
         command_buffer: vk::CommandBuffer,
@@ -1061,6 +1089,7 @@ impl<'a> DeviceWrap<'a> {
         }
     }
 
+    /// Records push contants.
     pub fn cmd_push_constants(
         &self,
         command_buffer: vk::CommandBuffer,
@@ -1075,6 +1104,7 @@ impl<'a> DeviceWrap<'a> {
         }
     }
 
+    /// Records an indexed draw call.
     pub fn cmd_draw_indexed(
         &self,
         command_buffer: vk::CommandBuffer,
@@ -1096,6 +1126,7 @@ impl<'a> DeviceWrap<'a> {
         }
     }
 
+    /// Records the end of a render pass.
     pub fn cmd_end_render_pass(&self, command_buffer: vk::CommandBuffer) {
         unsafe {
             self.0.cmd_end_render_pass(command_buffer);
@@ -1112,7 +1143,7 @@ fn upload_models(
         return vec![];
     }
 
-    let base = state.base_mut().unwrap();
+    let base = state.base_mut().unwrap(); // TODO: result/errors
     let device = base.device.clone();
     let queue = base.present_queue.clone();
     let queue_family_index = base.queue_family_index;

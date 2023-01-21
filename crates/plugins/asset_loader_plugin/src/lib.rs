@@ -5,8 +5,9 @@ use world::World;
 
 #[no_mangle]
 pub extern "C" fn load(world: &mut World) {
+    println!("stuff");
     let ico_model = models::Model::load(
-        "assets/models/static/tank_smooth.obj",
+        "assets/models/static/tank.obj",
         "assets/shaders/vertex_rustgpu.spv",
         "assets/shaders/fragment_rustgpu.spv",
     )

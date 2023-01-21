@@ -28,7 +28,7 @@ struct CliOpts {
     backtrace: bool,
 
     #[structopt(long)]
-    disable_validation_layer: bool,
+    enable_validation_layer: bool,
 
     #[structopt(long)]
     connect_to_server: Option<SocketAddr>,
@@ -102,7 +102,7 @@ fn main() {
         // state needs to be dropped on the same thread as it was created
         let render_state = RenderState::new(
             win_ptr,
-            !opts.disable_validation_layer,
+            opts.enable_validation_layer,
             opts.connect_to_server.is_none(),
         )
         .into_shared();

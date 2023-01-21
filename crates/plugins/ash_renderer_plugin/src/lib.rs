@@ -178,19 +178,23 @@ impl Renderer {
         w.cmd_end_render_pass(base.draw_cmd_buf);
 
         let command_buffers = vec![base.draw_cmd_buf];
+
+        // NOT calling build on the builder here prevents a segfault in
+        // the release profile.
+        let signal = [base.rendering_complete_semaphore];
+        let wait = [base.present_complete_semaphore];
         let submit_info = vk::SubmitInfo::builder()
-            .wait_semaphores(&[base.present_complete_semaphore])
+            .wait_semaphores(&wait)
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::BOTTOM_OF_PIPE])
             .command_buffers(&command_buffers)
-            .signal_semaphores(&[base.rendering_complete_semaphore])
-            .build();
+            .signal_semaphores(&signal);
 
         w.end_command_buffer(base.draw_cmd_buf)?;
 
         w.queue_submit(
             base.draw_commands_reuse_fence,
             base.present_queue,
-            &[submit_info],
+            &[*submit_info],
         )?;
 
         let present_info = vk::PresentInfoKHR {
@@ -1200,12 +1204,15 @@ fn upload_models(
 pub extern "C" fn load(state: &mut RenderState) {
     println!("loaded ash_renderer_plugin...");
     let mut base = VulkanBase::new(state.win_ptr, state.enable_validation_layer);
+    println!("initialized vulkan base");
     state.set_presenter(Box::new(
         VulkanBaseWrapper::new(&mut base)
             .renderer()
             .expect("unable to setup renderer"),
     ));
+    println!("set presenter");
     state.set_base(base);
+    println!("set base");
 }
 
 #[no_mangle]

@@ -11,7 +11,6 @@ use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry};
 use async_lock::{Mutex, MutexGuardArc};
 use nalgebra::Vector3;
-
 use platform::WinPtr;
 use types::{Attachments, AttachmentsModifier, GpuModelRef, VulkanError};
 use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalFacet, PhysicalIndex};
@@ -404,11 +403,13 @@ impl VulkanBase {
             .queue_family_index(queue_family_index)
             .queue_priorities(&priorities)
             .build();
+
         let device_create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&[queue_create_infos])
             .enabled_extension_names(&device_extension_names_raw)
             .enabled_features(&features)
             .build();
+
         let device =
             unsafe { instance.create_device(*physical_device, &device_create_info, None) }.unwrap();
 
@@ -1196,7 +1197,7 @@ unsafe extern "system" fn vulkan_debug_callback(
     _user_data: *mut std::os::raw::c_void,
 ) -> vk::Bool32 {
     let callback_data = *p_callback_data;
-    let message_id_number: i32 = callback_data.message_id_number as i32;
+    let message_id_number = callback_data.message_id_number as i32;
 
     let message_id_name = if callback_data.p_message_id_name.is_null() {
         Cow::from("")

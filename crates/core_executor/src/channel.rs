@@ -30,7 +30,8 @@ pub struct Bichannel<S, R> {
     recv: async_channel::Receiver<R>,
 }
 
-// Rather than derive clone here, implement it manually or we require that S and R: Clone as well.
+// Rather than derive clone here, implement it manually or we require that S and
+// R: Clone as well.
 impl<S, R> Clone for Bichannel<S, R> {
     fn clone(&self) -> Self {
         Self {

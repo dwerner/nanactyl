@@ -2,7 +2,6 @@ use std::io::BufRead;
 use std::str;
 
 /// http://paulbourke.net/dataformats/obj/
-///
 use crate::parser::common::*;
 
 #[derive(PartialEq, Eq, Debug)]

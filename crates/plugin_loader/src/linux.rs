@@ -6,7 +6,8 @@ use once_cell::sync::Lazy;
 use proc_maps::Pid;
 
 // TODO document black magic:
-// Redefine and inject our own wrapper around the registration of thread-local destructors.
+// Redefine and inject our own wrapper around the registration of thread-local
+// destructors.
 
 pub type NextFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void);
 
@@ -28,7 +29,8 @@ const ENABLE_DTOR_REGISTRATION_BLOCKING: bool = false;
 /// This needs to be public for symbol visibility reasons, but you should
 /// never need to call this yourself
 pub unsafe fn thread_atexit(func: *mut c_void, obj: *mut c_void, dso_symbol: *mut c_void) {
-    // Default behavior, left here to provide a hook in case we want to disable thread local destructors from being registered.
+    // Default behavior, left here to provide a hook in case we want to disable
+    // thread local destructors from being registered.
     if let Some(system_thread_atexit) = *SYSTEM_THREAD_ATEXIT {
         // Just don't register dtors
         // TODO: Consider dbg!(stacktrace) here (optional dependency?)
@@ -37,8 +39,9 @@ pub unsafe fn thread_atexit(func: *mut c_void, obj: *mut c_void, dso_symbol: *mu
             system_thread_atexit(func, obj, dso_symbol);
         }
     }
-    // if hot reloading is disabled *and* we don't have `__cxa_thread_atexit_impl`,
-    // throw hands up in the air and leak memory.
+    // if hot reloading is disabled *and* we don't have
+    // `__cxa_thread_atexit_impl`, throw hands up in the air and leak
+    // memory.
 }
 
 /// Check /proc/PID/maps for our process and a plugin name.

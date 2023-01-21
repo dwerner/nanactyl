@@ -128,7 +128,8 @@ impl<'a, V> DepthFirstIterator<'a, V>
 where
     V: Clone + Debug,
 {
-    /// Create a new depth-first iterator over `tree` starting at the node with the index `starting_index`.
+    /// Create a new depth-first iterator over `tree` starting at the node with
+    /// the index `starting_index`.
     pub fn new(tree: &'a Tree<V>, starting_index: NodeIndex) -> Self {
         DepthFirstIterator {
             tree,

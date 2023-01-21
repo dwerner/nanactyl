@@ -183,7 +183,8 @@ fn main() {
                     if world.is_server() && world.things.len() >= 96 {
                         match world.pump_connection_as_server().await {
                             Ok(controller_state) => {
-                                //println!("got controller state from client {controller_state:?}");
+                                //println!("got controller state from client
+                                // {controller_state:?}");
                                 // TODO: support N controllers, or just one per client?
                                 world.set_client_controller_state(controller_state[0]);
                                 world.set_server_controller_state(own_controllers[0]);
@@ -272,7 +273,7 @@ fn handle_input_events(
                     println!("input device event {:?}", input_device_event);
                 }
                 EngineEvent::Input(input_event) => {
-                    controllers[0].update_with_event(input_event);
+                    controllers[0].update_from_event(input_event);
                 }
                 ret @ EngineEvent::ExitToDesktop => {
                     println!("Got {:?}", ret);

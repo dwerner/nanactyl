@@ -4,7 +4,6 @@ use std::str;
 use nom::eol;
 
 /// http://paulbourke.net/dataformats/mtl/
-///
 use super::common::*;
 
 #[derive(PartialEq, Debug)]

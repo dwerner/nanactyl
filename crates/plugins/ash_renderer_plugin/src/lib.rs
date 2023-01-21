@@ -247,8 +247,10 @@ impl Renderer {
         }
 
         let mut bw = VulkanBaseWrapper::new(base);
-        // TODO: shaders that apply only to certain models need different descriptor sets.
-        //? TODO: any pool can be a thread local, but then any object must be destroyed on that thread.
+        // TODO: shaders that apply only to certain models need different descriptor
+        // sets.
+        //? TODO: any pool can be a thread local, but then any object must be destroyed
+        //? on that thread.
 
         let mut pipeline_descriptions = HashMap::new();
 
@@ -412,8 +414,10 @@ impl<'a> VulkanBaseWrapper<'a> {
     }
 
     pub fn renderer(&mut self) -> Result<Renderer, VulkanError> {
-        // TODO: shaders that apply only to certain models need different descriptor sets.
-        //? TODO: any pool can be a thread local, but then any object must be destroyed on that thread.
+        // TODO: shaders that apply only to certain models need different descriptor
+        // sets.
+        //? TODO: any pool can be a thread local, but then any object must be destroyed
+        //? on that thread.
         let descriptor_pool = self.descriptor_pool(10, 4, 4)?;
         let mut renderer = Renderer {
             descriptor_pool,
@@ -532,8 +536,8 @@ impl<'a> VulkanBaseWrapper<'a> {
         Ok(graphics_pipelines)
     }
 
-    // This could be updated to update many descriptor sets in bulk, however we only have one we care
-    // about, per-pipeline when this was written.
+    // This could be updated to update many descriptor sets in bulk, however we only
+    // have one we care about, per-pipeline when this was written.
     pub fn update_descriptor_set(
         device: &ash::Device,
         descriptor_set: vk::DescriptorSet,
@@ -857,7 +861,8 @@ impl<'a> DeviceWrap<'a> {
         unsafe { self.0.end_command_buffer(command_buffer) }.map_err(VulkanError::EndCommandBuffer)
     }
 
-    // just a few flags are different between * and *_end versions, but need to better understand the
+    // just a few flags are different between * and *_end versions, but need to
+    // better understand the
     pub fn cmd_pipeline_barrier_end(&self, image: vk::Image, command_buffer: vk::CommandBuffer) {
         let texture_barrier_end = vk::ImageMemoryBarrier {
             src_access_mask: vk::AccessFlags::TRANSFER_WRITE,

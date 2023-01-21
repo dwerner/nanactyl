@@ -75,7 +75,8 @@ impl RenderState {
         Arc::new(Mutex::new(self))
     }
 
-    // "Declarative" style api attempt - don't expose any renderer details/buffers, instead have RenderState track them
+    // "Declarative" style api attempt - don't expose any renderer details/buffers,
+    // instead have RenderState track them
 
     pub fn queue_model_for_upload(
         &mut self,
@@ -86,7 +87,8 @@ impl RenderState {
         Ok(())
     }
 
-    // Eventually, VulkanBase and VulkanBaseWrapper join together, and this base & presenter pair go away
+    // Eventually, VulkanBase and VulkanBaseWrapper join together, and this base &
+    // presenter pair go away
     pub fn set_base(&mut self, base: VulkanBase) {
         self.vulkan.base = Some(base);
     }
@@ -353,7 +355,8 @@ impl VulkanBase {
             .unwrap()
             .to_vec();
 
-        // TODO: make validation optional as this layer won't exist on most systems if the Vulkan SDK isn't installed
+        // TODO: make validation optional as this layer won't exist on most systems if
+        // the Vulkan SDK isn't installed
         let layer_names = if enable_validation_layer {
             vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()]
         } else {
@@ -1062,7 +1065,8 @@ impl Drop for VulkanBase {
 }
 
 // TODO: consider a generic version of this?
-/// Acts as a combiner for Mutex, locking both mutexes but also releases both mutexes when dropped.
+/// Acts as a combiner for Mutex, locking both mutexes but also releases both
+/// mutexes when dropped.
 pub struct LockWorldAndRenderState {
     render_state: MutexGuardArc<RenderState>,
     world: MutexGuardArc<World>,

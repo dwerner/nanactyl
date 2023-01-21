@@ -10,7 +10,8 @@ pub extern "C" fn load(state: &mut LockWorldAndRenderState) {
         state.world().updates
     );
     update_render_scene(state).unwrap();
-    // random gdc guy from amd: "Shoud provide a 'more declarative api' rather than hand back buffers"...
+    // random gdc guy from amd: "Shoud provide a 'more declarative api' rather
+    // than hand back buffers"...
 }
 
 #[no_mangle]

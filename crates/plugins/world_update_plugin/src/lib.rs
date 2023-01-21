@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
-use input::{wire::InputState, Button};
+use input::wire::InputState;
+use input::Button;
 use world::{Identity, Matrix4, Vector3, World, WorldError};
 
 #[no_mangle]
@@ -38,7 +39,8 @@ pub extern "C" fn update(world: &mut World, dt: &Duration) {
             world.last_tick = Instant::now();
         }
     } else {
-        // try to predict, but dont be suprised if an update corrects it (rubber-banding tho)
+        // try to predict, but dont be suprised if an update corrects it
+        // (rubber-banding tho)
     }
 }
 
@@ -68,7 +70,7 @@ fn move_camera_based_on_controller_state(
     // TODO: move the get_camera_facet method up into World, and use that here.
     // kludge! this relies on the first two phys facets being the cameras 0,1
     // a speed-up 'run' effect if cancel is held down while moving
-    let speed = if controller.button_state(Button::Cancel) {
+    let speed = if controller.is_button_down(Button::Cancel) {
         5.0
     } else {
         2.0
@@ -78,19 +80,19 @@ fn move_camera_based_on_controller_state(
 
     let rot = Matrix4::new_rotation(-1.0 * pcam.angles);
     let forward = rot.transform_vector(&Vector3::new(0.0, 0.0, 1.0));
-    if controller.button_state(Button::Down) {
+    if controller.is_button_down(Button::Down) {
         let transform = cam.view * Matrix4::new_scaling(-1.0 * speed);
         pcam.linear_velocity += transform.transform_vector(&forward);
-    } else if controller.button_state(Button::Up) {
+    } else if controller.is_button_down(Button::Up) {
         let transform = cam.view * Matrix4::new_scaling(speed);
         pcam.linear_velocity += transform.transform_vector(&forward);
     } else {
         pcam.linear_velocity = Vector3::zeros();
     }
 
-    if controller.button_state(Button::Left) {
+    if controller.is_button_down(Button::Left) {
         pcam.angular_velocity.y = -1.0 * speed;
-    } else if controller.button_state(Button::Right) {
+    } else if controller.is_button_down(Button::Right) {
         pcam.angular_velocity.y = speed;
     } else {
         pcam.angular_velocity.y = 0.0;

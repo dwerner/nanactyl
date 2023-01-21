@@ -30,8 +30,8 @@ named!(pub end_of_line, alt!(
     comment  // handle end of line comments - these are not kept
 ));
 
-/// Meta macro, define parser for lines starting with $i, map to enum $tt type $ty
-/// Converts to &str and trims whitespace from line
+/// Meta macro, define parser for lines starting with $i, map to enum $tt type
+/// $ty Converts to &str and trims whitespace from line
 #[macro_export]
 macro_rules! def_string_line (
    ($id:ident, $i:expr, $tt:tt, $ty:ident) => (

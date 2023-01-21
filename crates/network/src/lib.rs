@@ -154,7 +154,8 @@ impl Peer {
 
         self.push_recv_queue(msg.seq);
 
-        // if the remote sequence is higher, we set the remote sequence from the message.
+        // if the remote sequence is higher, we set the remote sequence from the
+        // message.
         if let Some(_higher) = wrapping_sub(self.remote_seq, msg.seq) {
             self.remote_seq = msg.seq;
         }

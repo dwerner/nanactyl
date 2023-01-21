@@ -4,7 +4,6 @@ use std::time::{Duration, Instant};
 
 use bytemuck::{Pod, PodCastError, Zeroable};
 use histogram::Histogram;
-
 use input::wire::InputState;
 use models::Model;
 use network::{Peer, RpcError, PAYLOAD_LEN};
@@ -22,7 +21,8 @@ pub use nalgebra::{Matrix4, Vector3};
 
 use crate::wire::{decompress_world_updates, NUM_UPDATES_PER_MSG};
 
-/// Identity of a game object. Used to look up game objects (`Thing`s) within a `World`.
+/// Identity of a game object. Used to look up game objects (`Thing`s) within a
+/// `World`.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Identity(u32);
 impl From<u32> for Identity {
@@ -46,10 +46,10 @@ pub trait Identifyable {
 }
 
 // TODO implement the rest of the facets
-// the main idea here is to construct contiguous areas in memory for different facets
-// this is a premature optimization for the Thing/Facet system in general to avoid losing cache
-// coherency whilst traversing a series of objects. Probably we want to integrate concurrency
-// safety here.
+// the main idea here is to construct contiguous areas in memory for different
+// facets this is a premature optimization for the Thing/Facet system in general
+// to avoid losing cache coherency whilst traversing a series of objects.
+// Probably we want to integrate concurrency safety here.
 #[derive(Default)]
 pub struct WorldFacets {
     cameras: Vec<CameraFacet>,

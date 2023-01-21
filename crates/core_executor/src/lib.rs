@@ -73,8 +73,8 @@ impl Clone for ThreadExecutorSpawner {
         Self {
             core_id: self.core_id,
             tx: self.tx.clone(),
-            // We DON'T carry forward killers on clone, so only one spawner is responsible for cleanup.
-            // This could be refactored into using Arc...
+            // We DON'T carry forward killers on clone, so only one spawner is responsible for
+            // cleanup. This could be refactored into using Arc...
             task_killers: Vec::new(),
         }
     }
@@ -89,7 +89,8 @@ type PinnedTask = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 // Must be owned by a single thread
 impl CoreAffinityExecutor {
-    // TODO: take a thread name, and label the thread with that for better debug experience
+    // TODO: take a thread name, and label the thread with that for better debug
+    // experience
     pub fn new(cores: usize) -> Self {
         let thread_executors = (0..cores).map(ThreadExecutor::new).collect::<Vec<_>>();
         CoreAffinityExecutor { thread_executors }
@@ -111,28 +112,29 @@ impl CoreAffinityExecutor {
     }
 }
 
-/// Spawner for CoreExecutor - can be send to other threads for relaying work to this executor.
+/// Spawner for CoreExecutor - can be send to other threads for relaying work to
+/// this executor.
 impl ThreadExecutorSpawner {
-    /// Spawn a task with a shutdown guard. When dropped, the TaskShutdown struct
-    /// will ensure that this task is joined on before allowing the tracking side
-    /// thread to continue.
+    /// Spawn a task with a shutdown guard. When dropped, the TaskShutdown
+    /// struct will ensure that this task is joined on before allowing the
+    /// tracking side thread to continue.
     ///
     /// The contract here is: if a persistent task is needed, be sure to check
-    /// `shutdown.should_exit()`, allowing the tracking state to trigger a shutdown
-    /// if required. Long-running tasks are joined on, and therefore will block at
-    /// `unload` of a plugin.
+    /// `shutdown.should_exit()`, allowing the tracking state to trigger a
+    /// shutdown if required. Long-running tasks are joined on, and
+    /// therefore will block at `unload` of a plugin.
     ///
     /// Note on safety:
-    ///     If a plugin starts a long-lived task (i.e. one that allows the task to
-    /// live longer than the enclosing scope), it can do so safely ONLY IF it is
-    /// stopped before the plugin is unloaded. Think of it as: once the compiled
-    /// code for a given task (i.e. the compiled plugin) has been unloaded, any
-    /// further execution of the task will result in a memory violation/segfault.
+    ///     If a plugin starts a long-lived task (i.e. one that allows the task
+    /// to live longer than the enclosing scope), it can do so safely ONLY
+    /// IF it is stopped before the plugin is unloaded. Think of it as: once
+    /// the compiled code for a given task (i.e. the compiled plugin) has
+    /// been unloaded, any further execution of the task will result in a
+    /// memory violation/segfault.
     ///
-    /// This is an example of the unsafe-ness of loading plugins in general, as the
-    /// borrow-checker cannot know the lifetimes of things at compile time when we
-    /// are loading types and dependent code at runtime.
-    ///
+    /// This is an example of the unsafe-ness of loading plugins in general, as
+    /// the borrow-checker cannot know the lifetimes of things at compile
+    /// time when we are loading types and dependent code at runtime.
     // TODO: move this into a doctest
     //```
     //    state.spawn_with_shutdown(|shutdown| async move {

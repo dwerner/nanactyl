@@ -64,8 +64,8 @@ pub enum PluginCheck {
 // at specific lifecycle points.
 ///
 /// We keep track of last-modified date of the file, and when it changes we
-/// copy the file, along with a version counter to a temporary directory to load it from.
-///
+/// copy the file, along with a version counter to a temporary directory to load
+/// it from.
 pub struct Plugin<T: Send + Sync + 'static> {
     /// Source filename to watch
     path: PathBuf,
@@ -117,7 +117,8 @@ where
         self.version
     }
 
-    /// Opens a plugin from the project target directory. Note that `check` must be called subsequently in order to invoke callbacks on the plugin.
+    /// Opens a plugin from the project target directory. Note that `check` must
+    /// be called subsequently in order to invoke callbacks on the plugin.
     pub fn open_from_target_dir(
         spawner: ThreadExecutorSpawner,
         plugin_dir: &str,
@@ -132,7 +133,8 @@ where
         Self::open_at(spawner, path, plugin_name, 120)
     }
 
-    /// Opens a plugin at `path`, with `name`. Note that `check` must be called subsequently in order to invoke callbacks on the plugin.
+    /// Opens a plugin at `path`, with `name`. Note that `check` must be called
+    /// subsequently in order to invoke callbacks on the plugin.
     pub fn open_at(
         mut spawner: ThreadExecutorSpawner,
         path: impl AsRef<Path>,
@@ -150,7 +152,8 @@ where
 
         #[cfg(unix)]
         if ENABLE_PLUGIN_MAPPING_CHECK {
-            // TODO: move this into the plugin's interface - rely on the caller to delegate the work.
+            // TODO: move this into the plugin's interface - rely on the caller to delegate
+            // the work.
             let plugin_name = name.clone();
             spawner.spawn_with_shutdown(move |mut shutdown| {
                 Box::pin(async move {
@@ -186,12 +189,13 @@ where
         })
     }
 
-    /// Check for an update of the lib on disk. Note that this is required for initial load.
-    /// If there has been a change:
+    /// Check for an update of the lib on disk. Note that this is required for
+    /// initial load. If there has been a change:
     /// - copy it to the tmp directory
     /// - load the new library
     /// - call "unload" lifecycle event on the current mod if there is one
-    /// - call "load" lifecycle event on the newly loaded library, passing &mut State
+    /// - call "load" lifecycle event on the newly loaded library, passing &mut
+    ///   State
     pub fn check(&mut self, state: &mut T) -> Result<PluginCheck, PluginError> {
         if !self.should_check() {
             return Ok(PluginCheck::Unchanged);
@@ -256,7 +260,8 @@ where
     }
 
     /// Should the plugin wrapper check for a new version on disk?
-    /// Also used on unix systems to determine if we should check /proc/PID/maps for plugin mappings.
+    /// Also used on unix systems to determine if we should check /proc/PID/maps
+    /// for plugin mappings.
     fn should_check(&self) -> bool {
         self.updates == 0
             || (self.updates > 0

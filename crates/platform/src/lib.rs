@@ -145,8 +145,10 @@ impl PlatformContext {
         &self.outgoing_events
     }
 
-    // TODO: Probably we want either a Result<EngineEvent, ...> or Option<EngineEvent> here.
-    /// Evaluate an event from SDL, modify state internally and surface an engine event event if it's relevant to the event loop.
+    // TODO: Probably we want either a Result<EngineEvent, ...> or
+    // Option<EngineEvent> here.
+    /// Evaluate an event from SDL, modify state internally and surface an
+    /// engine event event if it's relevant to the event loop.
     fn evaluate_event(&mut self, event: &SdlEvent) -> EngineEvent {
         match event {
             SdlEvent::Quit { .. }

@@ -10,6 +10,7 @@ members = [
     "crates/render",
     "crates/world",
     "crates/platform",
+    "crates/font-loader",
 
     # plugins: these should not be depended upon by anything other than binaries, indirectly
     "crates/plugins/ash_renderer_plugin",

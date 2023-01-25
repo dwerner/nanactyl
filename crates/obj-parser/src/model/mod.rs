@@ -227,7 +227,7 @@ mod tests {
 
         assert!(o.objects[0].material.is_some());
         let diffuse_map = o.objects[0].material.as_ref().unwrap();
-        assert_eq!(diffuse_map, "assets/diffuse_map.png");
+        assert_eq!(diffuse_map, "cube.mtl");
         Ok(())
     }
 

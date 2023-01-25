@@ -189,8 +189,8 @@ where
         })
     }
 
-    /// Check for an update of the lib on disk. Note that this is required for
-    /// initial load. If there has been a change:
+    /// Check for an update of the plugin on disk or find the initial state.
+    /// If there has been a change/initial is found:
     /// - copy it to the tmp directory
     /// - load the new library
     /// - call "unload" lifecycle event on the current mod if there is one

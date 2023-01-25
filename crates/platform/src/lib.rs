@@ -50,7 +50,7 @@ unsafe impl HasRawWindowHandle for WinPtr {
 }
 
 pub struct PlatformContext {
-    _todo_sdl_context: sdl2::Sdl,
+    _sdl_context: sdl2::Sdl,
     haptic_subsystem: sdl2::HapticSubsystem,
     game_controller_subsystem: sdl2::GameControllerSubsystem,
     event_pump: sdl2::EventPump,
@@ -77,7 +77,7 @@ impl PlatformContext {
         let audio_subsystem = sdl_context.audio().map_err(PlatformError::AudioInit)?;
         let video_subsystem = sdl_context.video().map_err(PlatformError::VideoInit)?;
         Ok(Self {
-            _todo_sdl_context: sdl_context,
+            _sdl_context: sdl_context,
             _todo_audio_subsystem: audio_subsystem,
 
             haptic_subsystem,
@@ -146,8 +146,7 @@ impl PlatformContext {
     }
 
     // TODO: Probably we want either a Result<EngineEvent, ...> or
-    // Option<EngineEvent> here.
-    /// Evaluate an event from SDL, modify state internally and surface an
+    /// Evaluate an event from SDL, modify state internally and then raise an
     /// engine event event if it's relevant to the event loop.
     fn evaluate_event(&mut self, event: &SdlEvent) -> EngineEvent {
         match event {

@@ -40,7 +40,7 @@ pub enum RpcError {
 }
 
 pub struct Peer {
-    _id: u8,
+    _id: u8, // TODO
     seq: u16,
     remote_seq: u16,
     bind: SocketAddr,
@@ -290,6 +290,7 @@ pub struct Typed<T> {
     _pd: PhantomData<T>,
 }
 
+/// Wraps a type signature with a bytemuck deserializer.
 impl<T> Typed<T>
 where
     T: AnyBitPattern + NoUninit + Clone,
@@ -389,18 +390,24 @@ mod tests {
 
     use super::*;
 
+    // Just a flag for when the size of the message changes. Keep in mind this is a
+    // UDP packet.
     #[test]
     fn assert_size_limit() {
         let size = size_of::<Message>();
-        assert!(size < 265, "Message is too large at {} bytes.", size);
+        assert!(
+            size < 16 + 16 + 32 + PAYLOAD_LEN,
+            "Message is too large at {} bytes.",
+            size
+        );
     }
 
     #[smol_potat::test]
     async fn test_server_style_connections() {
-        let mut server = Peer::bind_only("127.0.0.1:8084").await.unwrap();
+        let mut server = Peer::bind_only("127.0.0.1:18083").await.unwrap();
 
-        let client_addr = "127.0.0.1:8085";
-        let mut client = Peer::bind_dest(client_addr.clone(), "127.0.0.1:8084")
+        let client_addr = "127.0.0.1:18082";
+        let mut client = Peer::bind_dest(client_addr.clone(), "127.0.0.1:18083")
             .await
             .unwrap();
 

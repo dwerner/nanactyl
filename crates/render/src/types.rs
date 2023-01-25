@@ -7,6 +7,7 @@ use ash::vk;
 
 use crate::VulkanBase;
 
+/// Collection of specific error types that Vulkan can raise, in rust form.
 #[derive(thiserror::Error, Debug)]
 pub enum VulkanError {
     #[error("error reading shader ({0:?})")]
@@ -69,6 +70,8 @@ pub struct BufferAndMemory {
     pub allocation_size: u64,
 }
 
+/// Combination of vulkan's buffer and memory types, encapsulating the two for
+/// RAII purposes.
 impl BufferAndMemory {
     pub fn new(
         buffer: vk::Buffer,
@@ -125,7 +128,7 @@ pub struct ShaderDesc {
     pub fragment_shader: PathBuf,
 }
 
-/// Handle to resources on the GPU comprising a texture.
+/// Handle to resources on the GPU comprising a model, texture and shader.
 pub struct GpuModelRef {
     pub vertex_buffer: BufferAndMemory,
     pub index_buffer: BufferAndMemory,

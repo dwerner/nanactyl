@@ -247,11 +247,11 @@ impl Renderer {
         }
 
         let mut bw = VulkanBaseWrapper::new(base);
+
         // TODO: shaders that apply only to certain models need different descriptor
         // sets.
-        //? TODO: any pool can be a thread local, but then any object must be destroyed
-        //? on that thread.
-
+        // TODO: any pool can be a thread local, but then any object must be destroyed
+        // on that thread.
         let mut pipeline_descriptions = HashMap::new();
 
         // For now we are creating a pipeline per model.

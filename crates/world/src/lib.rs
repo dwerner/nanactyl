@@ -380,6 +380,7 @@ impl World {
     }
 
     pub async fn pump_connection_as_server(&mut self) -> Result<[InputState; 2], WorldError> {
+        // 1. construct a group of all world state.
         let packet = self
             .things
             .iter()
@@ -397,6 +398,7 @@ impl World {
             })
             .take(NUM_UPDATES_PER_MSG as usize)
             .collect::<Vec<_>>();
+        // 2. Compress that
         let compressed = wire::compress_world_updates(&packet)?;
         let _seq = self.connection.send(&compressed).await;
         let client_controller_data = self

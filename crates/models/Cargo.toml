@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 thiserror = "1.0.34"
 image = { version = "0.24.3", default-features = false, features=["png"] }
-nalgebra = "0.31.1"
+nalgebra = "0.32.1"
 obj-parser = { path = "../obj-parser" }

@@ -1,3 +1,6 @@
+//! Implements UDP networking for real-time game data sync. This is essentially
+//! an attempt to implement GafferOnGames' approach to game world sync.
+
 use std::collections::VecDeque;
 use std::io;
 use std::marker::PhantomData;

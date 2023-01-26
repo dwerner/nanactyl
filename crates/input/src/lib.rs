@@ -1,4 +1,6 @@
-/// Input events
+//! Implements input and related events and errors.
+
+/// Input state descriptor.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Button {
@@ -15,6 +17,8 @@ pub enum Button {
     Unmapped,
 }
 
+/// InputEvent is an event and descriptor for that event. Types are scaled to
+/// reasonable resolution for wire transmission.
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum InputEvent {
     KeyPressed(Button),
@@ -32,7 +36,7 @@ pub enum DeviceEvent {
     GameControllerRemoved(u32),
 }
 
-/// Control flow for the game loop
+/// Control flow for the game loop, including events.
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum EngineEvent {
     /// Continue execution of the game loop.
@@ -49,6 +53,7 @@ pub enum EngineEvent {
     ExitToDesktop,
 }
 
+/// Wire types - specifically intended for wire transmission.
 pub mod wire {
     use bitvec::view::BitView;
     use bytemuck::{Pod, Zeroable};
@@ -113,7 +118,7 @@ pub mod wire {
         }
 
         /// Read if a button is down from the state bits.
-        pub fn is_button_down(&self, button: Button) -> bool {
+        pub fn is_button_pressed(&self, button: Button) -> bool {
             let buttons = self.buttons.view_bits::<bitvec::prelude::Lsb0>();
             match buttons.get(button as usize) {
                 Some(val) => *val,

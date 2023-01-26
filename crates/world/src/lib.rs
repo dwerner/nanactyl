@@ -1,3 +1,5 @@
+//! Implements a world and entity system for the engine to mutate and render.
+
 use std::io;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};

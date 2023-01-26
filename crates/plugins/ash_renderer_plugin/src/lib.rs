@@ -1,3 +1,11 @@
+//! Plugin: `tui_renderer_plugin`
+//! Implements a plugin for prototyping Vulkan rendering (using ash) for the
+//! engine.
+//!
+//! As parts of this are solidified, they can be moved into the crates/render
+//! crate, and only expose the plugin for truly dynamic things that are
+//! desireable to change at runtime.
+
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::BufReader;
@@ -586,7 +594,8 @@ impl<'a> VulkanBaseWrapper<'a> {
             .map_err(VulkanError::VkResultToDo)
     }
 
-    /// Creates a descriptor set layout from the provided `ShaderBindingDesc` struct.
+    /// Creates a descriptor set layout from the provided `ShaderBindingDesc`
+    /// struct.
     pub fn descriptor_set_layout(
         &self,
         bindings: Vec<ShaderBindingDesc>,
@@ -666,7 +675,8 @@ pub struct Renderer {
 pub struct DeviceWrap<'a>(&'a ash::Device);
 
 impl<'a> DeviceWrap<'a> {
-    /// Create a pipeline layout. Note `push_constants_len` must be len in bytes and a multiple of 4
+    /// Create a pipeline layout. Note `push_constants_len` must be len in bytes
+    /// and a multiple of 4
     pub fn pipeline_layout(
         &self,
         push_constants_len: u32,
@@ -829,7 +839,6 @@ impl<'a> DeviceWrap<'a> {
             .build();
         unsafe { self.0.create_fence(&fence_create_info, None) }.map_err(VulkanError::VkResultToDo)
     }
-
 
     /// Copy buffer to an image.
     pub fn cmd_copy_buffer_to_image(

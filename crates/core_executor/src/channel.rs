@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt::Debug;
 
+/// Errors possible from use of Bichannel.
 #[derive(thiserror::Error, Debug)]
 pub enum BichannelError<S> {
     #[error("Channel TryRecvError {0:?}")]
@@ -13,6 +14,7 @@ pub enum BichannelError<S> {
     ChannelRecvError(async_channel::RecvError),
 }
 
+/// Errors possible from Hookshot.
 #[derive(thiserror::Error, Debug)]
 pub enum HookshotError {
     #[error("Oneshot closed {0:?}")]
@@ -25,6 +27,7 @@ pub enum HookshotError {
     OneshotTryRecvClosed,
 }
 
+/// A bi-directional channel.
 pub struct Bichannel<S, R> {
     send: async_channel::Sender<S>,
     recv: async_channel::Receiver<R>,
@@ -80,7 +83,7 @@ impl<S, R> Bichannel<S, R> {
     }
 }
 
-/// Simple bi-directional oneshot channel on top of async_oneshot.
+/// Bidirectional single-shot channel built on top of async_oneshot.
 /// Send and receive can be different types.
 pub struct Hookshot<S, R> {
     send: async_oneshot::Sender<S>,

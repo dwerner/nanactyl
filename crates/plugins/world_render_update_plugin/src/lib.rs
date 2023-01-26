@@ -1,3 +1,7 @@
+//! Plugin: `world_render_update_plugin`
+//! Implements a plugin for prototyping updates to render state from the world,
+//! taking a lock (LockWorldAndRenderState) over both for the duration.
+
 use std::time::Duration;
 
 use render::{LockWorldAndRenderState, RenderScene, SceneError, SceneModelRef};
@@ -43,7 +47,9 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
     let mut drawables = vec![];
 
     for (_id, thing) in zelf.world().things().iter().enumerate() {
+        // verbose mess:
         let model_ref = match &thing.facets {
+            // 1. grab scene model ref for cameras.
             world::thing::ThingType::Camera { phys, camera } => {
                 let phys = zelf
                     .world()
@@ -69,6 +75,7 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
                     angles,
                 }
             }
+            // 2. grab a scene model ref for loaded model instances
             world::thing::ThingType::ModelObject { phys, model } => {
                 let facet = zelf
                     .world()
@@ -83,6 +90,7 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
                 }
             }
         };
+        // 3. push either one into scene for rendering
         drawables.push(model_ref);
     }
     let active_camera = if zelf.world().is_server() { 0 } else { 1 };
@@ -91,6 +99,7 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
         cameras,
         drawables,
     };
+    // 4. update the scene with the data from the world
     zelf.render_state().update_scene(scene)?;
     Ok(())
 }

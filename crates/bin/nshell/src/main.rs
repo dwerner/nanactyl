@@ -1,3 +1,5 @@
+//! Implements a simple shell entrypoint for the engine.
+
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;

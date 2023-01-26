@@ -1,3 +1,7 @@
+//! Implements font atlas rendering, as well as some limited now-obviated
+//! SDL-based rendering to surfaces.  
+//! TODO: TBD an interface to render text to the scene.
+
 use std::fs::{self, File};
 use std::io;
 use std::path::PathBuf;

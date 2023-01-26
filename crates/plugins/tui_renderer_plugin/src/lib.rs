@@ -1,3 +1,7 @@
+//! Plugin: `tui_renderer_plugin`
+//! Implements a plugin for prototyping terminal UI rendering for the engine.
+//! Just a placeholder but this could be fun.
+
 use std::time::Duration;
 
 use render::RenderState;

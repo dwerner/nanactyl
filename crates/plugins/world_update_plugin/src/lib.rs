@@ -1,3 +1,9 @@
+//! Plugin: `world_update_plugin`
+//! Implements a plugin (see crates/plugin-loader) for prototyping 'world
+//! updates'. This means anything that the world should process of it's own
+//! accord based on a timestamp. For example: if running as a server, tick the
+//! simulation along based on the `dt` passed to the plugin.
+
 use std::time::{Duration, Instant};
 
 use input::wire::InputState;
@@ -70,7 +76,7 @@ fn move_camera_based_on_controller_state(
     // TODO: move the get_camera_facet method up into World, and use that here.
     // kludge! this relies on the first two phys facets being the cameras 0,1
     // a speed-up 'run' effect if cancel is held down while moving
-    let speed = if controller.is_button_down(Button::Cancel) {
+    let speed = if controller.is_button_pressed(Button::Cancel) {
         5.0
     } else {
         2.0
@@ -80,19 +86,19 @@ fn move_camera_based_on_controller_state(
 
     let rot = Matrix4::new_rotation(-1.0 * pcam.angles);
     let forward = rot.transform_vector(&Vector3::new(0.0, 0.0, 1.0));
-    if controller.is_button_down(Button::Down) {
+    if controller.is_button_pressed(Button::Down) {
         let transform = cam.view * Matrix4::new_scaling(-1.0 * speed);
         pcam.linear_velocity += transform.transform_vector(&forward);
-    } else if controller.is_button_down(Button::Up) {
+    } else if controller.is_button_pressed(Button::Up) {
         let transform = cam.view * Matrix4::new_scaling(speed);
         pcam.linear_velocity += transform.transform_vector(&forward);
     } else {
         pcam.linear_velocity = Vector3::zeros();
     }
 
-    if controller.is_button_down(Button::Left) {
+    if controller.is_button_pressed(Button::Left) {
         pcam.angular_velocity.y = -1.0 * speed;
-    } else if controller.is_button_down(Button::Right) {
+    } else if controller.is_button_pressed(Button::Right) {
         pcam.angular_velocity.y = speed;
     } else {
         pcam.angular_velocity.y = 0.0;

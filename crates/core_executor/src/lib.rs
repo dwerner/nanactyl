@@ -1,3 +1,6 @@
+//! Implements some convenient types for async control flow and execution of
+//! async tasks on specific thread-affine cores.
+
 use std::future::Future;
 use std::pin::Pin;
 use std::thread::JoinHandle;

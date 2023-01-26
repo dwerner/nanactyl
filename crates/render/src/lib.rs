@@ -1,3 +1,6 @@
+//! In support of ash_rendering_plugin, implements various wrappers over
+//! vulkan/ash that are used in the plugin.
+
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::ffi::{CStr, CString};

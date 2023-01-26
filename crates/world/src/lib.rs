@@ -285,6 +285,10 @@ impl World {
         self.connection.rtt_micros.clone()
     }
 
+    /// Create a new client or server binding. Currently, in server mode, this
+    /// waits for a client to connect before continuing.
+    ///
+    /// FIXME: make this /// independent of any connecting clients.
     pub fn new(maybe_server_addr: Option<SocketAddr>, wait_for_client: bool) -> Self {
         let connection = match maybe_server_addr {
             Some(addr) => {
@@ -292,6 +296,8 @@ impl World {
                     let mut server = Peer::bind_dest("0.0.0.0:12001", &addr.to_string())
                         .await
                         .unwrap();
+
+                    // initial message to client
                     server.send(b"moar plz").await.unwrap();
                     server
                 });

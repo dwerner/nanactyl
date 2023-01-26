@@ -51,6 +51,8 @@ fn main() {
     let executor = CoreAffinityExecutor::new(8);
     let mut spawners = executor.spawners();
 
+    // FIXME: currently the server-side must be started first, and waits for a
+    // client to connect here.
     let world = world::World::new(opts.connect_to_server, true);
     let world = Arc::new(Mutex::new(world));
 
@@ -128,7 +130,7 @@ fn main() {
                 break 'frame_loop;
             }
 
-            // Essentially, check plugins for updates every 2 seconds
+            // Essentially, check for updated versions of plugins every 2 seconds
             if frame % (60 * 1) == 0 {
                 check_plugin_async(&asset_loader_plugin, &world).await;
 
@@ -179,7 +181,7 @@ fn main() {
                 spawners[3].spawn(Box::pin(async move {
                     let mut world = nworld.lock().await;
 
-                    // TODO: fix sized issue (> 96)
+                    // TODO: fix sized issue (try > 96 items)
                     if world.is_server() && world.things.len() >= 96 {
                         match world.pump_connection_as_server().await {
                             Ok(controller_state) => {

@@ -1,5 +1,8 @@
 //! In support of ash_rendering_plugin, implements various wrappers over
 //! vulkan/ash that are used in the plugin.
+//!
+//! This module is a landing-pad (In particular VulkanBase) for functionality
+//! from
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
@@ -100,6 +103,7 @@ impl RenderState {
         self.vulkan.base.as_mut()
     }
 
+    /// Calls `Presenter`'s drop_resources hook to clean up.
     pub fn cleanup_base_and_presenter(&mut self) {
         if let (Some(mut presenter), Some(mut base)) =
             (self.vulkan.presenter.take(), self.vulkan.base.take())
@@ -117,7 +121,7 @@ impl RenderState {
     }
 
     pub fn drain_upload_queue(&mut self) -> VecDeque<(ModelIndex, models::Model)> {
-        std::mem::replace(&mut self.model_upload_queue, VecDeque::new())
+        std::mem::take(&mut self.model_upload_queue)
     }
 
     pub fn tracked_model(&mut self, index: ModelIndex) -> Option<Instant> {
@@ -126,7 +130,7 @@ impl RenderState {
             .as_ref()?
             .tracked_models
             .get(&index)
-            .map(|(_, tracked_instant)| tracked_instant.clone())
+            .map(|(_, tracked_instant)| *tracked_instant)
     }
 
     pub fn queued_model(&self, index: ModelIndex) -> bool {
@@ -197,6 +201,11 @@ pub enum TextureUploaderError {
     QueueRecv,
 }
 
+/// VulkanBase - ahead-of-runtime base functionality for the Vulkan plugin. The
+/// idea here is to keep the facilities as generic as is reasonable and provide
+/// them to `ash_renderer_plugin`. In essence, what doesn't change much stays
+/// here, while rapidly moving/changing code should live in the plugin until it
+/// stabilizes into generic functionality.
 pub struct VulkanBase {
     pub win_ptr: platform::WinPtr,
     pub entry: ash::Entry,
@@ -278,13 +287,13 @@ impl VulkanBase {
         (attachments, color_attachment_refs, depth_attachment_ref)
     }
 
-    /// Create a renderpass with attachments
+    /// Create a renderpass with attachments.
     pub fn create_render_pass(
         device: &ash::Device,
         all_attachments: &[vk::AttachmentDescription],
         color_attachment_refs: &[vk::AttachmentReference],
         depth_attachment_ref: &vk::AttachmentReference,
-    ) -> vk::RenderPass {
+    ) -> Result<vk::RenderPass, VulkanError> {
         let dependencies = [vk::SubpassDependency::builder()
             .src_subpass(vk::SUBPASS_EXTERNAL)
             .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
@@ -305,10 +314,12 @@ impl VulkanBase {
             .dependencies(&dependencies)
             .build();
 
-        unsafe { device.create_render_pass(&renderpass_create_info, None) }.unwrap()
+        unsafe { device.create_render_pass(&renderpass_create_info, None) }
+            .map_err(VulkanError::VkResultToDo)
     }
 
-    /// Consume the renderpass and hand back framebuffers
+    /// Create framebuffers needed, consumes the renderpass. Returns an error
+    /// when unable to create framebuffers.
     pub fn create_framebuffers(
         device: &ash::Device,
         depth_image_view: vk::ImageView,
@@ -343,11 +354,21 @@ impl VulkanBase {
         }
     }
 
+    /// Get a handle to the GPU-tracked data for a given model. Returns `None`
+    /// if not tracked yet, and must be uploaded with `track_uploaded_model`
+    /// first.
     pub fn get_tracked_model(&self, index: impl Into<ModelIndex>) -> Option<&GpuModelRef> {
         self.tracked_models.get(&index.into()).map(|(gpu, _)| gpu)
     }
 
-    pub fn new(win_ptr: platform::WinPtr, enable_validation_layer: bool) -> Self {
+    /// Create a new instance of VulkanBase, takes a platform::WinPtr and some
+    /// flags. This allows each window created by a process to be injected
+    /// into the renderer intended to bind it. Returns an error when the
+    /// instance cannot be created.
+    pub fn new(
+        win_ptr: platform::WinPtr,
+        enable_validation_layer: bool,
+    ) -> Result<Self, VulkanError> {
         let entry = unsafe { Entry::load() }.expect("unable to load vulkan");
         let application_info = &vk::ApplicationInfo {
             api_version: vk::make_api_version(0, 1, 0, 0),
@@ -419,7 +440,7 @@ impl VulkanBase {
         let device =
             unsafe { instance.create_device(*physical_device, &device_create_info, None) }.unwrap();
 
-        let present_queue = unsafe { device.get_device_queue(queue_family_index as u32, 0) };
+        let present_queue = unsafe { device.get_device_queue(queue_family_index, 0) };
         let surface_format = unsafe {
             surface_loader.get_physical_device_surface_formats(*physical_device, surface)
         }
@@ -610,7 +631,7 @@ impl VulkanBase {
             unsafe { device.create_semaphore(&semaphore_create_info, None) }.unwrap();
 
         let (attachments, color, depth) = Self::create_attachments(surface_format.format);
-        let render_pass = Self::create_render_pass(&device, attachments.all(), &color, &depth);
+        let render_pass = Self::create_render_pass(&device, attachments.all(), &color, &depth)?;
         let framebuffers = Self::create_framebuffers(
             &device,
             depth_image_view,
@@ -620,7 +641,7 @@ impl VulkanBase {
         )
         .unwrap();
 
-        Self {
+        Ok(Self {
             win_ptr,
             entry,
             instance,
@@ -653,9 +674,11 @@ impl VulkanBase {
             framebuffers,
             render_pass,
             flag_recreate_swapchain: false,
-        }
+        })
     }
 
+    /// Re-create the swapchain bound. Useful when window properties change, on
+    /// resize, fullscreen, focus, etc.
     pub fn recreate_swapchain(&mut self) -> Result<(), VulkanError> {
         let surface_loader = Surface::new(&self.entry, &self.instance);
         let old_surface_loader = mem::replace(&mut self.surface_loader, surface_loader);
@@ -675,7 +698,7 @@ impl VulkanBase {
         )
         .expect("couldn't find suitable device");
         self.queue_family_index = queue_family_index;
-        self.physical_device = physical_device.clone();
+        self.physical_device = *physical_device;
 
         let surface_capabilities = unsafe {
             self.surface_loader
@@ -869,7 +892,8 @@ impl VulkanBase {
         let old_depth_image_view = mem::replace(&mut self.depth_image_view, depth_image_view);
 
         let (attachments, color, depth) = Self::create_attachments(self.surface_format.format);
-        let render_pass = Self::create_render_pass(&self.device, attachments.all(), &color, &depth);
+        let render_pass =
+            Self::create_render_pass(&self.device, attachments.all(), &color, &depth)?;
         let old_render_pass = mem::replace(&mut self.render_pass, render_pass);
         let framebuffers = Self::create_framebuffers(
             &self.device,
@@ -967,7 +991,7 @@ fn surface_loader_physical_device<'a>(
     surface_loader: &Surface,
     surface: vk::SurfaceKHR,
 ) -> Option<(&'a vk::PhysicalDevice, u32)> {
-    physical_devices.into_iter().find_map(|p| {
+    physical_devices.iter().find_map(|p| {
         unsafe { instance.get_physical_device_queue_family_properties(*p) }
             .iter()
             .enumerate()
@@ -1067,25 +1091,28 @@ impl Drop for VulkanBase {
     }
 }
 
-// TODO: consider a generic version of this?
-/// Acts as a combiner for Mutex, locking both mutexes but also releases both
-/// mutexes when dropped.
-pub struct LockWorldAndRenderState {
-    render_state: MutexGuardArc<RenderState>,
-    world: MutexGuardArc<World>,
-}
-
+/// Represents the constructed scene as references into world state.
 pub struct RenderScene {
     // TODO: should this just be indices?
     pub active_camera: usize,
     pub cameras: Vec<(PhysicalFacet, CameraFacet)>,
-    pub drawables: Vec<SceneModelRef>,
+    pub drawables: Vec<SceneModelInstance>,
 }
 
-pub struct SceneModelRef {
+/// Reference to a model and for now positional and orientation data.
+/// Intended to represent a model (uploaded to the GPU once) with instance
+/// information. Should attach to a game object or similar.
+pub struct SceneModelInstance {
     pub model: ModelIndex,
     pub pos: Vector3<f32>,
     pub angles: Vector3<f32>,
+}
+
+/// Acts as a combiner for Mutex, locking both mutexes but also releases both
+/// mutexes when dropped.
+pub struct LockWorldAndRenderState {
+    world: MutexGuardArc<World>,
+    render_state: MutexGuardArc<RenderState>,
 }
 
 impl LockWorldAndRenderState {
@@ -1123,7 +1150,7 @@ impl LockWorldAndRenderState {
                         + Vector3::new(right.x + forward.x, -2.0, right.z + forward.z);
                     let angles = Vector3::new(0.0, phys.angles.y - 1.57, 0.0);
 
-                    SceneModelRef {
+                    SceneModelInstance {
                         model: cam.associated_model.unwrap(),
                         pos,
                         angles,
@@ -1136,10 +1163,10 @@ impl LockWorldAndRenderState {
                         .physical(*phys)
                         .ok_or_else(|| SceneError::NoSuchPhys(*phys))?;
 
-                    SceneModelRef {
+                    SceneModelInstance {
                         model: *model,
-                        pos: facet.position.clone(),
-                        angles: facet.angles.clone(),
+                        pos: facet.position,
+                        angles: facet.angles,
                     }
                 }
             };
@@ -1155,6 +1182,8 @@ impl LockWorldAndRenderState {
         Ok(())
     }
 
+    /// Search through the world for models that need to be uploaded, and do so.
+    /// Does not yet handle updates to models.
     pub fn update_models(&mut self) {
         let models: Vec<_> = {
             let world = self.world();
@@ -1179,6 +1208,8 @@ impl LockWorldAndRenderState {
         }
     }
 
+    /// Locks the world and render state so that the renderstate may be updated
+    /// from the world.
     pub async fn lock(world: &Arc<Mutex<World>>, render_state: &Arc<Mutex<RenderState>>) -> Self {
         let world = Arc::clone(world).lock_arc().await;
         let render_state = Arc::clone(render_state).lock_arc().await;
@@ -1197,6 +1228,7 @@ impl LockWorldAndRenderState {
     }
 }
 
+/// Vulkan's debug callback.
 unsafe extern "system" fn vulkan_debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
     message_type: vk::DebugUtilsMessageTypeFlagsEXT,
@@ -1204,7 +1236,7 @@ unsafe extern "system" fn vulkan_debug_callback(
     _user_data: *mut std::os::raw::c_void,
 ) -> vk::Bool32 {
     let callback_data = *p_callback_data;
-    let message_id_number = callback_data.message_id_number as i32;
+    let message_id_number = callback_data.message_id_number;
 
     let message_id_name = if callback_data.p_message_id_name.is_null() {
         Cow::from("")

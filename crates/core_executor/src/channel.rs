@@ -113,13 +113,13 @@ impl<S, R> Hookshot<S, R> {
     pub fn try_recv(&mut self) -> Result<R, HookshotError> {
         match self.recv.take() {
             Some(recv) => match recv.try_recv() {
-                Ok(r) => return Ok(r),
+                Ok(r) => Ok(r),
                 Err(async_oneshot::TryRecvError::Empty(receiver)) => {
                     self.recv = Some(receiver);
-                    return Err(HookshotError::OneshotEmpty);
+                    Err(HookshotError::OneshotEmpty)
                 }
                 Err(async_oneshot::TryRecvError::Closed) => {
-                    return Err(HookshotError::OneshotTryRecvClosed);
+                    Err(HookshotError::OneshotTryRecvClosed)
                 }
             },
             None => unreachable!("should never be reached"),

@@ -37,9 +37,9 @@ impl From<usize> for Identity {
         Self(value as u32)
     }
 }
-impl Into<usize> for Identity {
-    fn into(self) -> usize {
-        self.0 as usize
+impl From<Identity> for usize {
+    fn from(value: Identity) -> Self {
+        value.0 as usize
     }
 }
 
@@ -167,10 +167,12 @@ pub mod wire {
     pub struct WirePosition(pub f32, pub f32, pub f32);
 
     const ZSTD_LEVEL: i32 = 3;
+
+    /// Compress an update with zstd.
     pub(crate) fn compress_world_updates(values: &[WorldUpdate]) -> Result<Vec<u8>, WorldError> {
         let mut sized: [WorldUpdate; NUM_UPDATES_PER_MSG as usize] =
             [WorldUpdate::default(); NUM_UPDATES_PER_MSG as usize];
-        sized.copy_from_slice(&values);
+        sized.copy_from_slice(values);
         let mut compressed_bytes = vec![];
         let read_bytes = bytemuck::bytes_of(&sized);
         let encoded =
@@ -183,6 +185,7 @@ pub mod wire {
         Ok(compressed_bytes)
     }
 
+    /// Decompress an update using zstd.
     pub(crate) fn decompress_world_updates(
         compressed: &[u8],
     ) -> Result<Vec<WorldUpdate>, WorldError> {
@@ -196,7 +199,7 @@ pub mod wire {
         let updates: &[WorldUpdate; NUM_UPDATES_PER_MSG as usize] =
             bytemuck::try_from_bytes(&decoded_bytes)
                 .map_err(|err| WorldError::FromBytes(err, decoded_bytes.len()))?;
-        Ok(updates.iter().cloned().collect())
+        Ok(updates.to_vec())
     }
 
     #[cfg(test)]
@@ -294,7 +297,7 @@ impl World {
     pub fn new(maybe_server_addr: Option<SocketAddr>, wait_for_client: bool) -> Self {
         let connection = match maybe_server_addr {
             Some(addr) => {
-                let conn = futures_lite::future::block_on(async move {
+                futures_lite::future::block_on(async move {
                     let mut server = Peer::bind_dest("0.0.0.0:12001", &addr.to_string())
                         .await
                         .unwrap();
@@ -302,12 +305,11 @@ impl World {
                     // initial message to client
                     server.send(b"moar plz").await.unwrap();
                     server
-                });
-                conn
+                })
             }
             None => {
                 // We will run as a server, accepting new connections.
-                let conn = futures_lite::future::block_on(async move {
+                futures_lite::future::block_on(async move {
                     let mut client = Peer::bind_only("0.0.0.0:12002").await.unwrap();
                     if wait_for_client {
                         client.recv().await.unwrap();
@@ -318,8 +320,7 @@ impl World {
                             .unwrap();
                     }
                     client
-                });
-                conn
+                })
             }
         };
         Self {
@@ -352,10 +353,10 @@ impl World {
                 let world_facets = &self.facets;
                 let camera = world_facets
                     .camera(camera)
-                    .ok_or_else(|| WorldError::NoCameraFound)?;
+                    .ok_or(WorldError::NoCameraFound)?;
                 let phys = world_facets
                     .physical(phys)
-                    .ok_or_else(|| WorldError::NoCameraFound)?;
+                    .ok_or(WorldError::NoCameraFound)?;
                 (phys.clone(), camera.clone())
             }
             _ => return Err(WorldError::NoCameraFound),
@@ -465,10 +466,9 @@ impl World {
         msg_bytes.extend(bytemuck::bytes_of(&(len as u16)));
         msg_bytes.extend(controller_state_bytes);
 
-        Ok(match self.connection.send(&msg_bytes).await {
-            Ok(_) => (),
-            Err(_) => (),
-        })
+        // TODO: make use of this result properly
+        let _ = self.connection.send(&msg_bytes).await;
+        Ok(())
     }
 
     pub fn is_server(&self) -> bool {

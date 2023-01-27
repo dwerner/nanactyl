@@ -16,6 +16,7 @@ pub enum VulkanError {
     #[error("Unable to find suitable memorytype for the buffer")]
     UnableToFindMemoryTypeForBuffer,
 
+    // TODO: find call sites and generate new error variants for this
     #[error("vk result ({0:?}) todo: assign a real error variant")]
     VkResultToDo(vk::Result),
 
@@ -166,7 +167,7 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub fn new(
+    pub fn create(
         format: vk::Format,
         image: vk::Image,
         memory: vk::DeviceMemory,
@@ -333,7 +334,8 @@ pub struct PipelineDesc {
 }
 
 impl PipelineDesc {
-    pub fn new(
+    /// Create a new PipelineDesc.
+    pub fn create(
         desc_set_layout: vk::DescriptorSetLayout,
         uniform_buffer: BufferAndMemory,
         descriptor_set: vk::DescriptorSet,
@@ -356,6 +358,7 @@ impl PipelineDesc {
             vertex_input_assembly,
         }
     }
+    /// Deallocate PipelineDesc's resources on the GPU.
     pub fn deallocate(&self, device: &ash::Device) {
         unsafe {
             self.uniform_buffer.deallocate(device);
@@ -389,6 +392,7 @@ pub struct ShaderModuleCache {
 }
 
 /// Tracks modules and definitions used to initialize shaders.
+#[derive(Default)]
 pub struct ShaderStages {
     pub modules: Vec<vk::ShaderModule>,
     pub shader_stage_defs: Vec<ShaderStage>,
@@ -396,10 +400,7 @@ pub struct ShaderStages {
 
 impl ShaderStages {
     pub fn new() -> Self {
-        Self {
-            modules: Vec::new(),
-            shader_stage_defs: Vec::new(),
-        }
+        Self::default()
     }
 
     pub fn add_shader<R>(

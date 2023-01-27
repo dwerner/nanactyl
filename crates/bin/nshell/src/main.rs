@@ -133,7 +133,7 @@ fn main() {
             }
 
             // Essentially, check for updated versions of plugins every 2 seconds
-            if frame % (60 * 1) == 0 {
+            if frame % 60 == 0 {
                 check_plugin_async(&asset_loader_plugin, &world).await;
 
                 check_plugin(

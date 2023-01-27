@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use render::{LockWorldAndRenderState, RenderScene, SceneError, SceneModelRef};
+use render::{LockWorldAndRenderState, RenderScene, SceneError, SceneModelInstance};
 use world::Vector3;
 
 #[no_mangle]
@@ -69,7 +69,7 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
                     phys.position + Vector3::new(right.x + forward.x, -2.0, right.z + forward.z);
                 let angles = Vector3::new(0.0, phys.angles.y - 1.57, 0.0);
 
-                SceneModelRef {
+                SceneModelInstance {
                     model: cam.associated_model.unwrap(),
                     pos,
                     angles,
@@ -83,16 +83,17 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
                     .physical(*phys)
                     .ok_or_else(|| SceneError::NoSuchPhys(*phys))?;
 
-                SceneModelRef {
+                SceneModelInstance {
                     model: *model,
-                    pos: facet.position.clone(),
-                    angles: facet.angles.clone(),
+                    pos: facet.position,
+                    angles: facet.angles,
                 }
             }
         };
         // 3. push either one into scene for rendering
         drawables.push(model_ref);
     }
+    // TODO: reasonable camera selection
     let active_camera = if zelf.world().is_server() { 0 } else { 1 };
     let scene = RenderScene {
         active_camera,

@@ -131,7 +131,7 @@ impl Renderer {
             {
                 let proj_mat = proj_mat.as_slice();
                 let mut mat = [0f32; 16];
-                mat.copy_from_slice(&proj_mat);
+                mat.copy_from_slice(proj_mat);
                 let push_constant_bytes = bytemuck::bytes_of(&mat);
                 w.update_buffer(&mut desc.uniform_buffer, push_constant_bytes)?;
             }
@@ -168,7 +168,7 @@ impl Renderer {
                     );
                 let model_mat = model_mat.as_slice();
                 let mut mat = [0f32; 16];
-                mat.copy_from_slice(&model_mat);
+                mat.copy_from_slice(model_mat);
                 let push_constant_bytes = bytemuck::bytes_of(&mat);
 
                 let (model, _) = base.tracked_models.get(&drawable.model).unwrap();
@@ -234,7 +234,7 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn rebuild_pipelines_with_base<'a>(
+    pub fn rebuild_pipelines_with_base(
         &mut self,
         base: &mut VulkanBase,
     ) -> Result<(), VulkanError> {
@@ -269,7 +269,7 @@ impl Renderer {
                 let proj_mat = Matrix4::<f32>::identity();
                 let proj_mat = proj_mat.as_slice();
                 let mut mat = [0f32; 16];
-                mat.copy_from_slice(&proj_mat);
+                mat.copy_from_slice(proj_mat);
                 let uniform_bytes = bytemuck::bytes_of(&mat);
                 let device = DeviceWrap(&bw.0.device);
                 device.allocate_and_init_buffer(
@@ -342,7 +342,7 @@ impl Renderer {
 
             pipeline_descriptions.insert(
                 *model_index,
-                PipelineDesc::new(
+                PipelineDesc::create(
                     desc_set_layout,
                     uniform_buffer,
                     descriptor_set,
@@ -747,12 +747,12 @@ impl<'a> DeviceWrap<'a> {
         unsafe { self.0.bind_image_memory(texture_image, texture_memory, 0) }
             .map_err(VulkanError::VkResultToDo)?;
 
-        Ok(Texture::new(
+        Texture::create(
             texture_create_info.format,
             texture_image,
             texture_memory,
-            &self.0,
-        )?)
+            self.0,
+        )
     }
 
     /// Updates a buffer binding on the GPU with the given data.
@@ -1154,7 +1154,7 @@ fn upload_models(
 
     let base = state.base_mut().unwrap(); // TODO: result/errors
     let device = base.device.clone();
-    let queue = base.present_queue.clone();
+    let queue = base.present_queue;
     let queue_family_index = base.queue_family_index;
     let device_memory_properties = base.device_memory_properties;
     let w = DeviceWrap(&device);
@@ -1248,7 +1248,8 @@ fn upload_models(
 #[no_mangle]
 pub extern "C" fn load(state: &mut RenderState) {
     println!("loaded ash_renderer_plugin...");
-    let mut base = VulkanBase::new(state.win_ptr, state.enable_validation_layer);
+    let mut base = VulkanBase::new(state.win_ptr, state.enable_validation_layer)
+        .expect("unable to create VulkanBase");
     println!("initialized vulkan base");
     state.set_presenter(Box::new(
         VulkanBaseWrapper::new(&mut base)

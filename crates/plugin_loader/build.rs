@@ -21,7 +21,7 @@ fn main() {
     let relative_target_dir = format!("target/{}", env::var("PROFILE").unwrap());
 
     fs::write(
-        &dest_path,
+        dest_path,
         vec![
             // const_declaration!(TARGET_DIR = target_dir),
             const_declaration!(pub RELATIVE_TARGET_DIR = relative_target_dir),

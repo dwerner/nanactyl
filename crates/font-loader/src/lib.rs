@@ -48,7 +48,7 @@ impl FontRenderer {
         filename: &str,
     ) -> Result<(u32, u32), Error> {
         let font_path = self.fonts_path.join(font_family);
-        let data = fs::read(&font_path)?;
+        let data = fs::read(font_path)?;
         let font = Font::try_from_vec(data).ok_or(Error::NoFontData)?;
 
         // The font size to use

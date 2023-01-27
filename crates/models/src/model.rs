@@ -80,13 +80,13 @@ impl Model {
         let mtl_file_path = &obj.material.as_ref().ok_or(LoadError::NoMaterial)?;
 
         let base_filename = filename.as_ref().to_path_buf();
-        let base_path = base_filename.clone().parent().unwrap().to_path_buf();
+        let base_path = base_filename.parent().unwrap().to_path_buf();
         let mut material_path = base_path.clone();
         material_path.push(mtl_file_path);
 
         let mtl = Mtl::load(&material_path).map_err(LoadError::Mtl)?;
         let diffuse_map_stem = mtl.diffuse_map_filename.ok_or(LoadError::NoDiffuseMap)?;
-        let mut diffuse_map_path = base_path.clone();
+        let mut diffuse_map_path = base_path;
         diffuse_map_path.push(diffuse_map_stem);
         let diffuse_map_data =
             image::open(&diffuse_map_path).map_err(|err| LoadError::UnableToLoadImage {

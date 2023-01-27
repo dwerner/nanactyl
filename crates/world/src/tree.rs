@@ -68,7 +68,7 @@ where
     }
 
     /// Iterate over nodes in a depth-first manner.
-    pub fn depth_first_iter<'a>(&'a self) -> DepthFirstIterator<'a, V> {
+    pub fn depth_first_iter(&'_ self) -> DepthFirstIterator<V> {
         DepthFirstIterator::new(self, 0)
     }
 }

@@ -26,11 +26,11 @@ pub extern "C" fn update(world: &mut World, dt: &Duration) {
         let action_scale = since_last_tick.as_micros() as f32 / 1000.0 / 1000.0;
         if since_last_tick > World::SIM_TICK_DELAY {
             {
-                if let Some(server_controller) = world.server_controller_state.clone() {
+                if let Some(server_controller) = world.server_controller_state {
                     move_camera_based_on_controller_state(world, &server_controller, 0u32.into())
                         .unwrap();
                 }
-                if let Some(client_controller) = world.client_controller_state.clone() {
+                if let Some(client_controller) = world.client_controller_state {
                     move_camera_based_on_controller_state(world, &client_controller, 1u32.into())
                         .unwrap();
                 }

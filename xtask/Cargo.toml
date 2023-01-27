@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 duct = "0.13"
 structopt = "0.3"
+colorful = "0.2"

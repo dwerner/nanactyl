@@ -22,6 +22,7 @@ members = [
     # binaries
     "crates/bin/nshell",
 
+    "xtask",
 ]
 exclude = [
     # shaders

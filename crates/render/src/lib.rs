@@ -52,6 +52,8 @@ pub enum SceneError {
     World(world::WorldError),
 }
 
+/// "Declarative" style api attempt - don't expose any renderer details/buffers,
+/// instead have RenderState track them
 pub struct RenderState {
     pub updates: u64,
     pub win_ptr: WinPtr,
@@ -81,9 +83,9 @@ impl RenderState {
         Arc::new(Mutex::new(self))
     }
 
-    // "Declarative" style api attempt - don't expose any renderer details/buffers,
-    // instead have RenderState track them
-
+    /// Queue a model for upload to the GPU. This is done by adding it to a
+    /// queue on RenderState, and from there it is uploaded at a plugin-defined
+    /// point.
     pub fn queue_model_for_upload(
         &mut self,
         index: ModelIndex,

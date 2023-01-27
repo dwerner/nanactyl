@@ -16,7 +16,7 @@ use histogram::Histogram;
 
 const MSG_LEN: usize = size_of::<Message>();
 pub const PAYLOAD_LEN: usize = 1024;
-const MAX_UNACKED_PACKETS: usize = 32;
+const MAX_UNACKED_PACKETS: usize = 8;
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcError {

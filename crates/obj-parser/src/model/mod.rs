@@ -135,26 +135,24 @@ impl ObjObject {
     #[inline]
     fn get_vt_tuple(&self, face_index: &FaceIndex) -> (f32, f32, f32) {
         let &FaceIndex(_, vt, _) = face_index;
-        if let Some(vt) = vt {
-            match self.texture_coords[(vt as usize) - 1] {
+        match vt {
+            Some(vt) => match self.texture_coords[(vt as usize) - 1] {
                 ObjLine::TextureUVW(u, v, w) => (u, v, w.unwrap_or(0.0)),
                 _ => panic!("not a vertex"),
-            }
-        } else {
-            (0.0, 0.0, 0.0)
+            },
+            None => (0.0, 0.0, 0.0),
         }
     }
 
     #[inline]
     fn get_vn_tuple(&self, face_index: &FaceIndex) -> (f32, f32, f32) {
         let &FaceIndex(_, _, vn) = face_index;
-        if let Some(vn) = vn {
-            match self.normals[(vn as usize) - 1] {
+        match vn {
+            Some(vn) => match self.normals[(vn as usize) - 1] {
                 ObjLine::Normal(x, y, z) => (x, y, z),
                 _ => panic!("not a vertex"),
-            }
-        } else {
-            (0.0, 0.0, 0.0)
+            },
+            None => (0.0, 0.0, 0.0),
         }
     }
 

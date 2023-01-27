@@ -150,6 +150,10 @@ impl Mesh {
         Mesh { vertices, indices }
     }
 
+    /// Load a mesh from the given obj file at filename.
+    /// TODO:
+    ///     - reduce the use of tuples here
+    ///     - similarly reduce the copying that is happening
     pub fn load(filename: impl AsRef<Path>) -> Result<(Self, Obj), LoadError> {
         let obj = Obj::load(&filename).map_err(LoadError::Obj)?;
         let object = {

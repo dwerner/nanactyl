@@ -22,10 +22,12 @@ fn main() {
 
     fs::write(
         dest_path,
-        vec![
-            // const_declaration!(TARGET_DIR = target_dir),
-            const_declaration!(pub RELATIVE_TARGET_DIR = relative_target_dir),
-        ]
+        vec![const_declaration!(
+            // The `const` is generated with a &'static str, and this is
+            // considered by clippy to be a redundant lifetime.
+            #[allow(clippy::redundant_static_lifetimes)]
+            pub RELATIVE_TARGET_DIR = relative_target_dir
+        )]
         .join("\n"),
     )
     .unwrap();

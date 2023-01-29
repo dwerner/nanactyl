@@ -40,16 +40,20 @@ pub enum RenderStateError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum SceneError {
-    #[error("no camera found in scene")]
-    NoCameraFound,
+    #[error("query error {0}")]
+    Query(#[from] SceneQueryError),
+    #[error("world error {0:?}")]
+    World(world::WorldError),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum SceneQueryError {
     #[error("thing with id {0:?} not found in scene")]
     ThingNotFound(Identity),
     #[error("no phys facet at index {0:?}")]
     NoSuchPhys(PhysicalIndex),
     #[error("no camera facet at index {0:?}")]
     NoSuchCamera(CameraIndex),
-    #[error("world error {0:?}")]
-    World(world::WorldError),
 }
 
 /// "Declarative" style api attempt - don't expose any renderer details/buffers,
@@ -947,6 +951,7 @@ impl VulkanBase {
     }
 
     //TODO: TaskWithShutdown that can record, record, record, then submit on close.
+    #[allow(clippy::too_many_arguments)]
     pub fn record_and_submit_commandbuffer<F>(
         device: &Device,
         command_buffer: vk::CommandBuffer,
@@ -1139,12 +1144,12 @@ impl LockWorldAndRenderState {
                         .world()
                         .facets
                         .physical(*phys)
-                        .ok_or_else(|| SceneError::NoSuchPhys(*phys))?;
+                        .ok_or(SceneQueryError::NoSuchPhys(*phys))?;
                     let cam = self
                         .world()
                         .facets
                         .camera(*camera)
-                        .ok_or_else(|| SceneError::NoSuchCamera(*camera))?;
+                        .ok_or(SceneQueryError::NoSuchCamera(*camera))?;
 
                     let right = cam.right(phys);
                     let forward = cam.forward(phys);
@@ -1163,7 +1168,7 @@ impl LockWorldAndRenderState {
                         .world()
                         .facets
                         .physical(*phys)
-                        .ok_or_else(|| SceneError::NoSuchPhys(*phys))?;
+                        .ok_or(SceneQueryError::NoSuchPhys(*phys))?;
 
                     SceneModelInstance {
                         model: *model,

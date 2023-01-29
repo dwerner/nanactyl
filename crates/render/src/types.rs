@@ -335,6 +335,7 @@ pub struct PipelineDesc {
 
 impl PipelineDesc {
     /// Create a new PipelineDesc.
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
         desc_set_layout: vk::DescriptorSetLayout,
         uniform_buffer: BufferAndMemory,

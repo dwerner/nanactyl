@@ -5,7 +5,6 @@ use world::World;
 
 #[no_mangle]
 pub extern "C" fn load(world: &mut World) {
-    println!("stuff");
     let ico_model = models::Model::load(
         "assets/models/static/tank.obj",
         "assets/shaders/vertex_rustgpu.spv",
@@ -74,7 +73,7 @@ pub extern "C" fn load(world: &mut World) {
     }
 
     println!(
-        "loaded asset loader plugin (updates {}) - models {}",
+        "loaded asset loader plugin (updates {}) - models {})",
         world.updates,
         world.facets.model_iter().count()
     );

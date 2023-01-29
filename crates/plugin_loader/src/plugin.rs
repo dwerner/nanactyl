@@ -125,9 +125,9 @@ where
         plugin_name: &str,
     ) -> Result<Self, PluginError> {
         let filename = if cfg!(windows) {
-            format!("{}/{}.dll", plugin_dir, plugin_name)
+            format!("{plugin_dir}/{plugin_name}.dll")
         } else {
-            format!("{}/lib{}.so", plugin_dir, plugin_name)
+            format!("{plugin_dir}/lib{plugin_name}.so")
         };
         let path = PathBuf::from(filename);
         Self::open_at(spawner, path, plugin_name, 120)
@@ -330,9 +330,8 @@ where
     fn drop(&mut self) {
         if let Some(lib) = self.lib.take() {
             let name = self.name();
-            lib.close().unwrap_or_else(|e| {
-                panic!("error closing plugin {} in drop() impl - {:?}", name, e)
-            });
+            lib.close()
+                .unwrap_or_else(|e| panic!("error closing plugin {name} in drop() impl - {e:?}"));
             self.libcache.take();
         }
     }

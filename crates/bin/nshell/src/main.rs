@@ -14,7 +14,7 @@ use input::wire::InputState;
 use input::{DeviceEvent, EngineEvent};
 use plugin_loader::{Plugin, PluginCheck, PluginError};
 use render::{LockWorldAndRenderState, RenderState};
-use world::World;
+use world::{World, WorldLockAndControllerState};
 
 const FRAME_LENGTH_MS: u64 = 16;
 
@@ -55,7 +55,7 @@ fn main() {
 
     // FIXME: currently the server-side must be started first, and waits for a
     // client to connect here.
-    let world = world::World::new(opts.connect_to_server, true);
+    let world = world::World::new(opts.connect_to_server);
     let world = Arc::new(Mutex::new(world));
 
     future::block_on(async move {
@@ -73,6 +73,7 @@ fn main() {
 
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();
 
+        // ash renderer
         let ash_renderer_plugin = Plugin::<RenderState>::open_from_target_dir(
             spawners[0].clone(),
             &opts.plugin_dir,
@@ -80,6 +81,8 @@ fn main() {
         )
         .unwrap()
         .into_shared();
+
+        // world update
         let world_update_plugin = Plugin::<World>::open_from_target_dir(
             spawners[0].clone(),
             &opts.plugin_dir,
@@ -87,6 +90,17 @@ fn main() {
         )
         .unwrap()
         .into_shared();
+
+        // net sync
+        let net_sync_plugin = Plugin::<WorldLockAndControllerState>::open_from_target_dir(
+            spawners[0].clone(),
+            &opts.plugin_dir,
+            "net_sync_plugin",
+        )
+        .unwrap()
+        .into_shared();
+
+        // asset loader
         let asset_loader_plugin = Plugin::<World>::open_from_target_dir(
             spawners[0].clone(),
             &opts.plugin_dir,
@@ -94,6 +108,8 @@ fn main() {
         )
         .unwrap()
         .into_shared();
+
+        // world -> render state updater
         let world_render_update_plugin =
             Plugin::<render::LockWorldAndRenderState>::open_from_target_dir(
                 spawners[0].clone(),
@@ -121,14 +137,17 @@ fn main() {
         }
 
         let mut frame = 0u64;
-        let mut own_controllers: [InputState; 2] = Default::default();
+        let own_controllers: [InputState; 2] = Default::default();
+        let own_controllers = Arc::new(Mutex::new(own_controllers));
+
         'frame_loop: loop {
             frame_start = Instant::now();
 
             platform_context.pump_events();
-            if let Some(EngineEvent::ExitToDesktop) =
-                handle_input_events(platform_context.peek_events(), &mut own_controllers)
-            {
+            if let Some(EngineEvent::ExitToDesktop) = handle_input_events(
+                platform_context.peek_events(),
+                &mut *own_controllers.lock().await,
+            ) {
                 break 'frame_loop;
             }
 
@@ -139,6 +158,11 @@ fn main() {
                 check_plugin(
                     &mut *world_render_update_plugin.lock().await,
                     &mut LockWorldAndRenderState::lock(&world, &render_state).await,
+                );
+
+                check_plugin(
+                    &mut *net_sync_plugin.lock().await,
+                    &mut WorldLockAndControllerState::lock(&world, &own_controllers).await,
                 );
 
                 let _check_plugins = futures_util::future::join(
@@ -168,8 +192,16 @@ fn main() {
                 .await
                 .unwrap();
 
-            let nworld = Arc::clone(&world);
-            let _join_result = futures_util::future::join3(
+            let _update_result = spawners[3]
+                .spawn(call_net_sync_plugin(
+                    &world,
+                    &own_controllers,
+                    &net_sync_plugin,
+                    last_frame_elapsed,
+                ))
+                .await;
+
+            let _join_result = futures_util::future::join(
                 spawners[1].spawn(call_plugin_update_async(
                     &ash_renderer_plugin,
                     &render_state,
@@ -180,32 +212,6 @@ fn main() {
                     &world,
                     &last_frame_elapsed,
                 )),
-                spawners[3].spawn(Box::pin(async move {
-                    let mut world = nworld.lock().await;
-
-                    // TODO: fix sized issue (try > 96 items)
-                    if world.is_server() && world.things.len() >= 96 {
-                        match world.pump_connection_as_server().await {
-                            Ok(controller_state) => {
-                                //println!("got controller state from client
-                                // {controller_state:?}");
-                                // TODO: support N controllers, or just one per client?
-                                world.set_client_controller_state(controller_state[0]);
-                                world.set_server_controller_state(own_controllers[0]);
-                            }
-                            Err(err) => println!("error pumping server connection {:?}", err),
-                        }
-                    } else {
-                        match world.pump_connection_as_client(own_controllers).await {
-                            Err(world::WorldError::Network(network::RpcError::Receive(kind)))
-                                if kind.kind() == std::io::ErrorKind::TimedOut => {}
-                            Err(err) => {
-                                println!("error pumping client connection {:?}", err);
-                            }
-                            _ => (),
-                        }
-                    };
-                })),
             )
             .await;
 
@@ -231,6 +237,21 @@ fn call_world_render_state_update_plugin(
     let plugin = Arc::clone(plugin);
     Box::pin(async move {
         let mut state = render::LockWorldAndRenderState::lock(&world, &render_state).await;
+        plugin.lock().await.call_update(&mut state, &dt).await
+    })
+}
+
+fn call_net_sync_plugin(
+    world: &Arc<Mutex<World>>,
+    controller_state: &Arc<Mutex<[InputState; 2]>>,
+    plugin: &Arc<Mutex<Plugin<WorldLockAndControllerState>>>,
+    dt: Duration,
+) -> Pin<Box<impl Future<Output = Result<Duration, PluginError>> + Send + Sync>> {
+    let world = Arc::clone(world);
+    let controller_state = Arc::clone(controller_state);
+    let plugin = Arc::clone(plugin);
+    Box::pin(async move {
+        let mut state = WorldLockAndControllerState::lock(&world, &controller_state).await;
         plugin.lock().await.call_update(&mut state, &dt).await
     })
 }
@@ -274,13 +295,13 @@ fn handle_input_events(
                     controllers[*id as usize] = Default::default();
                 }
                 EngineEvent::InputDevice(input_device_event) => {
-                    println!("input device event {:?}", input_device_event);
+                    println!("input device event {input_device_event:?}");
                 }
                 EngineEvent::Input(input_event) => {
                     controllers[0].update_from_event(input_event);
                 }
                 ret @ EngineEvent::ExitToDesktop => {
-                    println!("Got {:?}", ret);
+                    println!("Got exit with code {ret:?}");
                     return Some(ret.clone());
                 }
             }
@@ -325,6 +346,6 @@ where
         Err(o @ PluginError::ErrorOnOpen(_)) => {
             println!("error opening plugin {}: {:?}", plugin.name(), o);
         }
-        Err(err) => panic!("unexpected error checking plugin - {:?}", err),
+        Err(err) => panic!("unexpected error checking plugin - {err:?}"),
     }
 }

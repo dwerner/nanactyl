@@ -17,11 +17,18 @@ impl From<u16> for CameraIndex {
     }
 }
 
+impl From<CameraIndex> for u16 {
+    fn from(value: CameraIndex) -> Self {
+        value.0 as u16
+    }
+}
+
 impl From<u32> for CameraIndex {
     fn from(value: u32) -> Self {
         Self(value)
     }
 }
+
 impl From<u16> for PhysicalIndex {
     fn from(value: u16) -> Self {
         Self(value as u32)
@@ -33,11 +40,25 @@ impl From<u32> for PhysicalIndex {
         Self(value)
     }
 }
+
+impl From<PhysicalIndex> for u32 {
+    fn from(value: PhysicalIndex) -> Self {
+        value.0
+    }
+}
+
 impl From<u16> for ModelIndex {
     fn from(value: u16) -> Self {
         Self(value as u32)
     }
 }
+
+impl From<ModelIndex> for u16 {
+    fn from(value: ModelIndex) -> Self {
+        value.0 as u16
+    }
+}
+
 impl From<u32> for ModelIndex {
     fn from(value: u32) -> Self {
         Self(value)
@@ -61,6 +82,7 @@ impl From<usize> for PhysicalIndex {
         Self(value as u32)
     }
 }
+
 impl From<usize> for ModelIndex {
     fn from(value: usize) -> Self {
         Self(value as u32)

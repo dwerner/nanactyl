@@ -2,13 +2,13 @@
 
 use std::io;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use bytemuck::{Pod, PodCastError, Zeroable};
-use histogram::Histogram;
+use async_lock::{Mutex, MutexGuardArc};
 use input::wire::InputState;
 use models::Model;
-use network::{Peer, RpcError, PAYLOAD_LEN};
+use network::{Connection, RpcError};
 use scene::Scene;
 use thing::{
     CameraFacet, CameraIndex, HealthFacet, HealthIndex, ModelFacet, ModelIndex, PhysicalFacet,
@@ -21,7 +21,27 @@ mod tree;
 
 pub use nalgebra::{Matrix4, Vector3};
 
-use crate::wire::{decompress_world_updates, NUM_UPDATES_PER_MSG};
+#[repr(C)]
+pub struct WorldLockAndControllerState {
+    pub world: MutexGuardArc<World>,
+    pub controller_state: MutexGuardArc<[InputState; 2]>,
+}
+
+impl WorldLockAndControllerState {
+    /// Locks the world and render state so that the renderstate may be updated
+    /// from the world.
+    pub async fn lock(
+        world: &Arc<Mutex<World>>,
+        controller_state: &Arc<Mutex<[InputState; 2]>>,
+    ) -> Self {
+        let world = Arc::clone(world).lock_arc().await;
+        let controller_state = Arc::clone(controller_state).lock_arc().await;
+        Self {
+            world,
+            controller_state,
+        }
+    }
+}
 
 /// Identity of a game object. Used to look up game objects (`Thing`s) within a
 /// `World`.
@@ -97,142 +117,6 @@ impl WorldFacets {
     }
 }
 
-pub mod wire {
-
-    use super::*;
-
-    pub(crate) const NUM_UPDATES_PER_MSG: u32 = 96;
-
-    #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
-    #[repr(C)]
-    pub struct WorldUpdate {
-        pub id: u32,
-        pub thing: WireThing,
-        pub position: WirePosition,
-
-        // FOR RIGHT NOW, only support y axis rotation
-        pub y_rotation: f32,
-    }
-
-    impl From<&Thing> for WireThing {
-        fn from(thing: &Thing) -> Self {
-            match thing.facets {
-                thing::ThingType::Camera { phys, camera } => Self {
-                    tag: 0,
-                    phys: phys.0,
-                    facet: camera.0 as u16,
-                    _pad: 0,
-                },
-                thing::ThingType::ModelObject { phys, model } => Self {
-                    tag: 1,
-                    phys: phys.0,
-                    facet: model.0 as u16,
-                    _pad: 0,
-                },
-            }
-        }
-    }
-
-    impl From<WireThing> for Thing {
-        fn from(wt: WireThing) -> Self {
-            match wt {
-                WireThing {
-                    tag: 0,
-                    phys,
-                    facet,
-                    ..
-                } => Thing::camera(phys.into(), facet.into()),
-                WireThing {
-                    tag: 1,
-                    phys,
-                    facet,
-                    ..
-                } => Thing::model(phys.into(), facet.into()),
-                _ => unreachable!(),
-            }
-        }
-    }
-
-    #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
-    #[repr(C)]
-    pub struct WireThing {
-        pub tag: u8,
-        _pad: u8,
-        pub facet: u16,
-        pub phys: u32,
-    }
-
-    #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
-    #[repr(C)]
-    pub struct WirePosition(pub f32, pub f32, pub f32);
-
-    const ZSTD_LEVEL: i32 = 3;
-
-    /// Compress an update with zstd.
-    pub(crate) fn compress_world_updates(values: &[WorldUpdate]) -> Result<Vec<u8>, WorldError> {
-        let mut sized: [WorldUpdate; NUM_UPDATES_PER_MSG as usize] =
-            [WorldUpdate::default(); NUM_UPDATES_PER_MSG as usize];
-        sized.copy_from_slice(values);
-        let mut compressed_bytes = vec![];
-        let read_bytes = bytemuck::bytes_of(&sized);
-        let encoded =
-            zstd::encode_all(read_bytes, ZSTD_LEVEL).map_err(WorldError::UpdateCompression)?;
-        let len = encoded.len();
-        let len = len.min(PAYLOAD_LEN) as u16;
-        let len = bytemuck::bytes_of(&len);
-        compressed_bytes.extend(len);
-        compressed_bytes.extend(encoded);
-        Ok(compressed_bytes)
-    }
-
-    /// Decompress an update using zstd.
-    pub(crate) fn decompress_world_updates(
-        compressed: &[u8],
-    ) -> Result<Vec<WorldUpdate>, WorldError> {
-        let mut decoded_bytes = vec![];
-        let len: &u16 = bytemuck::from_bytes(&compressed[0..2]);
-        let len = *len;
-        let len = len.min(PAYLOAD_LEN as u16);
-        let decoded = zstd::decode_all(&compressed[2..2 + len as usize])
-            .map_err(WorldError::UpdateDecompression)?;
-        decoded_bytes.extend(decoded);
-        let updates: &[WorldUpdate; NUM_UPDATES_PER_MSG as usize] =
-            bytemuck::try_from_bytes(&decoded_bytes)
-                .map_err(|err| WorldError::FromBytes(err, decoded_bytes.len()))?;
-        Ok(updates.to_vec())
-    }
-
-    #[cfg(test)]
-    mod tests {
-
-        use super::*;
-
-        #[test]
-        fn test_compression_roundtrip() {
-            let values = (0..NUM_UPDATES_PER_MSG)
-                .map(|i| {
-                    let physical = PhysicalIndex(i);
-                    let model = ModelIndex(i);
-                    let model = Thing::model(physical, model);
-                    let wt: WireThing = (&model).into();
-                    let wpos = WirePosition(i as f32, i as f32, i as f32);
-                    WorldUpdate {
-                        id: i,
-                        thing: wt,
-                        position: wpos,
-                        y_rotation: 0.0,
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            let compressed_bytes = compress_world_updates(&values).unwrap();
-            println!("compressed_bytes {}", compressed_bytes.len());
-            let decompressed = decompress_world_updates(&compressed_bytes).unwrap();
-            assert_eq!(values.len(), decompressed.len());
-        }
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum WorldError {
     #[error("Too many objects added to world")]
@@ -249,9 +133,6 @@ pub enum WorldError {
 
     #[error("Error casting update from bytes {0:?}")]
     UpdateFromBytes(RpcError),
-
-    #[error("Error pod casting update from bytes {0:?} len {1}")]
-    FromBytes(PodCastError, usize),
 
     #[error("no camera facet at index {0:?}")]
     NoSuchCamera(CameraIndex),
@@ -276,53 +157,21 @@ pub struct World {
     pub last_tick: Instant,
 
     // TODO: support more than one connection, for servers
-    connection: Peer,
+    pub connection: Option<Box<dyn Connection + Send + Sync + 'static>>,
     pub client_controller_state: Option<InputState>,
     pub server_controller_state: Option<InputState>,
 
-    maybe_server_addr: Option<SocketAddr>,
+    pub maybe_server_addr: Option<SocketAddr>,
 }
 
 impl World {
     pub const SIM_TICK_DELAY: Duration = Duration::from_millis(8);
 
-    pub fn rtt_micros(&self) -> Histogram {
-        self.connection.rtt_micros.clone()
-    }
-
     /// Create a new client or server binding. Currently, in server mode, this
     /// waits for a client to connect before continuing.
     ///
     /// FIXME: make this /// independent of any connecting clients.
-    pub fn new(maybe_server_addr: Option<SocketAddr>, wait_for_client: bool) -> Self {
-        let connection = match maybe_server_addr {
-            Some(addr) => {
-                futures_lite::future::block_on(async move {
-                    let mut server = Peer::bind_dest("0.0.0.0:12001", &addr.to_string())
-                        .await
-                        .unwrap();
-
-                    // initial message to client
-                    server.send(b"moar plz").await.unwrap();
-                    server
-                })
-            }
-            None => {
-                // We will run as a server, accepting new connections.
-                futures_lite::future::block_on(async move {
-                    let mut client = Peer::bind_only("0.0.0.0:12002").await.unwrap();
-                    if wait_for_client {
-                        client.recv().await.unwrap();
-                    } else {
-                        client
-                            .recv_with_timeout(Duration::from_millis(8))
-                            .await
-                            .unwrap();
-                    }
-                    client
-                })
-            }
-        };
+    pub fn new(maybe_server_addr: Option<SocketAddr>) -> Self {
         Self {
             maybe_camera: None,
             things: vec![],
@@ -332,7 +181,7 @@ impl World {
             run_life: Duration::from_millis(0),
             last_tick: Instant::now(),
             maybe_server_addr,
-            connection,
+            connection: None,
             client_controller_state: None,
             server_controller_state: None,
         }
@@ -386,89 +235,6 @@ impl World {
 
     pub fn set_server_controller_state(&mut self, state: InputState) {
         self.server_controller_state = Some(state);
-    }
-
-    pub async fn pump_connection_as_server(&mut self) -> Result<[InputState; 2], WorldError> {
-        // 1. construct a group of all world state.
-        let packet = self
-            .things
-            .iter()
-            .enumerate()
-            .map(|(idx, thing)| {
-                let id = idx as u32;
-                let thing: wire::WireThing = thing.into();
-                let p = &self.facets.physical[thing.phys as usize];
-                wire::WorldUpdate {
-                    id,
-                    thing,
-                    position: wire::WirePosition(p.position.x, p.position.y, p.position.z),
-                    y_rotation: p.angles.y,
-                }
-            })
-            .take(NUM_UPDATES_PER_MSG as usize)
-            .collect::<Vec<_>>();
-        // 2. Compress that
-        let compressed = wire::compress_world_updates(&packet)?;
-        let _seq = self.connection.send(&compressed).await;
-        let client_controller_data = self
-            .connection
-            .recv_with_timeout(Duration::from_millis(0))
-            .await
-            .map_err(WorldError::Network)?;
-
-        let payload = client_controller_data
-            .try_ref()
-            .map_err(WorldError::Network)?
-            .payload;
-        let len: &u16 = bytemuck::from_bytes(&payload[0..2]);
-        let len = *len;
-        let cast: &[InputState; 2] = bytemuck::try_from_bytes(&payload[2..2 + len as usize])
-            .map_err(|err| WorldError::FromBytes(err, payload.len()))?;
-        Ok(*cast)
-    }
-
-    pub async fn pump_connection_as_client(
-        &mut self,
-        controllers: [InputState; 2],
-    ) -> Result<(), WorldError> {
-        let data = self
-            .connection
-            .recv_with_timeout(Duration::from_millis(0))
-            .await
-            .map_err(WorldError::Network)?;
-        let decompressed_updates = decompress_world_updates(
-            &data.try_ref().map_err(WorldError::UpdateFromBytes)?.payload,
-        )?;
-        for wire::WorldUpdate {
-            id,
-            thing,
-            position,
-            y_rotation,
-        } in decompressed_updates
-        {
-            let thing: Thing = thing.into();
-            match self.things.get_mut(id as usize) {
-                Some(t) => *t = thing,
-                None => println!("thing not found at index {}", id),
-            };
-            match self.facets.physical.get_mut(id as usize) {
-                Some(phys) => {
-                    phys.position = Vector3::new(position.0, position.1, position.2);
-                    phys.angles.y = y_rotation;
-                }
-                None => println!("no physical facet at index {}", position.0),
-            }
-        }
-
-        let mut msg_bytes = vec![];
-        let controller_state_bytes = bytemuck::bytes_of(&controllers);
-        let len = controller_state_bytes.len().min(PAYLOAD_LEN);
-        msg_bytes.extend(bytemuck::bytes_of(&(len as u16)));
-        msg_bytes.extend(controller_state_bytes);
-
-        // TODO: make use of this result properly
-        let _ = self.connection.send(&msg_bytes).await;
-        Ok(())
     }
 
     pub fn is_server(&self) -> bool {

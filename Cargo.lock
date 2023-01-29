@@ -212,6 +212,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a40729d2133846d9ed0ea60a8b9541bccddab49cd30f0715a1da672fe9a2524"
 
 [[package]]
+name = "async-trait"
+version = "0.1.63"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eff18d764974428cf3a9328e23fc5c986f5fbed46e6cd4cdf42544df5d297ec1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1187,16 +1198,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "network"
+name = "net_sync_plugin"
 version = "0.1.0"
 dependencies = [
  "async-io",
  "async-net",
+ "async-trait",
  "bitvec",
  "bytemuck",
  "futures-lite",
- "hex",
  "histogram",
+ "input",
+ "network",
+ "thiserror",
+ "world",
+ "zstd",
+]
+
+[[package]]
+name = "network"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytemuck",
+ "futures-lite",
+ "hex",
  "smol-potat",
  "thiserror",
 ]
@@ -2256,7 +2282,6 @@ dependencies = [
  "network",
  "parry3d",
  "thiserror",
- "zstd",
 ]
 
 [[package]]

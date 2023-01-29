@@ -1163,7 +1163,7 @@ fn upload_models(
     let mut src_images = Vec::new();
     let mut completed_uploads = Vec::new();
     for (index, model) in upload_queue.drain(..) {
-        println!("loading model at {:?}", index);
+        println!("loading model at {index:?}");
         println!("material {:?}", model.material.path);
 
         let command_buffers = w.allocate_command_buffers(pool).unwrap();

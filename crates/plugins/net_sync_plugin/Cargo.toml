@@ -1,0 +1,21 @@
+[package]
+name = "net_sync_plugin"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bitvec = { version = "1.0.1" }
+async-io = "1.8.0"
+histogram = "0.6.9"
+async-net = "1.7.0"
+async-trait = "0.1"
+futures-lite = "1.12"
+bytemuck = { version = "1.12.1", features = ["derive", "extern_crate_std"] }
+thiserror = "1"
+zstd = "0.12.2+zstd.1.5.2"
+input = { path = "../../input" }
+world = { path = "../../world" }
+network = { path = "../../network" }

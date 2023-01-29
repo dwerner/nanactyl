@@ -4,7 +4,9 @@
 
 use std::time::Duration;
 
-use render::{LockWorldAndRenderState, RenderScene, SceneError, SceneModelInstance};
+use render::{
+    LockWorldAndRenderState, RenderScene, SceneError, SceneModelInstance, SceneQueryError,
+};
 use world::Vector3;
 
 #[no_mangle]
@@ -55,12 +57,13 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
                     .world()
                     .facets
                     .physical(*phys)
-                    .ok_or_else(|| SceneError::NoSuchPhys(*phys))?;
+                    .ok_or(SceneQueryError::NoSuchPhys(*phys))?;
+
                 let cam = zelf
                     .world()
                     .facets
                     .camera(*camera)
-                    .ok_or_else(|| SceneError::NoSuchCamera(*camera))?;
+                    .ok_or(SceneQueryError::NoSuchCamera(*camera))?;
 
                 // For Now: position a model with an offset to the camera.
                 let right = cam.right(phys);
@@ -81,7 +84,7 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
                     .world()
                     .facets
                     .physical(*phys)
-                    .ok_or_else(|| SceneError::NoSuchPhys(*phys))?;
+                    .ok_or(SceneQueryError::NoSuchPhys(*phys))?;
 
                 SceneModelInstance {
                     model: *model,

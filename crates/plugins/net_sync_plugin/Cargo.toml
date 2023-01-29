@@ -19,3 +19,7 @@ zstd = "0.12.2+zstd.1.5.2"
 input = { path = "../../input" }
 world = { path = "../../world" }
 network = { path = "../../network" }
+
+[dev-dependencies]
+hex = "0.4.3"
+smol-potat = "1.1.2"

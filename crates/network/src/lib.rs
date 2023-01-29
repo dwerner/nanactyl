@@ -9,7 +9,11 @@ use std::time::Duration;
 use bytemuck::{AnyBitPattern, NoUninit, PodCastError};
 pub const PAYLOAD_LEN: usize = 1024;
 pub const MSG_LEN: usize = size_of::<Message>();
-pub const MAX_UNACKED_PACKETS: usize = 8;
+
+/// Maximum number of un-acked packets. u32 datatype is used as a bitvec, so the
+/// max value this can be is 32. TODO:
+///     - make this a parameter to Peer.
+pub const MAX_UNACKED_PACKETS: usize = 32;
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcError {

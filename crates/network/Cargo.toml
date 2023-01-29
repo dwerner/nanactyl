@@ -10,7 +10,3 @@ async-trait = "0.1"
 bytemuck = { version = "1.12.1", features = ["derive", "extern_crate_std"] }
 futures-lite = "1.12.0"
 thiserror = "1.0.32"
-
-[dev-dependencies]
-hex = "0.4.3"
-smol-potat = "1.1.2"

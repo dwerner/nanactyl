@@ -78,16 +78,9 @@ name = "ash_renderer_plugin"
 version = "0.1.0"
 dependencies = [
  "ash",
- "async-channel",
- "async-io",
  "bytemuck",
- "core_executor",
- "cstr",
- "image",
  "models",
- "platform",
  "render",
- "thiserror",
  "world",
 ]
 
@@ -1156,7 +1149,6 @@ name = "models"
 version = "0.1.0"
 dependencies = [
  "image",
- "nalgebra",
  "obj-parser",
  "thiserror",
 ]
@@ -1207,9 +1199,11 @@ dependencies = [
  "bitvec",
  "bytemuck",
  "futures-lite",
+ "hex",
  "histogram",
  "input",
  "network",
+ "smol-potat",
  "thiserror",
  "world",
  "zstd",
@@ -1221,9 +1215,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytemuck",
- "futures-lite",
- "hex",
- "smol-potat",
  "thiserror",
 ]
 
@@ -1252,8 +1243,6 @@ dependencies = [
  "futures-lite",
  "futures-util",
  "input",
- "models",
- "network",
  "platform",
  "plugin_loader",
  "render",
@@ -1462,7 +1451,6 @@ checksum = "6ac9a59f73473f1b8d852421e59e64809f025994837ef743615c6d0c5b305160"
 name = "platform"
 version = "0.1.0"
 dependencies = [
- "core_executor",
  "input",
  "raw-window-handle",
  "sdl2",
@@ -1480,7 +1468,6 @@ dependencies = [
  "core_executor",
  "cstr",
  "function_name",
- "futures-lite",
  "libc",
  "libloading",
  "log",
@@ -1698,7 +1685,6 @@ dependencies = [
  "ash",
  "ash-window",
  "async-lock",
- "core_executor",
  "image",
  "models",
  "nalgebra",
@@ -2270,12 +2256,7 @@ checksum = "447660ad36a13288b1db4d4248e857b510e8c3a225c822ba4fb748c0aafecffd"
 name = "world"
 version = "0.1.0"
 dependencies = [
- "async-io",
  "async-lock",
- "bytemuck",
- "core_executor",
- "futures-lite",
- "histogram",
  "input",
  "models",
  "nalgebra",
@@ -2297,7 +2278,6 @@ name = "world_update_plugin"
 version = "0.1.0"
 dependencies = [
  "input",
- "models",
  "world",
 ]
 

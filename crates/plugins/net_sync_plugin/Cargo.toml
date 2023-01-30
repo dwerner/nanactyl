@@ -7,18 +7,20 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-bitvec = { version = "1.0.1" }
-async-io = "1.8.0"
-histogram = "0.6.9"
-async-net = "1.7.0"
-async-trait = "0.1"
-futures-lite = "1.12"
-bytemuck = { version = "1.12.1", features = ["derive", "extern_crate_std"] }
-thiserror = "1"
-zstd = "0.12.2+zstd.1.5.2"
 input = { path = "../../input" }
 world = { path = "../../world" }
 network = { path = "../../network" }
+
+# workspace
+async-io = { workspace = true }
+async-net = { workspace = true }
+async-trait = { workspace = true }
+bitvec = { workspace = true }
+bytemuck = { workspace = true }
+histogram = { workspace = true }
+futures-lite = { workspace = true }
+thiserror = { workspace = true }
+zstd  = { workspace = true }
 
 [dev-dependencies]
 hex = "0.4.3"

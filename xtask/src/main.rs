@@ -2,9 +2,9 @@ use std::fs::File;
 use std::io::BufRead;
 use std::time::Duration;
 
+use colorful::Colorful;
 use duct::cmd;
 use structopt::StructOpt;
-use colorful::Colorful;
 
 #[derive(StructOpt, Debug)]
 enum Command {
@@ -13,7 +13,7 @@ enum Command {
     BuildShaders,
     BuildPlugin {
         #[structopt(short)]
-        plugin_name: String
+        plugin_name: String,
     },
     BuildAllPlugins,
     BuildAll,
@@ -39,8 +39,13 @@ macro_rules! server {
 
 fn main() {
     std::env::set_var("RUST_BACKTRACE", "full");
+    let rustflags = std::env::var("RUSTFLAGS").unwrap_or("".to_owned());
+    std::env::set_var(
+        "RUSTFLAGS",
+        format!("{rustflags} -Wunused-crate-dependencies"),
+    );
     let opts = Opts::from_args();
-    println!("printlnd: {:?}", opts.cmd);
+    println!("xtask : {:?}", opts.cmd);
     (|| -> Result<(), std::io::Error> {
         match opts.cmd {
             Some(Command::RunServerAndClient) => {
@@ -55,7 +60,7 @@ fn main() {
                 build_plugins()?;
                 Ok(())
             }
-            Some(Command::BuildPlugin{plugin_name}) => {
+            Some(Command::BuildPlugin { plugin_name }) => {
                 build_one_plugin(&plugin_name)?;
                 Ok(())
             }
@@ -94,7 +99,10 @@ fn build_one_plugin(plugin_name: &str) -> Result<(), std::io::Error> {
     let mut plugin_dir = project_root_dir.clone();
     plugin_dir.push(format!("crates/plugins/{plugin_name}"));
     client!("{plugin_dir:?}");
-    assert!(File::open(&plugin_dir)?.metadata()?.is_dir(), "{plugin_dir:?} doesn't correspond to a plugin.");
+    assert!(
+        File::open(&plugin_dir)?.metadata()?.is_dir(),
+        "{plugin_dir:?} doesn't correspond to a plugin."
+    );
     std::env::set_current_dir(plugin_dir)?;
     cmd!("cargo", "build", "--release").run()?;
     server!("Built plugin: crates/plugins/{plugin_name}.");

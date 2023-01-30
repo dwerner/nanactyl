@@ -39,7 +39,11 @@ macro_rules! server {
 
 fn main() {
     std::env::set_var("RUST_BACKTRACE", "full");
-    std::env::set_var("RUSTFLAGS", "-Wunused-crate-dependencies");
+    let rustflags = std::env::var("RUSTFLAGS").unwrap_or("".to_owned());
+    std::env::set_var(
+        "RUSTFLAGS",
+        format!("{rustflags} -Wunused-crate-dependencies"),
+    );
     let opts = Opts::from_args();
     println!("xtask : {:?}", opts.cmd);
     (|| -> Result<(), std::io::Error> {

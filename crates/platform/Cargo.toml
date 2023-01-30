@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sdl2 = { version = "0.35.2", features = ["raw-window-handle"] }
-raw-window-handle = "0.4.2"
 core_executor = { path = "../core_executor" }
 input = { path = "../input" }
-thiserror = "1.0.32"
+
+# workspace
+sdl2 = { workspace = true }
+raw-window-handle = { workspace = true }
+thiserror= { workspace = true }

@@ -1207,9 +1207,11 @@ dependencies = [
  "bitvec",
  "bytemuck",
  "futures-lite",
+ "hex",
  "histogram",
  "input",
  "network",
+ "smol-potat",
  "thiserror",
  "world",
  "zstd",
@@ -1222,8 +1224,6 @@ dependencies = [
  "async-trait",
  "bytemuck",
  "futures-lite",
- "hex",
- "smol-potat",
  "thiserror",
 ]
 

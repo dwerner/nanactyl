@@ -9,11 +9,12 @@ models = { path = "../models" }
 network = { path = "../network" }
 input = { path = "../input" }
 
-async-lock = "2.5.0"
-async-io = "1.9.0"
-bytemuck = "1.12.1"
-histogram = "0.6"
-futures-lite = "1.12.0"
-parry3d = "0.13.0"
-nalgebra = "0.32.1"
-thiserror = "1.0.33"
+# workspace deps
+async-lock = { workspace = true }
+async-io = { workspace = true }
+bytemuck = { workspace = true }
+histogram = { workspace = true }
+futures-lite = { workspace = true }
+parry3d = { workspace = true }
+nalgebra = { workspace = true }
+thiserror= { workspace = true }

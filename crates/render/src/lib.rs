@@ -270,24 +270,22 @@ impl VulkanBase {
         let mut attachments = Attachments::default();
         let color_attachment_refs = AttachmentsModifier::new(&mut attachments)
             .add_attachment(
-                vk::AttachmentDescription::builder()
+                *vk::AttachmentDescription::builder()
                     .format(format)
                     .samples(vk::SampleCountFlags::TYPE_1)
                     .load_op(vk::AttachmentLoadOp::CLEAR)
                     .store_op(vk::AttachmentStoreOp::STORE)
-                    .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-                    .build(),
+                    .final_layout(vk::ImageLayout::PRESENT_SRC_KHR),
                 vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
             )
             .into_refs();
         let depth_attachment_ref = AttachmentsModifier::new(&mut attachments).add_single(
-            vk::AttachmentDescription::builder()
+            *vk::AttachmentDescription::builder()
                 .samples(vk::SampleCountFlags::TYPE_1)
                 .load_op(vk::AttachmentLoadOp::CLEAR)
                 .format(vk::Format::D16_UNORM)
                 .initial_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-                .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-                .build(),
+                .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
             vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         );
         (attachments, color_attachment_refs, depth_attachment_ref)
@@ -300,25 +298,22 @@ impl VulkanBase {
         color_attachment_refs: &[vk::AttachmentReference],
         depth_attachment_ref: &vk::AttachmentReference,
     ) -> Result<vk::RenderPass, VulkanError> {
-        let dependencies = [vk::SubpassDependency::builder()
+        let dependencies = [*vk::SubpassDependency::builder()
             .src_subpass(vk::SUBPASS_EXTERNAL)
             .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
             .dst_access_mask(
                 vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
             )
-            .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-            .build()];
+            .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)];
         let subpass = vk::SubpassDescription::builder()
             .color_attachments(color_attachment_refs)
             .depth_stencil_attachment(depth_attachment_ref)
-            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-            .build();
-        let subpasses = vec![subpass];
-        let renderpass_create_info = vk::RenderPassCreateInfo::builder()
+            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS);
+        let subpasses = vec![*subpass];
+        let renderpass_create_info = *vk::RenderPassCreateInfo::builder()
             .attachments(all_attachments)
             .subpasses(&subpasses)
-            .dependencies(&dependencies)
-            .build();
+            .dependencies(&dependencies);
 
         unsafe { device.create_render_pass(&renderpass_create_info, None) }
             .map_err(VulkanError::VkResultToDo)
@@ -399,11 +394,10 @@ impl VulkanBase {
 
         required_extension_names.push(ext::DebugUtils::name().as_ptr());
 
-        let create_info = vk::InstanceCreateInfo::builder()
+        let create_info = *vk::InstanceCreateInfo::builder()
             .application_info(application_info)
             .enabled_layer_names(&layers_names_raw)
-            .enabled_extension_names(&required_extension_names)
-            .build();
+            .enabled_extension_names(&required_extension_names);
 
         let instance = unsafe { entry.create_instance(&create_info, None) }.unwrap();
 
@@ -432,19 +426,18 @@ impl VulkanBase {
             ..Default::default()
         };
         let priorities = [1.0];
-        let queue_create_infos = vk::DeviceQueueCreateInfo::builder()
+        let queue_create_infos = [*vk::DeviceQueueCreateInfo::builder()
             .queue_family_index(queue_family_index)
-            .queue_priorities(&priorities)
-            .build();
+            .queue_priorities(&priorities)];
 
         let device_create_info = vk::DeviceCreateInfo::builder()
-            .queue_create_infos(&[queue_create_infos])
+            .queue_create_infos(&queue_create_infos)
             .enabled_extension_names(&device_extension_names_raw)
-            .enabled_features(&features)
-            .build();
+            .enabled_features(&features);
 
         let device =
-            unsafe { instance.create_device(*physical_device, &device_create_info, None) }.unwrap();
+            unsafe { instance.create_device(*physical_device, &*device_create_info, None) }
+                .unwrap();
 
         let present_queue = unsafe { device.get_device_queue(queue_family_index, 0) };
         let surface_format = unsafe {
@@ -474,7 +467,7 @@ impl VulkanBase {
         println!("present_mode: {present_mode:?}");
 
         let swapchain_loader = Swapchain::new(&instance, &device);
-        let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
+        let swapchain_create_info = *vk::SwapchainCreateInfoKHR::builder()
             .surface(surface)
             .min_image_count(desired_image_count)
             .image_color_space(surface_format.color_space)
@@ -486,23 +479,20 @@ impl VulkanBase {
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(present_mode)
             .clipped(true)
-            .image_array_layers(1)
-            .build();
+            .image_array_layers(1);
 
         let swapchain =
             unsafe { swapchain_loader.create_swapchain(&swapchain_create_info, None) }.unwrap();
 
-        let pool_create_info = vk::CommandPoolCreateInfo::builder()
+        let pool_create_info = *vk::CommandPoolCreateInfo::builder()
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-            .queue_family_index(queue_family_index)
-            .build();
+            .queue_family_index(queue_family_index);
 
         let pool = unsafe { device.create_command_pool(&pool_create_info, None) }.unwrap();
-        let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+        let command_buffer_allocate_info = *vk::CommandBufferAllocateInfo::builder()
             .command_buffer_count(2)
             .command_pool(pool)
-            .level(vk::CommandBufferLevel::PRIMARY)
-            .build();
+            .level(vk::CommandBufferLevel::PRIMARY);
 
         let command_buffers =
             unsafe { device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap();
@@ -554,19 +544,17 @@ impl VulkanBase {
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )
         .unwrap();
-        let depth_image_allocate_info = vk::MemoryAllocateInfo::builder()
+        let depth_image_allocate_info = *vk::MemoryAllocateInfo::builder()
             .allocation_size(depth_image_memory_req.size)
-            .memory_type_index(depth_image_memory_index)
-            .build();
+            .memory_type_index(depth_image_memory_index);
 
         let depth_image_memory =
             unsafe { device.allocate_memory(&depth_image_allocate_info, None) }.unwrap();
 
         unsafe { device.bind_image_memory(depth_image, depth_image_memory, 0) }.unwrap();
 
-        let fence_create_info = vk::FenceCreateInfo::builder()
-            .flags(vk::FenceCreateFlags::SIGNALED)
-            .build();
+        let fence_create_info =
+            *vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
 
         let draw_commands_reuse_fence =
             unsafe { device.create_fence(&fence_create_info, None) }.unwrap();
@@ -582,7 +570,7 @@ impl VulkanBase {
             &[],
             &[],
             |device, setup_command_buffer| {
-                let layout_transition_barriers = vk::ImageMemoryBarrier::builder()
+                let layout_transition_barriers = *vk::ImageMemoryBarrier::builder()
                     .image(depth_image)
                     .dst_access_mask(
                         vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ
@@ -591,13 +579,11 @@ impl VulkanBase {
                     .new_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
                     .old_layout(vk::ImageLayout::UNDEFINED)
                     .subresource_range(
-                        vk::ImageSubresourceRange::builder()
+                        *vk::ImageSubresourceRange::builder()
                             .aspect_mask(vk::ImageAspectFlags::DEPTH)
                             .layer_count(1)
-                            .level_count(1)
-                            .build(),
-                    )
-                    .build();
+                            .level_count(1),
+                    );
 
                 unsafe {
                     device.cmd_pipeline_barrier(
@@ -613,18 +599,16 @@ impl VulkanBase {
             },
         );
 
-        let depth_image_view_info = vk::ImageViewCreateInfo::builder()
+        let depth_image_view_info = *vk::ImageViewCreateInfo::builder()
             .subresource_range(
-                vk::ImageSubresourceRange::builder()
+                *vk::ImageSubresourceRange::builder()
                     .aspect_mask(vk::ImageAspectFlags::DEPTH)
                     .level_count(1)
-                    .layer_count(1)
-                    .build(),
+                    .layer_count(1),
             )
             .image(depth_image)
             .format(depth_image_create_info.format)
-            .view_type(vk::ImageViewType::TYPE_2D)
-            .build();
+            .view_type(vk::ImageViewType::TYPE_2D);
 
         let depth_image_view =
             unsafe { device.create_image_view(&depth_image_view_info, None) }.unwrap();
@@ -735,7 +719,7 @@ impl VulkanBase {
         let swapchain_loader = Swapchain::new(&self.instance, &self.device);
         let old_swapchain_loader = mem::replace(&mut self.swapchain_loader, swapchain_loader);
 
-        let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
+        let swapchain_create_info = *vk::SwapchainCreateInfoKHR::builder()
             .surface(self.surface)
             .min_image_count(desired_image_count)
             .image_color_space(self.surface_format.color_space)
@@ -748,8 +732,7 @@ impl VulkanBase {
             .present_mode(present_mode)
             .clipped(true)
             .image_array_layers(1)
-            .old_swapchain(self.swapchain)
-            .build();
+            .old_swapchain(self.swapchain);
 
         let swapchain = unsafe {
             self.swapchain_loader
@@ -822,10 +805,9 @@ impl VulkanBase {
         )
         .unwrap();
 
-        let depth_image_allocate_info = vk::MemoryAllocateInfo::builder()
+        let depth_image_allocate_info = *vk::MemoryAllocateInfo::builder()
             .allocation_size(depth_image_memory_req.size)
-            .memory_type_index(depth_image_memory_index)
-            .build();
+            .memory_type_index(depth_image_memory_index);
 
         let depth_image_memory = unsafe {
             self.device
@@ -848,7 +830,7 @@ impl VulkanBase {
             &[],
             &[],
             |device, setup_command_buffer| {
-                let layout_transition_barriers = vk::ImageMemoryBarrier::builder()
+                let layout_transition_barriers = *vk::ImageMemoryBarrier::builder()
                     .image(depth_image)
                     .dst_access_mask(
                         vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ
@@ -857,13 +839,11 @@ impl VulkanBase {
                     .new_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
                     .old_layout(vk::ImageLayout::UNDEFINED)
                     .subresource_range(
-                        vk::ImageSubresourceRange::builder()
+                        *vk::ImageSubresourceRange::builder()
                             .aspect_mask(vk::ImageAspectFlags::DEPTH)
                             .layer_count(1)
-                            .level_count(1)
-                            .build(),
-                    )
-                    .build();
+                            .level_count(1),
+                    );
 
                 unsafe {
                     device.cmd_pipeline_barrier(
@@ -879,18 +859,16 @@ impl VulkanBase {
             },
         );
 
-        let depth_image_view_info = vk::ImageViewCreateInfo::builder()
+        let depth_image_view_info = *vk::ImageViewCreateInfo::builder()
             .subresource_range(
-                vk::ImageSubresourceRange::builder()
+                *vk::ImageSubresourceRange::builder()
                     .aspect_mask(vk::ImageAspectFlags::DEPTH)
                     .level_count(1)
-                    .layer_count(1)
-                    .build(),
+                    .layer_count(1),
             )
             .image(depth_image)
             .format(depth_image_create_info.format)
-            .view_type(vk::ImageViewType::TYPE_2D)
-            .build();
+            .view_type(vk::ImageViewType::TYPE_2D);
 
         let depth_image_view =
             unsafe { self.device.create_image_view(&depth_image_view_info, None) }
@@ -970,9 +948,8 @@ impl VulkanBase {
                 .unwrap();
             device.reset_fences(&[command_buffer_reuse_fence]).unwrap();
         }
-        let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
-            .build();
+        let command_buffer_begin_info = *vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         unsafe { device.begin_command_buffer(command_buffer, &command_buffer_begin_info) }.unwrap();
 
         command_buffer_fn(device, command_buffer);
@@ -980,12 +957,11 @@ impl VulkanBase {
         unsafe { device.end_command_buffer(command_buffer) }.unwrap();
 
         let command_buffers = vec![command_buffer];
-        let submit_info = vk::SubmitInfo::builder()
+        let submit_info = *vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
             .wait_dst_stage_mask(wait_mask)
             .command_buffers(&command_buffers)
-            .signal_semaphores(signal_semaphores)
-            .build();
+            .signal_semaphores(signal_semaphores);
 
         unsafe { device.queue_submit(submit_queue, &[submit_info], command_buffer_reuse_fence) }
             .unwrap();

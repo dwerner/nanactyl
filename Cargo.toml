@@ -32,8 +32,10 @@ exclude = [
 
 [profile.release]
 # lto leads to segfaults in vulkan libs, need to investigate
-# lto = true
-# strip = true
+lto = true
+strip = true
+# turn on debug info
+# debug = true
 
 # Individual crates "inherit dependencies that are shared.
 # plugins can depend on crates.

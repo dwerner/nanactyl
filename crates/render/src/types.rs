@@ -260,10 +260,9 @@ impl VertexInputAssembly {
     }
 
     pub fn input_state_info(&self) -> vk::PipelineVertexInputStateCreateInfo {
-        vk::PipelineVertexInputStateCreateInfo::builder()
+        *vk::PipelineVertexInputStateCreateInfo::builder()
             .vertex_attribute_descriptions(&self.attribute_descriptions)
             .vertex_binding_descriptions(&self.binding_descriptions)
-            .build()
     }
 }
 
@@ -450,11 +449,10 @@ impl ShaderStage {
     }
 
     pub fn create_info(&self) -> vk::PipelineShaderStageCreateInfo {
-        vk::PipelineShaderStageCreateInfo::builder()
+        *vk::PipelineShaderStageCreateInfo::builder()
             .module(self.module)
             .name(self.entry_point_name.as_c_str())
             .stage(self.stage)
             .flags(self.flags)
-            .build()
     }
 }

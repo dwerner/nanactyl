@@ -39,7 +39,7 @@ macro_rules! server {
 
 fn main() {
     std::env::set_var("RUST_BACKTRACE", "full");
-    let rustflags = std::env::var("RUSTFLAGS").unwrap_or_else(|| "".to_owned());
+    let rustflags = std::env::var("RUSTFLAGS").unwrap_or_else(|_| "".to_owned());
     std::env::set_var(
         "RUSTFLAGS",
         format!("{rustflags} -Wunused-crate-dependencies"),

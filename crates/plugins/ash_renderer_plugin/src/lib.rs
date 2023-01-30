@@ -281,9 +281,11 @@ impl Renderer {
 
             let sampler = bw.sampler()?;
             let desc_set_layout =
-                bw.descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?;
+                bw.create_descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?;
+
             let descriptor_sets =
                 bw.allocate_descriptor_sets(self.descriptor_pool, &[desc_set_layout])?;
+
             let descriptor_set = descriptor_sets[0];
 
             VulkanBaseWrapper::update_descriptor_set(
@@ -340,6 +342,11 @@ impl Renderer {
 
             let w = DeviceWrap(&bw.0.device);
 
+            let pipeline_layout = w.pipeline_layout(
+                std::mem::size_of::<Matrix4<f32>>() as u32,
+                &[desc_set_layout],
+            )?;
+
             pipeline_descriptions.insert(
                 *model_index,
                 PipelineDesc::create(
@@ -347,10 +354,7 @@ impl Renderer {
                     uniform_buffer,
                     descriptor_set,
                     sampler,
-                    w.pipeline_layout(
-                        std::mem::size_of::<Matrix4<f32>>() as u32,
-                        &[desc_set_layout],
-                    )?,
+                    pipeline_layout,
                     bw.viewports(),
                     bw.scissors(),
                     shader_stages,
@@ -553,30 +557,25 @@ impl<'a> VulkanBaseWrapper<'a> {
         tex_image_view: vk::ImageView,
         sampler: vk::Sampler,
     ) {
-        let uniform_descriptor = vk::DescriptorBufferInfo::builder()
+        let uniform_descriptors = [*vk::DescriptorBufferInfo::builder()
             .buffer(uniform_buffer.buffer)
-            .range(uniform_buffer.len as u64)
-            .offset(0)
-            .build();
+            .range(uniform_buffer.len as u64)];
 
-        let tex_descriptor = vk::DescriptorImageInfo {
-            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-            image_view: tex_image_view,
-            sampler,
-        };
+        let tex_descriptors = [*vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(tex_image_view)
+            .sampler(sampler)];
         let write_desc_sets = [
-            vk::WriteDescriptorSet::builder()
+            *vk::WriteDescriptorSet::builder()
                 .dst_set(descriptor_set)
                 .dst_binding(1)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&[uniform_descriptor])
-                .build(),
-            vk::WriteDescriptorSet::builder()
+                .buffer_info(&uniform_descriptors),
+            *vk::WriteDescriptorSet::builder()
                 .dst_set(descriptor_set)
                 .dst_binding(2)
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&[tex_descriptor])
-                .build(),
+                .image_info(&tex_descriptors),
         ];
         unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
     }
@@ -596,7 +595,7 @@ impl<'a> VulkanBaseWrapper<'a> {
 
     /// Creates a descriptor set layout from the provided `ShaderBindingDesc`
     /// struct.
-    pub fn descriptor_set_layout(
+    pub fn create_descriptor_set_layout(
         &self,
         bindings: Vec<ShaderBindingDesc>,
     ) -> Result<vk::DescriptorSetLayout, VulkanError> {
@@ -682,11 +681,10 @@ impl<'a> DeviceWrap<'a> {
         push_constants_len: u32,
         desc_set_layouts: &[vk::DescriptorSetLayout],
     ) -> Result<vk::PipelineLayout, VulkanError> {
-        let push_constant_ranges = [vk::PushConstantRange::builder()
+        let push_constant_ranges = [*vk::PushConstantRange::builder()
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .offset(0)
-            .size(push_constants_len)
-            .build()];
+            .size(push_constants_len)];
 
         let layout_create_info = vk::PipelineLayoutCreateInfo::builder()
             .set_layouts(desc_set_layouts)
@@ -834,9 +832,8 @@ impl<'a> DeviceWrap<'a> {
 
     /// Create a fence on the GPU.
     pub fn create_fence(&self) -> Result<vk::Fence, VulkanError> {
-        let fence_create_info = vk::FenceCreateInfo::builder()
-            .flags(vk::FenceCreateFlags::SIGNALED)
-            .build();
+        let fence_create_info =
+            vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
         unsafe { self.0.create_fence(&fence_create_info, None) }.map_err(VulkanError::VkResultToDo)
     }
 
@@ -848,14 +845,13 @@ impl<'a> DeviceWrap<'a> {
         dest_texture: &Texture,
         command_buffer: vk::CommandBuffer,
     ) {
-        let buffer_copy_regions = vk::BufferImageCopy::builder()
+        let buffer_copy_regions = [*vk::BufferImageCopy::builder()
             .image_subresource(
-                vk::ImageSubresourceLayers::builder()
+                *vk::ImageSubresourceLayers::builder()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .layer_count(1)
-                    .build(),
+                    .layer_count(1),
             )
-            .image_extent(image_extent.into());
+            .image_extent(image_extent.into())];
 
         unsafe {
             self.0.cmd_copy_buffer_to_image(
@@ -863,7 +859,7 @@ impl<'a> DeviceWrap<'a> {
                 src_image.buffer,
                 dest_texture.image,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[buffer_copy_regions.build()],
+                &buffer_copy_regions,
             )
         }
     }
@@ -967,8 +963,7 @@ impl<'a> DeviceWrap<'a> {
         command_buffer: vk::CommandBuffer,
     ) -> Result<(), VulkanError> {
         let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
-            .build();
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         unsafe {
             self.0
                 .begin_command_buffer(command_buffer, &command_buffer_begin_info)
@@ -984,8 +979,7 @@ impl<'a> DeviceWrap<'a> {
         let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
             .command_buffer_count(1)
             .command_pool(pool)
-            .level(vk::CommandBufferLevel::PRIMARY)
-            .build();
+            .level(vk::CommandBufferLevel::PRIMARY);
         unsafe {
             self.0
                 .allocate_command_buffers(&command_buffer_allocate_info)
@@ -1000,8 +994,7 @@ impl<'a> DeviceWrap<'a> {
     ) -> Result<vk::CommandPool, VulkanError> {
         let pool_create_info = vk::CommandPoolCreateInfo::builder()
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-            .queue_family_index(queue_family_index)
-            .build();
+            .queue_family_index(queue_family_index);
         unsafe { self.0.create_command_pool(&pool_create_info, None) }
             .map_err(VulkanError::VkResultToDo)
     }
@@ -1183,10 +1176,8 @@ fn upload_models(
         w.cmd_pipeline_barrier_end(dest_texture.image, command_buffer);
         w.end_command_buffer(command_buffer).unwrap();
 
-        let submit_info = vk::SubmitInfo::builder()
-            .command_buffers(&command_buffers)
-            .build();
-        w.queue_submit(fence, queue, &[submit_info]).unwrap();
+        let submit_infos = [*vk::SubmitInfo::builder().command_buffers(&command_buffers)];
+        w.queue_submit(fence, queue, &submit_infos).unwrap();
 
         let vertex_buffer = w
             .allocate_and_init_buffer(

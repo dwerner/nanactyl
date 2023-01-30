@@ -4,17 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-core_executor = { path = "../core_executor" }
 models = { path = "../models" }
 network = { path = "../network" }
 input = { path = "../input" }
 
 # workspace deps
 async-lock = { workspace = true }
-async-io = { workspace = true }
-bytemuck = { workspace = true }
-histogram = { workspace = true }
-futures-lite = { workspace = true }
 parry3d = { workspace = true }
 nalgebra = { workspace = true }
 thiserror= { workspace = true }

@@ -6,8 +6,6 @@ edition = "2021"
 [dependencies]
 core_executor = { path = "../../core_executor" }
 input = { path = "../../input" }
-models = { path = "../../models" }
-network = { path = "../../network" }
 platform = { path = "../../platform" }
 plugin_loader = { path = "../../plugin_loader" }
 render = { path = "../../render" }

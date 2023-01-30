@@ -31,8 +31,9 @@ exclude = [
 ]
 
 [profile.release]
-lto = true
-strip = true
+# lto leads to segfaults in vulkan libs, need to investigate
+# lto = true
+# strip = true
 
 # Individual crates "inherit dependencies that are shared.
 # plugins can depend on crates.
@@ -41,12 +42,14 @@ strip = true
 [workspace.dependencies]
 ash = "0.37.2"
 ash-window = "0.11.0" # lock on 0.11 for now
+async-channel = "1.8.0"
 async-lock = "2.5.0"
 async-io = "1.9.0"
 async-net = "1.7.0"
 async-trait = "0.1"
 bitvec = { version = "1.0.1" }
 bytemuck = { version = "1.12.1", features = ["derive", "extern_crate_std"] }
+cstr = "0.2.10"
 futures-lite = "1.12.0"
 histogram = "0.6.9" # lock oin 0.6.9 for now
 image = "0.24.3"

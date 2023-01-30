@@ -287,7 +287,7 @@ pub mod wire {
         let len: &u16 = bytemuck::from_bytes(&compressed[0..2]);
         let len = *len;
         let len = len.min(PAYLOAD_LEN as u16);
-        let decoded = zstd::decode_all(&compressed[2..2 + len as usize])
+        let decoded = zstd::decode_all(&compressed[2..(2 + len as usize).min(compressed.len())])
             .map_err(WorldError::UpdateDecompression)?;
         decoded_bytes.extend(decoded);
         let updates: &[WorldUpdate; NUM_UPDATES_PER_MSG as usize] =
@@ -561,6 +561,8 @@ fn wrapping_sub(seq: u16, maybe_next: u16) -> Option<u16> {
 #[cfg(test)]
 mod tests {
 
+    use std::mem::size_of;
+
     use super::*;
 
     // Just a flag for when the size of the message changes. Keep in mind this is a
@@ -650,15 +652,23 @@ mod tests {
         let expected_ack_bits = 0b00000001111100000000001111111111;
 
         // receive side only saw 20 packets
-        assert_eq!(p2.recvd_ack_bits(24), expected_ack_bits);
+        // if MAX_UNACKED_PACKETS is less than 32, we shift over to mask.
+        let shift_offset = 32 - MAX_UNACKED_PACKETS;
+        assert_eq!(
+            p2.recvd_ack_bits(24) << shift_offset,
+            expected_ack_bits << shift_offset,
+            "left: {:#034b}, right: {:#034b}",
+            p2.recvd_ack_bits(24),
+            expected_ack_bits << shift_offset,
+        );
         assert_eq!(
             p2.recv_queue.len(),
-            15,
+            15.min(MAX_UNACKED_PACKETS),
             "unexpected number of items in recv queue"
         );
 
         // whereas sender side thinks that it sent 30 total
-        assert_eq!(p1.send_queue.len(), 25);
+        assert_eq!(p1.send_queue.len(), 25.min(MAX_UNACKED_PACKETS));
 
         // a single response needs to be sent, which now contains up to 32 acks.
         p2.send(b"hello").await.unwrap();
@@ -699,8 +709,6 @@ mod tests {
                 }
                 p1.send(b"done").await.unwrap();
                 p1.recv().await.unwrap();
-
-                p1.log_status();
                 p1
             })
         });
@@ -729,7 +737,6 @@ mod tests {
                     async_io::Timer::after(Duration::from_millis(20)).await;
                 }
                 println!("p2 done");
-                p2.log_status();
                 p2
             })
         });

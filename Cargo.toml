@@ -34,6 +34,8 @@ exclude = [
 # lto leads to segfaults in vulkan libs, need to investigate
 lto = true
 strip = true
+incremental = true
+
 # turn on debug info
 # debug = true
 

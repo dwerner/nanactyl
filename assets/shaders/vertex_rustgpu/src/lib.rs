@@ -1,15 +1,9 @@
-#![cfg_attr(
-    target_arch = "spirv",
-    no_std,
-    feature(register_attr),
-    register_attr(spirv)
-)]
+#![no_std]
 // HACK(eddyb) can't easily see warnings otherwise from `spirv-builder` builds.
 #![deny(warnings)]
 
 use spirv_std::glam::{vec4, Mat3, Mat4, Vec2, Vec4};
-#[cfg(not(target_arch = "spirv"))]
-use spirv_std::macros::spirv;
+use spirv_std::spirv;
 
 #[derive(Copy, Clone)]
 pub struct UniformBuffer {

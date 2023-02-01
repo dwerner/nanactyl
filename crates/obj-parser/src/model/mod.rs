@@ -123,7 +123,6 @@ impl ObjObject {
         &self.texture_coords
     }
 
-    #[inline]
     fn get_v_tuple(&self, face_index: &FaceIndex) -> (f32, f32, f32, f32) {
         let &FaceIndex(ix, _, _) = face_index;
         match self.vertices[(ix as usize) - 1] {
@@ -132,7 +131,6 @@ impl ObjObject {
         }
     }
 
-    #[inline]
     fn get_vt_tuple(&self, face_index: &FaceIndex) -> (f32, f32, f32) {
         let &FaceIndex(_, vt, _) = face_index;
         match vt {
@@ -144,7 +142,6 @@ impl ObjObject {
         }
     }
 
-    #[inline]
     fn get_vn_tuple(&self, face_index: &FaceIndex) -> (f32, f32, f32) {
         let &FaceIndex(_, _, vn) = face_index;
         match vn {
@@ -156,7 +153,6 @@ impl ObjObject {
         }
     }
 
-    #[inline]
     fn interleave_tuples(&self, id: &FaceIndex) -> (T4<f32>, T3<f32>, T3<f32>) {
         let vert = self.get_v_tuple(id);
         let text = self.get_vt_tuple(id);

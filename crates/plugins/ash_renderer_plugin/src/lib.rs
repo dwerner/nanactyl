@@ -104,12 +104,6 @@ impl Renderer {
         let rotation = Matrix4::new_rotation(phys_cam.angles);
         let viewscale = scale * rotation * Matrix4::new_translation(&phys_cam.position); // look;
 
-        // let look = Matrix4::look_at_lh(
-        //     &phys_cam.position.into(),
-        //     &camera.forward(&phys_cam).into(),
-        //     &camera.right(phys_cam),
-        // );
-
         let proj_mat = Matrix4::new_perspective(
             base.surface_resolution.width as f32 / base.surface_resolution.height as f32,
             ::std::f32::consts::FRAC_PI_2,
@@ -279,7 +273,7 @@ impl Renderer {
                 )?
             };
 
-            let sampler = bw.sampler()?;
+            let sampler = bw.create_sampler()?;
             let desc_set_layout =
                 bw.create_descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?;
 
@@ -643,7 +637,7 @@ impl<'a> VulkanBaseWrapper<'a> {
     }
 
     /// Creates a sampler.
-    pub fn sampler(&self) -> Result<vk::Sampler, VulkanError> {
+    pub fn create_sampler(&self) -> Result<vk::Sampler, VulkanError> {
         // start preparing shader related structures
         let sampler_info = vk::SamplerCreateInfo {
             mag_filter: vk::Filter::LINEAR,
@@ -1168,6 +1162,12 @@ fn upload_models(
         let (image_extent, src_image) = w
             .copy_image_to_transfer_src_buffer(image, device_memory_properties)
             .unwrap();
+
+        println!(
+            "image dimensions {}x{}",
+            image_extent.width, image_extent.height
+        );
+
         let dest_texture = w
             .allocate_texture_dest_buffer(device_memory_properties, image_extent)
             .unwrap();

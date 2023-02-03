@@ -1,10 +1,11 @@
 use std::time::Duration;
 
 use world::thing::{CameraFacet, ModelFacet, PhysicalFacet, Thing};
-use world::World;
+use world::AssetLoaderStateAndWorldLock;
 
 #[no_mangle]
-pub extern "C" fn load(world: &mut World) {
+pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
+    let world = &mut state.world;
     let ico_model = models::Model::load(
         "assets/models/static/tank.obj",
         "assets/shaders/vertex_rustgpu.spv",
@@ -80,10 +81,10 @@ pub extern "C" fn load(world: &mut World) {
 }
 
 #[no_mangle]
-pub extern "C" fn update(_world: &mut World, _dt: &Duration) {}
+pub extern "C" fn update(_state: &mut AssetLoaderStateAndWorldLock, _dt: &Duration) {}
 
 #[no_mangle]
-pub extern "C" fn unload(world: &mut World) {
-    world.clear();
-    println!("unloaded asset loader plugin ({})", world.updates);
+pub extern "C" fn unload(state: &mut AssetLoaderStateAndWorldLock) {
+    state.world.clear();
+    println!("unloaded asset loader plugin ({})", state.world.updates);
 }

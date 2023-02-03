@@ -2,6 +2,7 @@
 
 use std::io;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -39,6 +40,31 @@ impl WorldLockAndControllerState {
         Self {
             world,
             controller_state,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct AssetLoaderState {
+    pub watched: Vec<PathBuf>,
+}
+
+#[repr(C)]
+pub struct AssetLoaderStateAndWorldLock {
+    pub world: MutexGuardArc<World>,
+    pub asset_loader_state: MutexGuardArc<AssetLoaderState>,
+}
+
+impl AssetLoaderStateAndWorldLock {
+    pub async fn lock(
+        world: &Arc<Mutex<World>>,
+        asset_loader_state: &Arc<Mutex<AssetLoaderState>>,
+    ) -> Self {
+        let world = Arc::clone(world).lock_arc().await;
+        let asset_loader_state = Arc::clone(asset_loader_state).lock_arc().await;
+        Self {
+            world,
+            asset_loader_state,
         }
     }
 }

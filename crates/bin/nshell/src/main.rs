@@ -14,7 +14,7 @@ use input::wire::InputState;
 use input::{DeviceEvent, EngineEvent};
 use plugin_loader::{Plugin, PluginCheck, PluginError};
 use render::{LockWorldAndRenderState, RenderState};
-use world::{World, WorldLockAndControllerState};
+use world::{AssetLoaderState, AssetLoaderStateAndWorldLock, World, WorldLockAndControllerState};
 
 const FRAME_LENGTH_MS: u64 = 16;
 
@@ -101,7 +101,8 @@ fn main() {
         .into_shared();
 
         // asset loader
-        let asset_loader_plugin = Plugin::<World>::open_from_target_dir(
+        let asset_loader_state = Arc::new(Mutex::new(AssetLoaderState::default()));
+        let asset_loader_plugin = Plugin::<AssetLoaderStateAndWorldLock>::open_from_target_dir(
             spawners[0].clone(),
             &opts.plugin_dir,
             "asset_loader_plugin",
@@ -141,6 +142,7 @@ fn main() {
         let own_controllers = Arc::new(Mutex::new(own_controllers));
 
         'frame_loop: loop {
+            let world = Arc::clone(&world);
             frame_start = Instant::now();
 
             platform_context.pump_events();
@@ -153,7 +155,10 @@ fn main() {
 
             // Essentially, check for updated versions of plugins every 2 seconds
             if frame % 60 == 0 {
-                check_plugin_async(&asset_loader_plugin, &world).await;
+                check_plugin(
+                    &mut *asset_loader_plugin.lock().await,
+                    &mut AssetLoaderStateAndWorldLock::lock(&world, &asset_loader_state).await,
+                );
 
                 check_plugin(
                     &mut *world_render_update_plugin.lock().await,
@@ -175,30 +180,56 @@ fn main() {
             let last_frame_elapsed = last_frame_complete.elapsed();
 
             let _asset_loader_duration = spawners[1]
-                .spawn(call_plugin_update_async(
-                    &asset_loader_plugin,
-                    &world,
-                    &last_frame_elapsed,
-                ))
-                .await;
+                .spawn({
+                    let plugin = Arc::clone(&asset_loader_plugin);
+                    let asset_loader_state = Arc::clone(&asset_loader_state);
+                    let world = Arc::clone(&world);
+                    Box::pin(async move {
+                        let mut state_and_world =
+                            AssetLoaderStateAndWorldLock::lock(&world, &asset_loader_state).await;
+                        plugin
+                            .lock()
+                            .await
+                            .call_update(&mut state_and_world, &last_frame_elapsed)
+                            .await
+                    })
+                })
+                .await
+                .unwrap();
 
             let _duration = spawners[2]
-                .spawn(call_world_render_state_update_plugin(
-                    &render_state,
-                    &world,
-                    &world_render_update_plugin,
-                    last_frame_elapsed,
-                ))
+                .spawn({
+                    let render_state = Arc::clone(&render_state);
+                    let world = Arc::clone(&world);
+                    let plugin = Arc::clone(&world_render_update_plugin);
+                    Box::pin(async move {
+                        let mut state =
+                            render::LockWorldAndRenderState::lock(&world, &render_state).await;
+                        plugin
+                            .lock()
+                            .await
+                            .call_update(&mut state, &last_frame_elapsed)
+                            .await
+                    })
+                })
                 .await
                 .unwrap();
 
             let _update_result = spawners[3]
-                .spawn(call_net_sync_plugin(
-                    &world,
-                    &own_controllers,
-                    &net_sync_plugin,
-                    last_frame_elapsed,
-                ))
+                .spawn({
+                    let world = Arc::clone(&world);
+                    let controller_state = Arc::clone(&own_controllers);
+                    let plugin = Arc::clone(&net_sync_plugin);
+                    Box::pin(async move {
+                        let mut state =
+                            WorldLockAndControllerState::lock(&world, &controller_state).await;
+                        plugin
+                            .lock()
+                            .await
+                            .call_update(&mut state, &last_frame_elapsed)
+                            .await
+                    })
+                })
                 .await;
 
             let _join_result = futures_util::future::join(
@@ -224,36 +255,6 @@ fn main() {
         }
     });
     println!("nshell closed");
-}
-
-fn call_world_render_state_update_plugin(
-    render_state: &Arc<Mutex<RenderState>>,
-    world: &Arc<Mutex<World>>,
-    plugin: &Arc<Mutex<Plugin<render::LockWorldAndRenderState>>>,
-    dt: Duration,
-) -> Pin<Box<impl Future<Output = Result<Duration, PluginError>> + Send + Sync>> {
-    let render_state = Arc::clone(render_state);
-    let world = Arc::clone(world);
-    let plugin = Arc::clone(plugin);
-    Box::pin(async move {
-        let mut state = render::LockWorldAndRenderState::lock(&world, &render_state).await;
-        plugin.lock().await.call_update(&mut state, &dt).await
-    })
-}
-
-fn call_net_sync_plugin(
-    world: &Arc<Mutex<World>>,
-    controller_state: &Arc<Mutex<[InputState; 2]>>,
-    plugin: &Arc<Mutex<Plugin<WorldLockAndControllerState>>>,
-    dt: Duration,
-) -> Pin<Box<impl Future<Output = Result<Duration, PluginError>> + Send + Sync>> {
-    let world = Arc::clone(world);
-    let controller_state = Arc::clone(controller_state);
-    let plugin = Arc::clone(plugin);
-    Box::pin(async move {
-        let mut state = WorldLockAndControllerState::lock(&world, &controller_state).await;
-        plugin.lock().await.call_update(&mut state, &dt).await
-    })
 }
 
 fn call_plugin_update_async<T>(

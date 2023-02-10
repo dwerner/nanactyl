@@ -199,6 +199,7 @@ impl World {
     /// FIXME: make this /// independent of any connecting clients.
     pub fn new(maybe_server_addr: Option<SocketAddr>) -> Self {
         Self {
+            maybe_server_addr,
             maybe_camera: None,
             things: vec![],
             facets: WorldFacets::default(),
@@ -206,7 +207,6 @@ impl World {
             updates: 0,
             run_life: Duration::from_millis(0),
             last_tick: Instant::now(),
-            maybe_server_addr,
             connection: None,
             client_controller_state: None,
             server_controller_state: None,

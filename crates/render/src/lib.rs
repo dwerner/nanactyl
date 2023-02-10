@@ -436,8 +436,7 @@ impl VulkanBase {
             .enabled_features(&features);
 
         let device =
-            unsafe { instance.create_device(*physical_device, &*device_create_info, None) }
-                .unwrap();
+            unsafe { instance.create_device(*physical_device, &device_create_info, None) }.unwrap();
 
         let present_queue = unsafe { device.get_device_queue(queue_family_index, 0) };
         let surface_format = unsafe {

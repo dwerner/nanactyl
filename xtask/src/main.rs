@@ -1,10 +1,15 @@
 use std::fs::File;
 use std::io::BufRead;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use colorful::Colorful;
 use duct::cmd;
 use structopt::StructOpt;
+
+// This must be kept in sync with rust-gpu's requirements, and see also the
+// rust-toolchain files in the respective assets/shaders subdirs.
+const RUST_GPU_TOOLCHAIN: &str = "nightly-2022-12-18";
 
 #[derive(StructOpt, Debug)]
 enum Command {
@@ -37,60 +42,79 @@ macro_rules! server {
      };
 }
 
-fn main() {
-    std::env::set_var("RUST_BACKTRACE", "full");
-    let rustflags = std::env::var("RUSTFLAGS").unwrap_or_else(|_| "".to_owned());
-    std::env::set_var(
-        "RUSTFLAGS",
-        format!("{rustflags} -Wunused-crate-dependencies"),
+// Panic if we aren't in the project root.
+fn enforce_root_dir_is_cwd() {
+    let current_dir = std::env::current_dir().unwrap();
+    let mut project_root = env!("CARGO_MANIFEST_DIR").parse::<PathBuf>().unwrap();
+    project_root.pop();
+    assert_eq!(
+        current_dir, project_root,
+        "xtask must be called from project root: {project_root:?}"
     );
+}
+
+fn main() {
     let opts = Opts::from_args();
-    println!("xtask : {:?}", opts.cmd);
-    (|| -> Result<(), std::io::Error> {
-        match opts.cmd {
-            Some(Command::RunServerAndClient) => {
-                run_server_and_client()?;
-                Ok(())
-            }
-            Some(Command::FmtLint) => {
-                fmt_and_lint()?;
-                Ok(())
-            }
-            Some(Command::BuildAllPlugins) => {
-                build_plugins()?;
-                Ok(())
-            }
-            Some(Command::BuildPlugin { plugin_name }) => {
-                build_one_plugin(&plugin_name)?;
-                Ok(())
-            }
-            Some(Command::BuildShaders) => {
-                build_shaders()?;
-                Ok(())
-            }
-            Some(Command::BuildAll) => {
-                fmt_and_lint()?;
-                build_shaders()?;
-                build_plugins()?;
-                Ok(())
-            }
-            None => {
-                println!("No command given.");
-                Ok(())
-            }
+    std::env::set_var("RUST_BACKTRACE", "full");
+    set_required_rustflags(&["-Wunused-crate-dependencies"]);
+    enforce_root_dir_is_cwd();
+    dispatch(opts.cmd.unwrap_or_else(|| panic!("no command given")))
+        .unwrap_or_else(|err| panic!("error with xtask, {err:?}"));
+}
+
+// Append passed flags onto rustflags for compilation.
+fn set_required_rustflags(flags: &[&'static str]) {
+    let existing_rustflags = std::env::var("RUSTFLAGS").unwrap_or_else(|_| "".to_owned());
+    let additional = flags.iter().map(|s| format!("{s} ")).collect::<String>();
+    std::env::set_var("RUSTFLAGS", format!("{existing_rustflags} {additional}"));
+}
+
+fn dispatch(cmd: Command) -> Result<(), std::io::Error> {
+    println!("xtask : {:?}", cmd);
+    match cmd {
+        Command::RunServerAndClient => {
+            run_server_and_client()?;
+            Ok(())
         }
-    })()
-    .unwrap();
+        Command::FmtLint => {
+            fmt_and_lint()?;
+            Ok(())
+        }
+        Command::BuildAllPlugins => {
+            build_plugins()?;
+            Ok(())
+        }
+        Command::BuildPlugin { plugin_name } => {
+            build_one_plugin(&plugin_name)?;
+            Ok(())
+        }
+        Command::BuildShaders => {
+            build_shaders()?;
+            Ok(())
+        }
+        Command::BuildAll => {
+            fmt_and_lint()?;
+            build_shaders()?;
+            build_plugins()?;
+            Ok(())
+        }
+    }
 }
 
 fn fmt_and_lint() -> Result<(), std::io::Error> {
-    cmd!("cargo", "+nightly", "fmt").run()?;
-    cmd!("cargo", "clippy").run()?;
+    let output = cmd!("cargo", "+nightly", "fmt").run()?;
+    println!("xtask fmt {}", String::from_utf8_lossy(&output.stdout));
+    let output = cmd!("cargo", "clippy").run()?;
+    println!("xtask clippy {}", String::from_utf8_lossy(&output.stdout));
     Ok(())
 }
 
 fn build_plugins() -> Result<(), std::io::Error> {
-    cmd!("cargo", "build", "--release").run()?;
+    let output = cmd!("cargo", "build", "--release").run()?;
+    println!(
+        "xtask build everything {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
     Ok(())
 }
 
@@ -104,7 +128,12 @@ fn build_one_plugin(plugin_name: &str) -> Result<(), std::io::Error> {
         "{plugin_dir:?} doesn't correspond to a plugin."
     );
     std::env::set_current_dir(plugin_dir)?;
-    cmd!("cargo", "build", "--release").run()?;
+    let output = cmd!("cargo", "build", "--release").run()?;
+    println!(
+        "Plugin {} compiled: {}",
+        plugin_name,
+        String::from_utf8_lossy(&output.stdout)
+    );
     server!("Built plugin: crates/plugins/{plugin_name}.");
     std::env::set_current_dir(project_root_dir)?;
     Ok(())
@@ -116,9 +145,18 @@ fn build_shaders() -> Result<(), std::io::Error> {
     let project_root_dir = std::env::current_dir()?;
     let mut shader_dir = project_root_dir.clone();
     shader_dir.push("assets/shaders");
-    std::env::set_current_dir(shader_dir)?;
-    cmd!("cargo", "build").run()?;
-    println!("Shaders compiled to spirv");
+    std::env::set_current_dir(&shader_dir)?;
+    println!(
+        "running 'cargo build' with HARDCODED toolchain {RUST_GPU_TOOLCHAIN} (in {shader_dir:?})"
+    );
+
+    std::env::set_var("RUSTUP_TOOLCHAIN", RUST_GPU_TOOLCHAIN);
+
+    let output = cmd!("cargo", "build").run()?;
+    println!(
+        "Shaders compiled to spirv. {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
     std::env::set_current_dir(project_root_dir)?;
     Ok(())
 }

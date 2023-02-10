@@ -13,3 +13,4 @@ async-lock = { workspace = true }
 parry3d = { workspace = true }
 nalgebra = { workspace = true }
 thiserror= { workspace = true }
+serde = { workspace = true }

@@ -1,8 +1,10 @@
 //! Implements some convenient types for async control flow and execution of
-//! async tasks on specific thread-affine cores.
+//! async tasks on specific threads which are asked to maintain affinity to the
+//! cores they were started on.
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 
 use async_channel::Sender;
@@ -12,14 +14,73 @@ use futures_lite::{future, FutureExt, StreamExt};
 
 pub mod channel;
 
-pub struct ThreadExecutor {
+/// ThreadPoolExecutor is a high-level struct that manages a set of
+/// ThreadAffineExecutors, one per core. It enables spawning tasks on specific
+/// cores or any core in a round-robin fashion.
+///
+/// The main purpose of this executor is to allow execution of CPU-heavy tasks
+/// on a threadpool while allowing code to be composed with async/await.
+/// This allows for the efficient execution of tasks
+/// that require affinity to specific hardware cores, while not blocking threads
+/// in other executors that may be waiting on IO etc. This can be useful in
+/// cases where the application requires IO-heavy tasks but also performs
+/// not-insignificant work on the CPU as well. Work should be kept to separate
+/// executors to avoid blocking IO tasks on CPU bound work.
+///
+/// # Examples
+///
+/// ```
+/// let cores = num_cpus::get();
+/// let mut executor = ThreadPoolExecutor::new(cores);
+/// ```
+///
+/// Spawning a task on a specific core:
+/// ```
+/// let spawner = executor.spawner_for_core(0).unwrap();
+/// spawner.spawn(async { /* ... */ });
+/// ```
+///
+/// Spawning a task on any core:
+/// ```
+/// executor.spawn_on_any(async { /* ... */ });
+/// ```
+pub struct ThreadPoolExecutor {
+    thread_executors: Vec<ThreadAffineExecutor>,
+    next_thread: AtomicUsize,
+}
+
+/// ThreadAffineExecutor represents an executor that runs on a specific core. It
+/// spawns an executor thread with the provided core_id and manages task
+/// execution on that core.
+///
+/// Alternative name: ThreadBoundExecutor
+pub struct ThreadAffineExecutor {
     _core_id: usize,
-    // TODO: return tuple instead
-    pub spawner: ThreadExecutorSpawner,
+    pub spawner: ThreadAffineSpawner,
     exec_thread_jh: Option<JoinHandle<()>>,
 }
 
-impl ThreadExecutor {
+/// ThreadAffineSpawner is a handle to a ThreadAffineExecutor, which allows for
+/// spawning tasks on the associated core. It can be cloned and sent to other
+/// threads for relaying work to the underlying ThreadAffineExecutor.
+///
+/// Alternative name: ThreadBoundSpawner
+pub struct ThreadAffineSpawner {
+    pub core_id: usize,
+    tx: Sender<ExecutorTask>,
+    task_killers: Vec<channel::TaskShutdownHandle>,
+}
+
+type PinnedTask = Pin<Box<dyn Future<Output = ()> + Send>>;
+/// ExecutorTask represents a single task to be executed by a ThreadExecutor.
+enum ExecutorTask {
+    Exit,
+    Task(PinnedTask),
+}
+
+// Implementations
+
+impl ThreadAffineExecutor {
     pub fn new(core_id: usize) -> Self {
         let (tx, mut rx) = async_channel::bounded::<ExecutorTask>(100);
         let exec_thread_jh = std::thread::spawn(move || {
@@ -42,7 +103,7 @@ impl ThreadExecutor {
         let exec_thread_jh = Some(exec_thread_jh);
         Self {
             _core_id: core_id,
-            spawner: ThreadExecutorSpawner {
+            spawner: ThreadAffineSpawner {
                 core_id,
                 tx,
                 task_killers: Vec::new(),
@@ -52,7 +113,7 @@ impl ThreadExecutor {
     }
 }
 
-impl Drop for ThreadExecutor {
+impl Drop for ThreadAffineExecutor {
     fn drop(&mut self) {
         if let Some(thread_handle) = self.exec_thread_jh.take() {
             self.spawner.tx.try_send(ExecutorTask::Exit).unwrap();
@@ -61,17 +122,7 @@ impl Drop for ThreadExecutor {
     }
 }
 
-pub struct CoreAffinityExecutor {
-    thread_executors: Vec<ThreadExecutor>,
-}
-
-pub struct ThreadExecutorSpawner {
-    pub core_id: usize,
-    tx: Sender<ExecutorTask>,
-    task_killers: Vec<channel::TaskShutdownHandle>,
-}
-
-impl Clone for ThreadExecutorSpawner {
+impl Clone for ThreadAffineSpawner {
     fn clone(&self) -> Self {
         Self {
             core_id: self.core_id,
@@ -83,41 +134,57 @@ impl Clone for ThreadExecutorSpawner {
     }
 }
 
-enum ExecutorTask {
-    Exit,
-    Task(PinnedTask),
-}
-
-type PinnedTask = Pin<Box<dyn Future<Output = ()> + Send>>;
-
-// Must be owned by a single thread
-impl CoreAffinityExecutor {
-    // TODO: take a thread name, and label the thread with that for better debug
-    // experience
+impl ThreadPoolExecutor {
     pub fn new(cores: usize) -> Self {
-        let thread_executors = (0..cores).map(ThreadExecutor::new).collect::<Vec<_>>();
-        CoreAffinityExecutor { thread_executors }
+        let thread_executors = (0..cores)
+            .map(ThreadAffineExecutor::new)
+            .collect::<Vec<_>>();
+        ThreadPoolExecutor {
+            thread_executors,
+            next_thread: AtomicUsize::new(0),
+        }
     }
 
-    pub fn spawners(&self) -> Vec<ThreadExecutorSpawner> {
+    pub fn spawners(&self) -> Vec<ThreadAffineSpawner> {
         self.thread_executors
             .iter()
-            .map(|ThreadExecutor { spawner, .. }| spawner.clone())
+            .map(|ThreadAffineExecutor { spawner, .. }| spawner.clone())
             .collect()
     }
 
-    pub fn spawner_for_core(&self, id: usize) -> Option<ThreadExecutorSpawner> {
+    pub fn spawner_for_core(&self, id: usize) -> Option<ThreadAffineSpawner> {
         self.thread_executors
             .iter()
-            .map(|ThreadExecutor { spawner, .. }| spawner)
-            .find(|ThreadExecutorSpawner { core_id, .. }| *core_id == id)
+            .map(|ThreadAffineExecutor { spawner, .. }| spawner)
+            .find(|ThreadAffineSpawner { core_id, .. }| *core_id == id)
             .cloned()
+    }
+
+    pub fn spawn_on_any<F>(
+        &mut self,
+        task: F,
+    ) -> (usize, impl Future<Output = Result<F::Output, Closed>>)
+    where
+        F: Future + Send + 'static,
+        F::Output: std::fmt::Debug + Send + Sync + 'static,
+    {
+        let thread_index =
+            self.next_thread.fetch_add(1, Ordering::Relaxed) % self.thread_executors.len();
+        let spawner = &mut self.thread_executors[thread_index].spawner;
+        let future = spawner.spawn(task);
+        (spawner.core_id, future)
+    }
+
+    pub fn fire_on_any(&mut self, task: impl Future<Output = ()> + Send + 'static) {
+        let thread_index =
+            self.next_thread.fetch_add(1, Ordering::Relaxed) % self.thread_executors.len();
+        self.thread_executors[thread_index].spawner.fire(task);
     }
 }
 
 /// Spawner for CoreExecutor - can be send to other threads for relaying work to
 /// this executor.
-impl ThreadExecutorSpawner {
+impl ThreadAffineSpawner {
     /// Spawn a task with a shutdown guard. When dropped, the TaskShutdown
     /// struct will ensure that this task is joined on before allowing the
     /// tracking side thread to continue.
@@ -166,13 +233,18 @@ impl ThreadExecutorSpawner {
         self.task_killers.push(killer);
     }
 
-    pub fn spawn<T>(
-        &mut self,
-        task: Pin<Box<dyn Future<Output = T> + Send>>,
-    ) -> impl Future<Output = Result<T, Closed>>
+    pub fn spawn<F>(&mut self, task: F) -> impl Future<Output = Result<F::Output, Closed>>
     where
-        T: std::fmt::Debug + Send + Sync + 'static,
+        F: Future + Send + 'static,
+        F::Output: std::fmt::Debug + Send + Sync + 'static,
     {
+        // pub fn spawn<T>(
+        //     &mut self,
+        //     task: Pin<Box<dyn Future<Output = T> + Send>>,
+        // ) -> impl Future<Output = Result<T, Closed>>
+        // where
+        //     T: std::fmt::Debug + Send + Sync + 'static,
+        // {
         let (mut oneshot_tx, oneshot_rx) = async_oneshot::oneshot();
         self.tx
             .try_send(ExecutorTask::Task(
@@ -198,7 +270,7 @@ impl ThreadExecutorSpawner {
     }
 }
 
-impl Drop for ThreadExecutorSpawner {
+impl Drop for ThreadAffineSpawner {
     fn drop(&mut self) {
         self.block_and_kill_tasks();
     }
@@ -208,29 +280,34 @@ impl Drop for ThreadExecutorSpawner {
 mod tests {
 
     use std::pin::Pin;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
 
     use async_executor::LocalExecutor;
     use futures_lite::{future, FutureExt};
+    use futures_util::future::join_all;
+    use smol::Timer;
 
     use super::*;
     use crate::channel::Bichannel;
 
     #[test]
     fn test_bichannel() {
-        let exec = CoreAffinityExecutor::new(2);
+        let exec = ThreadPoolExecutor::new(2);
         let left_spawner = &mut exec.spawners()[0];
         let right_spawner = &mut exec.spawners()[1];
 
         let (left, right): (Bichannel<(), i16>, Bichannel<i16, ()>) = Bichannel::bounded(1);
 
-        let left_task = left_spawner.spawn(Box::pin(async move {
+        let left_task = left_spawner.spawn(async move {
             left.send(()).await.unwrap();
             left.recv().await.unwrap()
-        }));
-        let right_task = right_spawner.spawn(Box::pin(async move {
+        });
+        let right_task = right_spawner.spawn(async move {
             right.recv().await.unwrap();
             right.send(42).await.unwrap()
-        }));
+        });
         let (left_result, right_result) =
             future::block_on(futures_util::future::join(left_task, right_task));
         assert_eq!(left_result, Ok(42));
@@ -239,7 +316,7 @@ mod tests {
 
     #[test]
     fn test_core_executor() {
-        let exec = CoreAffinityExecutor::new(2);
+        let exec = ThreadPoolExecutor::new(2);
         let spawner = &mut exec.spawners()[0];
         let answer_rx = spawner.spawn(Box::pin(async { 42 }));
         let answer_value = future::block_on(answer_rx);
@@ -303,5 +380,59 @@ mod tests {
 
         jh.join().unwrap();
         println!("ending thread {:?}", std::thread::current().id());
+    }
+
+    #[test]
+    fn test_core_executor_spawn_specific_core() {
+        let cores = 4;
+        let executor = ThreadPoolExecutor::new(cores);
+        let executed_tasks = Arc::new(AtomicUsize::new(0));
+        let mut task_handles = Vec::new();
+
+        for core_id in 0..cores {
+            let mut spawner = executor
+                .spawner_for_core(core_id)
+                .expect("Spawner not found");
+
+            for _ in 0..10 {
+                let executed_tasks = Arc::clone(&executed_tasks);
+                let handle = spawner.spawn(async move {
+                    Timer::after(Duration::from_millis(100)).await;
+                    executed_tasks.fetch_add(1, Ordering::Relaxed);
+                });
+
+                task_handles.push(handle);
+            }
+        }
+
+        // Join on all the tasks
+        future::block_on(join_all(task_handles));
+
+        // Ensure that all tasks have been executed
+        assert_eq!(executed_tasks.load(Ordering::Relaxed), cores * 10);
+    }
+
+    #[test]
+    fn test_core_executor_spawn_on_any() {
+        let cores = 4;
+        let mut executor = ThreadPoolExecutor::new(cores);
+        let executed_tasks = Arc::new(AtomicUsize::new(0));
+        let mut task_handles = Vec::new();
+
+        for _ in 0..(cores * 10) {
+            let executed_tasks = Arc::clone(&executed_tasks);
+            let (_core, handle) = executor.spawn_on_any(async move {
+                Timer::after(Duration::from_millis(100)).await;
+                executed_tasks.fetch_add(1, Ordering::Relaxed);
+            });
+
+            task_handles.push(handle);
+        }
+
+        // Join on all the tasks
+        future::block_on(join_all(task_handles));
+
+        // Ensure that all tasks have been executed
+        assert_eq!(executed_tasks.load(Ordering::Relaxed), cores * 10);
     }
 }

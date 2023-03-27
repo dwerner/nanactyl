@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_lock::Mutex;
-use core_executor::CoreAffinityExecutor;
+use core_executor::ThreadPoolExecutor;
 use futures_lite::future;
 use input::wire::InputState;
 use input::{DeviceEvent, EngineEvent};
@@ -50,7 +50,7 @@ fn main() {
 
     plugin_loader::register_tls_dtor_hook!();
 
-    let executor = CoreAffinityExecutor::new(8);
+    let executor = ThreadPoolExecutor::new(8);
     let mut spawners = executor.spawners();
 
     // FIXME: currently the server-side must be started first, and waits for a

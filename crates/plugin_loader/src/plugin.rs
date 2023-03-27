@@ -5,7 +5,7 @@ use std::time::{Duration, Instant, SystemTimeError, UNIX_EPOCH};
 use std::{fs, io};
 
 use async_lock::Mutex;
-use core_executor::ThreadExecutorSpawner;
+use core_executor::ThreadAffineSpawner;
 use libloading::Library;
 use tempdir::TempDir;
 
@@ -80,7 +80,7 @@ pub struct Plugin<T: Send + Sync + 'static> {
     version: u64,
     name: String,
     tempdir: TempDir,
-    _spawner: ThreadExecutorSpawner,
+    _spawner: ThreadAffineSpawner,
     _pd: PhantomData<T>,
 }
 
@@ -120,7 +120,7 @@ where
     /// Opens a plugin from the project target directory. Note that `check` must
     /// be called subsequently in order to invoke callbacks on the plugin.
     pub fn open_from_target_dir(
-        spawner: ThreadExecutorSpawner,
+        spawner: ThreadAffineSpawner,
         plugin_dir: &str,
         plugin_name: &str,
     ) -> Result<Self, PluginError> {
@@ -136,7 +136,7 @@ where
     /// Opens a plugin at `path`, with `name`. Note that `check` must be called
     /// subsequently in order to invoke callbacks on the plugin.
     pub fn open_at(
-        mut spawner: ThreadExecutorSpawner,
+        mut spawner: ThreadAffineSpawner,
         path: impl AsRef<Path>,
         name: &str,
         check_interval: u32,
@@ -344,7 +344,7 @@ mod tests {
 
     use ::function_name::named;
     use cmd_lib::run_cmd;
-    use core_executor::ThreadExecutor;
+    use core_executor::ThreadAffineExecutor;
 
     use super::*;
     use crate as plugin_loader;
@@ -390,7 +390,7 @@ mod tests {
         let src = generate_plugin_for_test("", "*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
 
-        let ThreadExecutor { ref spawner, .. } = ThreadExecutor::new(0);
+        let ThreadAffineExecutor { ref spawner, .. } = ThreadAffineExecutor::new(0);
 
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
@@ -431,7 +431,7 @@ mod tests {
         let src = generate_plugin_for_test("", "*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
 
-        let ThreadExecutor { ref spawner, .. } = ThreadExecutor::new(0);
+        let ThreadAffineExecutor { ref spawner, .. } = ThreadAffineExecutor::new(0);
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
         let mut loader =
@@ -481,7 +481,7 @@ mod tests {
         let src = generate_plugin_for_test("", "*state += 1;");
         let plugin_path = compile_lib(&tempdir, &src);
 
-        let ThreadExecutor { ref spawner, .. } = ThreadExecutor::new(0);
+        let ThreadAffineExecutor { ref spawner, .. } = ThreadAffineExecutor::new(0);
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
         let mut loader =
@@ -496,7 +496,7 @@ mod tests {
 
     #[test]
     fn should_fail_to_load_lib_that_doesnt_exist() {
-        let ThreadExecutor { ref spawner, .. } = ThreadExecutor::new(0);
+        let ThreadAffineExecutor { ref spawner, .. } = ThreadAffineExecutor::new(0);
         let load = Plugin::<u32>::open_from_target_dir(
             spawner.clone(),
             plugin_loader::RELATIVE_TARGET_DIR,

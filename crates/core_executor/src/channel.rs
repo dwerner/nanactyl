@@ -35,14 +35,16 @@ pub enum HookshotError {
 /// # Example
 ///
 /// ```
-/// use your_crate::Bichannel;
+/// use core_executor::channel::Bichannel;
 ///
 /// async fn send_and_receive() {
-///     let (mut sender, mut receiver) = Bichannel::bounded(10);
-///
-///     sender.send("Hello, world!").await.unwrap();
-///     let message = receiver.recv().await.unwrap();
+///     let (mut left, mut right) = Bichannel::bounded(10);
+///     left.send("Hello, world!").await.unwrap();
+///     let message = right.recv().await.unwrap();
 ///     assert_eq!(message, "Hello, world!");
+///     right.send("Oh, hello.").await.unwrap();
+///     let response = left.recv().await.unwrap();
+///     assert_eq!(message, "Oh, hello.");
 /// }
 /// ```
 pub struct Bichannel<S, R> {

@@ -11,17 +11,17 @@ name = "aos_bench"
 harness = false
 
 [dependencies]
-csv = "1.2.1"
-async-std = { version = "1.12", features = ["attributes"]}
+# csv = "1.2.1"
 thiserror = "1.0.33"
 async-executor = "1.4.1"
 async-channel = "1.7.1"
 async-oneshot = "0.5.0"
-core_affinity = "0.7.2"
+core_affinity = "0.8"
 futures-lite = "1.12"
-criterion = "0.4"
 
 [dev-dependencies]
+async-std = { version = "1.12", features = ["attributes"]}
 futures-util = "0.3.23"
 smol = "1.3.0"
 smol-potat = "1.1.2"
+criterion = "0.4"

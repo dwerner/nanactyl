@@ -11,8 +11,11 @@ members = [
     "crates/world",
     "crates/platform",
     "crates/font-loader",
+    "crates/plugin_trait",
 
     # plugins: these should not be depended upon by anything other than binaries, indirectly
+    "crates/plugins/abc_plugin",
+    "crates/plugins/ash_renderer_plugin",
     "crates/plugins/ash_renderer_plugin",
     "crates/plugins/asset_loader_plugin",
     "crates/plugins/tui_renderer_plugin",
@@ -54,6 +57,7 @@ async-trait = "0.1"
 bitvec = { version = "1.0.1" }
 bytemuck = { version = "1.12.1", features = ["derive", "extern_crate_std"] }
 cstr = "0.2.10"
+duct = "0.13.6"
 futures-lite = "1.12.0"
 histogram = "0.6.9" # lock oin 0.6.9 for now
 image = "0.24.3"

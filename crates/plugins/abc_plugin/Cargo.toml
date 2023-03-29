@@ -1,0 +1,20 @@
+[package]
+name = "abc_plugin"
+version = "0.1.0"
+edition = "2021"
+
+[[test]]
+name = "plugin_tests"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+plugin_trait = { path = "../../plugin_trait" }
+
+
+[dev-dependencies]
+smol-potat = "1"
+plugin_loader = { path = "../../plugin_loader" }
+tempdir = { workspace = true }
+duct = { workspace = true }

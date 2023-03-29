@@ -5,13 +5,11 @@ use std::time::{Duration, Instant, SystemTimeError, UNIX_EPOCH};
 use std::{fs, io};
 
 use async_lock::Mutex;
-use core_executor::ThreadAffineSpawner;
 use libloading::Library;
 use tempdir::TempDir;
 
 include!(concat!(env!("OUT_DIR"), "/const_gen.rs"));
 
-const ENABLE_PLUGIN_MAPPING_CHECK: bool = false;
 const UPDATE_METHOD: &[u8] = b"update";
 const LOAD_METHOD: &[u8] = b"load";
 const UNLOAD_METHOD: &[u8] = b"unload";
@@ -80,7 +78,6 @@ pub struct Plugin<T: Send + Sync + 'static> {
     version: u64,
     name: String,
     tempdir: TempDir,
-    _spawner: ThreadAffineSpawner,
     _pd: PhantomData<T>,
 }
 
@@ -119,28 +116,18 @@ where
 
     /// Opens a plugin from the project target directory. Note that `check` must
     /// be called subsequently in order to invoke callbacks on the plugin.
-    pub fn open_from_target_dir(
-        spawner: ThreadAffineSpawner,
-        plugin_dir: &str,
-        plugin_name: &str,
-    ) -> Result<Self, PluginError> {
+    pub fn open_from_target_dir(plugin_dir: &Path, plugin_name: &str) -> Result<Self, PluginError> {
         let filename = if cfg!(windows) {
-            format!("{plugin_dir}/{plugin_name}.dll")
+            plugin_dir.join(format!("{plugin_name}.dll"))
         } else {
-            format!("{plugin_dir}/lib{plugin_name}.so")
+            plugin_dir.join(format!("lib{plugin_name}.so"))
         };
-        let path = PathBuf::from(filename);
-        Self::open_at(spawner, path, plugin_name, 120)
+        Self::open_at(filename, plugin_name)
     }
 
     /// Opens a plugin at `path`, with `name`. Note that `check` must be called
     /// subsequently in order to invoke callbacks on the plugin.
-    pub fn open_at(
-        mut spawner: ThreadAffineSpawner,
-        path: impl AsRef<Path>,
-        name: &str,
-        check_interval: u32,
-    ) -> Result<Plugin<T>, PluginError> {
+    pub fn open_at(path: impl AsRef<Path>, name: &str) -> Result<Plugin<T>, PluginError> {
         let modified = Duration::from_millis(0);
         let path = path.as_ref().to_path_buf();
         let name = name.to_string();
@@ -150,29 +137,6 @@ where
             err,
         })?;
 
-        #[cfg(unix)]
-        if ENABLE_PLUGIN_MAPPING_CHECK {
-            // TODO: move this into the plugin's interface - rely on the caller to delegate
-            // the work.
-            let plugin_name = name.clone();
-            spawner.spawn_with_shutdown(move |mut shutdown| {
-                Box::pin(async move {
-                    loop {
-                        let mappings = crate::linux::distinct_plugins_mapped(&plugin_name);
-                        if mappings.len() > 1 {
-                            let mut mappings = mappings.into_iter().collect::<Vec<_>>();
-                            mappings.sort();
-                            log::warn!("multiple plugins mapped for {plugin_name}:\n{mappings:#?}");
-                        }
-                        async_io::Timer::after(Duration::from_millis(250)).await;
-                        if shutdown.should_exit() {
-                            break;
-                        }
-                    }
-                })
-            });
-        }
-
         Ok(Plugin {
             path,
             tempdir: TempDir::new(&name).map_err(PluginError::TempdirIo)?,
@@ -181,10 +145,9 @@ where
             version: 0,
             updates: 0,
             last_reloaded: 0,
-            check_interval,
             lib: None,
             libcache: None,
-            _spawner: spawner,
+            check_interval: 250,
             _pd: PhantomData::<T>,
         })
     }
@@ -321,6 +284,19 @@ where
         log::debug!("Unloaded {} version {}", self.name(), self.version);
         Ok(())
     }
+
+    #[cfg(unix)]
+    pub fn check_linux_mappings(&self) {
+        let mappings = crate::linux::distinct_plugins_mapped(&self.name);
+        if mappings.len() > 1 {
+            let mut mappings = mappings.into_iter().collect::<Vec<_>>();
+            mappings.sort();
+            log::warn!(
+                "multiple plugins mapped for {name}:\n{mappings:#?}",
+                name = self.name
+            );
+        }
+    }
 }
 
 impl<T> Drop for Plugin<T>
@@ -344,7 +320,6 @@ mod tests {
 
     use ::function_name::named;
     use cmd_lib::run_cmd;
-    use core_executor::ThreadAffineExecutor;
     use quote::quote;
     use syn::{parse_quote, ItemFn};
 
@@ -415,12 +390,9 @@ mod tests {
         let src = generate_plugin_for_test(quote!(), quote! { *state += 1; });
         let plugin_path = compile_lib(&tempdir, &src);
 
-        let ThreadAffineExecutor { ref spawner, .. } = ThreadAffineExecutor::new(0);
-
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader =
-            Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
+        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
         let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
         assert_eq!(update, PluginCheck::FoundNewVersion);
@@ -456,11 +428,9 @@ mod tests {
         let src = generate_plugin_for_test(quote!(), quote! { *state += 1; });
         let plugin_path = compile_lib(&tempdir, &src);
 
-        let ThreadAffineExecutor { ref spawner, .. } = ThreadAffineExecutor::new(0);
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader =
-            Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
+        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
         let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
         assert_eq!(update, PluginCheck::FoundNewVersion);
@@ -506,11 +476,9 @@ mod tests {
         let src = generate_plugin_for_test(quote!(), quote! { *state += 1; });
         let plugin_path = compile_lib(&tempdir, &src);
 
-        let ThreadAffineExecutor { ref spawner, .. } = ThreadAffineExecutor::new(0);
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader =
-            Plugin::<i32>::open_at(spawner.clone(), plugin_path, "test_plugin", 1).unwrap();
+        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
         assert!(matches!(
             loader
                 .call_update(&mut state, &Duration::from_millis(1))
@@ -521,10 +489,8 @@ mod tests {
 
     #[test]
     fn should_fail_to_load_lib_that_doesnt_exist() {
-        let ThreadAffineExecutor { ref spawner, .. } = ThreadAffineExecutor::new(0);
         let load = Plugin::<u32>::open_from_target_dir(
-            spawner.clone(),
-            plugin_loader::RELATIVE_TARGET_DIR,
+            &PathBuf::from(plugin_loader::RELATIVE_TARGET_DIR),
             "mod_unknown",
         );
         assert!(matches!(load, Err(PluginError::MetadataIo { .. })))

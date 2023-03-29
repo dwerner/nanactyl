@@ -30,19 +30,25 @@ pub mod channel;
 /// # Examples
 ///
 /// ```
-/// let cores = num_cpus::get();
-/// let mut executor = ThreadPoolExecutor::new(cores);
+/// use core_executor::ThreadPoolExecutor;
+/// let mut executor = ThreadPoolExecutor::new(8);
 /// ```
 ///
 /// Spawning a task on a specific core:
 /// ```
-/// let spawner = executor.spawner_for_core(0).unwrap();
-/// spawner.spawn(async { /* ... */ });
+/// use core_executor::ThreadPoolExecutor;
+/// let mut executor = ThreadPoolExecutor::new(8);
+/// let mut spawner = executor.spawner_for_core(0).unwrap();
+/// let future = spawner.spawn(async { /* ... */ });
+/// futures_lite::future::block_on(future);
 /// ```
 ///
 /// Spawning a task on any core:
 /// ```
-/// executor.spawn_on_any(async { /* ... */ });
+/// use core_executor::ThreadPoolExecutor;
+/// let mut executor = ThreadPoolExecutor::new(8);
+/// let (core_id, future) = executor.spawn_on_any(async { /* ... */ });
+/// futures_lite::future::block_on(future);
 /// ```
 pub struct ThreadPoolExecutor {
     thread_executors: Vec<ThreadAffineExecutor>,
@@ -238,23 +244,18 @@ impl ThreadAffineSpawner {
         F: Future + Send + 'static,
         F::Output: std::fmt::Debug + Send + Sync + 'static,
     {
-        // pub fn spawn<T>(
-        //     &mut self,
-        //     task: Pin<Box<dyn Future<Output = T> + Send>>,
-        // ) -> impl Future<Output = Result<T, Closed>>
-        // where
-        //     T: std::fmt::Debug + Send + Sync + 'static,
-        // {
-        let (mut oneshot_tx, oneshot_rx) = async_oneshot::oneshot();
+        let (mut spawned_tx, spawned_rx) = async_oneshot::oneshot();
         self.tx
             .try_send(ExecutorTask::Task(
                 async move {
-                    oneshot_tx.send(task.await).unwrap();
+                    if let Err(err) = spawned_tx.send(task.await) {
+                        panic!("unable to send task result: {:?}", err);
+                    }
                 }
                 .boxed(),
             ))
             .expect("unable to execute task");
-        oneshot_rx
+        spawned_rx
     }
 
     pub fn fire(&mut self, task: impl Future<Output = ()> + Send + 'static) {

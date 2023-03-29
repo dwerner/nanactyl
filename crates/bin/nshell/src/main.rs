@@ -21,7 +21,7 @@ const FRAME_LENGTH_MS: u64 = 16;
 #[derive(structopt::StructOpt, Debug)]
 struct CliOpts {
     #[structopt(long, default_value = plugin_loader::RELATIVE_TARGET_DIR)]
-    plugin_dir: String,
+    plugin_dir: PathBuf,
 
     #[structopt(long)]
     cwd: Option<PathBuf>,
@@ -74,26 +74,19 @@ fn main() {
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();
 
         // ash renderer
-        let ash_renderer_plugin = Plugin::<RenderState>::open_from_target_dir(
-            spawners[0].clone(),
-            &opts.plugin_dir,
-            "ash_renderer_plugin",
-        )
-        .unwrap()
-        .into_shared();
+        let ash_renderer_plugin =
+            Plugin::<RenderState>::open_from_target_dir(&opts.plugin_dir, "ash_renderer_plugin")
+                .unwrap()
+                .into_shared();
 
         // world update
-        let world_update_plugin = Plugin::<World>::open_from_target_dir(
-            spawners[0].clone(),
-            &opts.plugin_dir,
-            "world_update_plugin",
-        )
-        .unwrap()
-        .into_shared();
+        let world_update_plugin =
+            Plugin::<World>::open_from_target_dir(&opts.plugin_dir, "world_update_plugin")
+                .unwrap()
+                .into_shared();
 
         // net sync
         let net_sync_plugin = Plugin::<WorldLockAndControllerState>::open_from_target_dir(
-            spawners[0].clone(),
             &opts.plugin_dir,
             "net_sync_plugin",
         )
@@ -103,7 +96,6 @@ fn main() {
         // asset loader
         let asset_loader_state = Arc::new(Mutex::new(AssetLoaderState::default()));
         let asset_loader_plugin = Plugin::<AssetLoaderStateAndWorldLock>::open_from_target_dir(
-            spawners[0].clone(),
             &opts.plugin_dir,
             "asset_loader_plugin",
         )
@@ -113,7 +105,6 @@ fn main() {
         // world -> render state updater
         let world_render_update_plugin =
             Plugin::<render::LockWorldAndRenderState>::open_from_target_dir(
-                spawners[0].clone(),
                 &opts.plugin_dir,
                 "world_render_update_plugin",
             )

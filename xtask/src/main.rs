@@ -186,7 +186,7 @@ fn run_server_and_client() -> Result<(), std::io::Error> {
         "--",
         "--connect-to-server",
         "127.0.0.1:12002",
-     //   "--enable-validation-layer",
+        //   "--enable-validation-layer",
     )
     .reader()?;
     let jh = std::thread::spawn(move || {

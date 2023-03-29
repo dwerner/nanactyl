@@ -345,26 +345,51 @@ mod tests {
     use ::function_name::named;
     use cmd_lib::run_cmd;
     use core_executor::ThreadAffineExecutor;
+    use quote::quote;
+    use syn::{parse_quote, ItemFn};
 
     use super::*;
     use crate as plugin_loader;
     use crate::register_tls_dtor_hook;
 
-    fn generate_plugin_for_test(global_scope: &str, operation: &str) -> String {
-        [
-            "use std::time::Duration;",
-            global_scope,
-            "#[no_mangle] pub extern \"C\" fn load(state: &mut i32) {",
-            operation,
-            "}",
-            "#[no_mangle] pub extern \"C\" fn update(state: &mut i32, _dt: &Duration) {",
-            operation,
-            "}",
-            "#[no_mangle] pub extern \"C\" fn unload(state: &mut i32) {",
-            operation,
-            "}",
-        ]
-        .join("\n")
+    fn generate_plugin_for_test(
+        global_scope: proc_macro2::TokenStream,
+        operation: proc_macro2::TokenStream,
+    ) -> String {
+        let item_fn_load: ItemFn = parse_quote!(
+            #[no_mangle]
+            pub extern "C" fn load(state: &mut i32) {
+                #operation
+            }
+        );
+
+        let item_fn_update: ItemFn = parse_quote!(
+            #[no_mangle]
+            pub extern "C" fn update(state: &mut i32, _dt: &std::time::Duration) {
+                #operation
+            }
+        );
+
+        let item_fn_unload: ItemFn = parse_quote!(
+            #[no_mangle]
+            pub extern "C" fn unload(state: &mut i32) {
+                #operation
+            }
+        );
+
+        let fns = [item_fn_load, item_fn_update, item_fn_unload];
+
+        let module = quote! {
+            #(#fns)*
+        };
+
+        let src = format!(
+            "{global_scope}\n{module_source}",
+            global_scope = global_scope,
+            module_source = module.to_string()
+        );
+
+        src
     }
 
     // actually compile the generated source using rustc as a dylib
@@ -387,7 +412,7 @@ mod tests {
     #[named]
     async fn test_generated_plugin() {
         let tempdir = TempDir::new(function_name!()).unwrap();
-        let src = generate_plugin_for_test("", "*state += 1;");
+        let src = generate_plugin_for_test(quote!(), quote! { *state += 1; });
         let plugin_path = compile_lib(&tempdir, &src);
 
         let ThreadAffineExecutor { ref spawner, .. } = ThreadAffineExecutor::new(0);
@@ -406,7 +431,7 @@ mod tests {
         assert_eq!(state, 3);
 
         // re-generate source code for plugin, saving at the same location.
-        let src = generate_plugin_for_test("", "*state -= 1;");
+        let src = generate_plugin_for_test(quote!(), quote! { *state -= 1; });
         compile_lib(&tempdir, &src);
 
         loader.check(&mut state).unwrap();
@@ -428,7 +453,7 @@ mod tests {
         register_tls_dtor_hook!();
 
         let tempdir = TempDir::new(function_name!()).unwrap();
-        let src = generate_plugin_for_test("", "*state += 1;");
+        let src = generate_plugin_for_test(quote!(), quote! { *state += 1; });
         let plugin_path = compile_lib(&tempdir, &src);
 
         let ThreadAffineExecutor { ref spawner, .. } = ThreadAffineExecutor::new(0);
@@ -447,17 +472,17 @@ mod tests {
 
         // re-generate source code for plugin, saving at the same location.
         let src = generate_plugin_for_test(
-            r#"
-            use std::cell::RefCell;
-            thread_local! {
-                pub static THING: RefCell<Option<Box<dyn std::io::Write + Send>>> = RefCell::new(None);
-            }
-            "#,
-            r#"
-            *state -= 1;
-            println!("static THING {:?}", THING);
-            println!("{:?}", std::thread::current().id());
-        "#,
+            quote! {
+                use std::cell::RefCell;
+                thread_local! {
+                    pub static THING: RefCell<Option<Box<dyn std::io::Write + Send>>> = RefCell::new(None);
+                }
+            },
+            quote! {
+                *state -= 1;
+                println!("static THING {:?}", THING);
+                println!("{:?}", std::thread::current().id());
+            },
         );
         compile_lib(&tempdir, &src);
 
@@ -478,7 +503,7 @@ mod tests {
     #[named]
     async fn should_fail_to_update_when_not_yet_loaded() {
         let tempdir = TempDir::new(function_name!()).unwrap();
-        let src = generate_plugin_for_test("", "*state += 1;");
+        let src = generate_plugin_for_test(quote!(), quote! { *state += 1; });
         let plugin_path = compile_lib(&tempdir, &src);
 
         let ThreadAffineExecutor { ref spawner, .. } = ThreadAffineExecutor::new(0);

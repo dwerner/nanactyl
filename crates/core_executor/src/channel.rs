@@ -305,9 +305,8 @@ impl Drop for TaskWithShutdown {
 mod tests {
     use futures_lite::stream::{self, StreamExt};
 
-    use crate::ThreadPoolExecutor;
-
     use super::*;
+    use crate::ThreadPoolExecutor;
 
     #[smol_potat::test]
     async fn test_bichannel() {

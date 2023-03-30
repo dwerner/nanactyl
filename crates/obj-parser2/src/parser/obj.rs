@@ -1,19 +1,16 @@
 use std::io::BufRead;
 use std::str;
 
-use nom::{
-    branch::alt,
-    bytes::complete::{tag, take_while, take_while1},
-    character::complete::multispace0,
-    combinator::{map, opt},
-    sequence::{delimited, preceded, tuple},
-    IResult,
-};
-
-/// http://paulbourke.net/dataformats/obj/
-use crate::parser::common::*;
+use nom::branch::alt;
+use nom::bytes::complete::{tag, take_while, take_while1};
+use nom::character::complete::{multispace0, multispace1, space1};
+use nom::combinator::{map, opt};
+use nom::sequence::{delimited, preceded, tuple};
+use nom::IResult;
 
 use crate::def_string_line;
+/// http://paulbourke.net/dataformats/obj/
+use crate::parser::common::*;
 
 #[derive(PartialEq, Eq, Debug)]
 pub struct FaceIndex(pub u32, pub Option<u32>, pub Option<u32>);
@@ -79,21 +76,39 @@ fn comment_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
 }
 
 fn face_index(input: &[u8]) -> IResult<&[u8], FaceIndex> {
-    let (input, v) = uint(input)?;
-    let (input, uv) = opt(preceded(tag(b"/"), uint))(input)?;
-    let (input, n) = opt(preceded(tag(b"/"), uint))(input)?;
+    let (input, v) = uint(sp(input)?.1)?;
+    let (input, uv) = opt(preceded(tag(b"/"), uint))(sp(input)?.1)?;
+    let (input, n) = opt(preceded(tag(b"/"), uint))(sp(input)?.1)?;
     Ok((input, FaceIndex(v, uv, n)))
 }
 
+fn face_triple(input: &[u8]) -> IResult<&[u8], FaceIndex> {
+    let (input, v) = uint(input)?;
+    let (input, _) = tag(b"/")(input)?;
+    let (input, vt) = opt(uint)(input)?;
+    let (input, _) = tag(b"/")(input)?;
+    let (input, vn) = opt(uint)(input)?;
+
+    Ok((input, FaceIndex(v, vt, vn)))
+}
+
+fn face_pair(input: &[u8]) -> IResult<&[u8], FaceIndex> {
+    let (input, v) = uint(input)?;
+    let (input, _) = tag(b"/")(input)?;
+    let (input, vt) = opt(uint)(input)?;
+
+    Ok((input, FaceIndex(v, vt, None)))
+}
+
 fn face_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
-    map(
-        delimited(
-            tag(b"f"),
-            tuple((face_index, face_index, face_index)),
-            take_while(|c| c == b'\n'),
-        ),
-        |(f1, f2, f3)| ObjLine::Face(f1, f2, f3),
-    )(input)
+    let (input, _) = delimited(opt(multispace1), tag(b"f"), space1)(input)?;
+    let (input, face) = alt((
+        tuple((face_index, face_index, face_index)),
+        tuple((face_pair, face_pair, face_pair)),
+        tuple((face_triple, face_triple, face_triple)),
+    ))(input)?;
+
+    Ok((input, ObjLine::Face(face.0, face.1, face.2)))
 }
 
 pub fn parse_obj_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
@@ -176,9 +191,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-    use std::fs::File;
-    use std::io::BufReader;
 
     use super::*;
 

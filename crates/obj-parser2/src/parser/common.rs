@@ -1,15 +1,11 @@
 use std::str::{self, FromStr};
 
-use nom::{
-    branch::alt,
-    bytes::complete::{tag, take_until, take_while},
-    character::complete::{digit1, line_ending, multispace0},
-    combinator::{eof, map_res, opt, recognize},
-    error,
-    number::complete::u32 as complete_u32,
-    sequence::{delimited, tuple},
-    IResult,
-};
+use nom::branch::alt;
+use nom::bytes::complete::{tag, take_until, take_while};
+use nom::character::complete::{digit1, line_ending, multispace0};
+use nom::combinator::{eof, map_res, opt, recognize};
+use nom::sequence::{delimited, tuple};
+use nom::{error, IResult};
 
 pub fn sp(input: &[u8]) -> Result<(&[u8], &[u8]), nom::Err<error::Error<&[u8]>>> {
     take_while(|c| c == b' ' || c == b'\t')(input)

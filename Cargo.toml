@@ -6,7 +6,6 @@ members = [
     "crates/models",
     "crates/network",
     "crates/obj-parser",
-    "crates/obj-parser2",
     "crates/plugin_loader",
     "crates/render",
     "crates/world",

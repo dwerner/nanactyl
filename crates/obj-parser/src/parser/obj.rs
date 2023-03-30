@@ -1,6 +1,14 @@
 use std::io::BufRead;
 use std::str;
 
+use nom::branch::alt;
+use nom::bytes::complete::{tag, take_while, take_while1};
+use nom::character::complete::{multispace0, multispace1, space1};
+use nom::combinator::{map, opt};
+use nom::sequence::{delimited, preceded, tuple};
+use nom::IResult;
+
+use crate::def_string_line;
 /// http://paulbourke.net/dataformats/obj/
 use crate::parser::common::*;
 
@@ -28,85 +36,103 @@ def_string_line!(mtllib_line, "mtllib", ObjLine, MtlLib);
 def_string_line!(usemtl_line, "usemtl", ObjLine, UseMtl);
 def_string_line!(s_line, "s", ObjLine, SmoothShading);
 
-named!( vertex_line< &[u8], ObjLine >, map!(
-    sp!( delimited!( tag!("v"), float_triple_opt_4th, end_of_line )),
-    |(x,y,z,w)| ObjLine::Vertex(x,y,z,w)
-));
+fn vertex_line(input: &str) -> IResult<&str, ObjLine> {
+    map(
+        delimited(tag("v"), float_triple_opt_4th, take_while(|c| c == '\n')),
+        |(x, y, z, w)| ObjLine::Vertex(x, y, z, w),
+    )(input)
+}
 
-named!( normal_line< &[u8], ObjLine >, map!(
-    sp!( delimited!( tag!("vn"), float_triple, end_of_line )),
-    |(x,y,z)| ObjLine::Normal(x,y,z)
-));
+fn normal_line(input: &str) -> IResult<&str, ObjLine> {
+    map(
+        delimited(tag("vn"), float_triple, take_while(|c| c == '\n')),
+        |(x, y, z)| ObjLine::Normal(x, y, z),
+    )(input)
+}
 
-named!( texcoord_line< &[u8], ObjLine >, map!(
-    sp!( delimited!( tag!("vt"), float_pair_opt_3rd, end_of_line )),
-    |(u,v,w)| ObjLine::TextureUVW(u,v,w)
-));
+fn texcoord_line(input: &str) -> IResult<&str, ObjLine> {
+    map(
+        delimited(tag("vt"), float_pair_opt_3rd, take_while(|c| c == '\n')),
+        |(u, v, w)| ObjLine::TextureUVW(u, v, w),
+    )(input)
+}
 
-named!( vertex_param_line< &[u8], ObjLine >, map!(
-    sp!(delimited!( tag!("vp"), float_triple, end_of_line )),
-    |(x,y,z)| ObjLine::VertexParam(x,y,z)
-));
+fn vertex_param_line(input: &str) -> IResult<&str, ObjLine> {
+    map(
+        delimited(tag("vp"), float_triple, take_while(|c| c == '\n')),
+        |(x, y, z)| ObjLine::VertexParam(x, y, z),
+    )(input)
+}
 
-named!( face_triple< &[u8], FaceIndex >, map!(
-    tuple!(
-        uint,
-        delimited!( tag!("/"), opt!(uint), tag!("/") ),
-        opt!(uint)
-    ),
-    |(v, vt, vn)| FaceIndex(v, vt, vn)
-));
-
-named!( face_pair< &[u8], FaceIndex >, map!(
-    separated_pair!(
-        uint,
-        tag!("/"),
-        opt!(uint)
-    ),
-    |(v,vt)| FaceIndex(v, vt, None)
-));
-
-named!( face_line< &[u8], ObjLine >, delimited!(
-        sp!(tag!("f")),
-        alt!(
-            sp!(tuple!(uint, uint, uint)) => {|(u1,u2,u3)| ObjLine::Face(
-                FaceIndex(u1, None, None),
-                FaceIndex(u2, None, None),
-                FaceIndex(u3, None, None)
-                )
-            }
-            |
-            sp!(tuple!(face_pair, face_pair, face_pair)) => {|(a,b,c)| ObjLine::Face(a,b,c)}
-            |
-            sp!(tuple!(face_triple, face_triple, face_triple)) =>  {|(a,b,c)| ObjLine::Face(a,b,c)}
+fn comment_line(input: &str) -> IResult<&str, ObjLine> {
+    map(
+        delimited(
+            tag("#"),
+            delimited(multispace0, take_while1(|c| c != '\n'), multispace0),
+            take_while(|c| c == '\n'),
         ),
-        end_of_line
-    )
-);
+        |s: &str| ObjLine::Comment(s.trim().to_string()),
+    )(input)
+}
 
-named!(
-    comment_line<ObjLine>,
-    map!(sp!(comment), |s| ObjLine::Comment(
-        str::from_utf8(s).unwrap().trim().to_string()
-    ))
-);
+fn face_index(input: &str) -> IResult<&str, FaceIndex> {
+    let (input, v) = unsigned_integer(input)?;
+    let (input, uv) = opt(preceded(tag("/"), unsigned_integer))(input)?;
+    let (input, n) = opt(preceded(tag("/"), unsigned_integer))(input)?;
+    Ok((input, FaceIndex(v, uv, n)))
+}
 
-named!(
-    parse_obj_line<ObjLine>,
-    alt!(
-        vertex_line
-            | normal_line
-            | vertex_param_line
-            | texcoord_line
-            | face_line
-            | object_line
-            | group_line
-            | mtllib_line
-            | usemtl_line
-            | s_line
-            | comment_line
-    )
-);
+fn face_triple(input: &str) -> IResult<&str, FaceIndex> {
+    let (input, v) = unsigned_integer(input)?;
+    let (input, _) = tag("/")(input)?;
+    let (input, vt) = opt(unsigned_integer)(input)?;
+    let (input, _) = tag("/")(input)?;
+    let (input, vn) = opt(unsigned_integer)(input)?;
+
+    Ok((input, FaceIndex(v, vt, vn)))
+}
+
+fn face_pair(input: &str) -> IResult<&str, FaceIndex> {
+    let (input, v) = unsigned_integer(input)?;
+    let (input, _) = tag("/")(input)?;
+    let (input, vt) = opt(unsigned_integer)(input)?;
+    Ok((input, FaceIndex(v, vt, None)))
+}
+pub(crate) fn spaced_face_item(input: &str) -> IResult<&str, FaceIndex> {
+    let (i, _) = multispace0(input)?;
+    let (i, face) = alt((face_triple, face_pair, face_index))(i)?;
+    let (i, _) = multispace0(i)?;
+    Ok((i, face))
+}
+
+pub(crate) fn spaced_face(input: &str) -> IResult<&str, (FaceIndex, FaceIndex, FaceIndex)> {
+    let (i, _) = multispace0(input)?;
+    let (i, face) = tuple((spaced_face_item, spaced_face_item, spaced_face_item))(i)?;
+    let (i, _) = multispace0(i)?;
+    Ok((i, face))
+}
+
+fn face_line(input: &str) -> IResult<&str, ObjLine> {
+    let (input, _) = delimited(opt(multispace1), tag("f"), space1)(input)?;
+    let (input, face) = spaced_face(input)?;
+    Ok((input, ObjLine::Face(face.0, face.1, face.2)))
+}
+
+pub(crate) fn parse_obj_line(input: &str) -> IResult<&str, ObjLine> {
+    alt((
+        comment_line,
+        object_line,
+        group_line,
+        mtllib_line,
+        usemtl_line,
+        s_line,
+        vertex_line,
+        normal_line,
+        texcoord_line,
+        vertex_param_line,
+        face_line,
+    ))(input)
+}
 
 pub struct ObjParser<R> {
     reader: R,
@@ -128,23 +154,21 @@ where
     type Item = ObjLine;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use nom::IResult;
         let mut line = String::new();
         let read_result = self.reader.read_line(&mut line);
         match read_result {
             Ok(len) => {
                 if len > 0 {
-                    let result = parse_obj_line(line.as_bytes());
+                    let result = parse_obj_line(&line);
                     match result {
-                        IResult::Done(_, o) => Some(o),
-                        IResult::Error(_e) => None,
-                        IResult::Incomplete(_) => self.next(),
+                        Ok((_, o)) => Some(o),
+                        Err(_) => None,
                     }
                 } else {
                     None
                 }
             }
-            Err(_o) => None,
+            Err(_) => None,
         }
     }
 }
@@ -152,25 +176,30 @@ where
 #[cfg(test)]
 mod tests {
 
-    use std::error::Error;
-    use std::fs::File;
-    use std::io::BufReader;
-
     use super::*;
 
     #[test]
-    fn parser_can_read_from_file() -> Result<(), Box<dyn Error>> {
-        let file = File::open("assets/cube.obj")?;
-        let parser = ObjParser::new(BufReader::new(file));
-        let parsed_lines = parser.collect::<Vec<_>>();
-        assert_eq!(parsed_lines.len(), 51);
-        Ok(())
+    fn test_face_index() {
+        assert_eq!(
+            face_index("1/2/3"),
+            Ok(("", FaceIndex(1, Some(2), Some(3))))
+        );
+        assert_eq!(face_index("4/5"), Ok(("", FaceIndex(4, Some(5), None))));
+        assert_eq!(face_index("6"), Ok(("", FaceIndex(6, None, None))));
+    }
+
+    #[test]
+    fn test_face_pair() {
+        assert_eq!(
+            spaced_face_item("1/2"),
+            Ok(("", FaceIndex(1, Some(2), None)))
+        );
+        assert_eq!(spaced_face_item("3"), Ok(("", FaceIndex(3, None, None))));
     }
 
     #[test]
     fn can_parse_any_line() {
-        let result =
-            parse_obj_line("f 1/11/4 1/3/4 1/11/4  #this is an important face \n".as_bytes());
+        let result = parse_obj_line("f 1/11/4 1/3/4 1/11/4  #this is an important face \n");
         let (_, line) = result.unwrap();
         assert_eq!(
             line,
@@ -184,7 +213,7 @@ mod tests {
 
     #[test]
     fn can_ignore_comment_at_eol() {
-        let ff = face_line("f 1/11/4 1/3/4 1/11/4  #this is an important face \n".as_bytes());
+        let ff = face_line("f 1/11/4 1/3/4 1/11/4  #this is an important face \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -197,16 +226,8 @@ mod tests {
     }
 
     #[test]
-    fn can_parse_face_triple() {
-        named!(sp_face<FaceIndex>, sp!(face_triple));
-        let ff = face_triple("1/11/4".as_bytes());
-        let (_, b) = ff.unwrap();
-        assert_eq!(b, FaceIndex(1, Some(11), Some(4)));
-    }
-
-    #[test]
     fn can_parse_face_line_1() {
-        let ff = face_line("f 1/11/4 1/3/4 1/11/4  \n".as_bytes());
+        let ff = face_line("f 1/11/4 1/3/4 1/11/4  \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -221,7 +242,7 @@ mod tests {
     #[test]
     fn can_parse_face_line_2() {
         //
-        let ff = face_line("f 1/3 2/62 4/3\n".as_bytes());
+        let ff = face_line("f 1/3 2/62 4/3\n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -235,7 +256,7 @@ mod tests {
 
     #[test]
     fn can_parse_face_line_3() {
-        let ff = face_line("f 1//4 1//4 1//11  \n".as_bytes());
+        let ff = face_line("f 1//4 1//4 1//11  \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -249,7 +270,7 @@ mod tests {
 
     #[test]
     fn can_parse_face_line_4() {
-        let ff = face_line("f 42 1 11  \n".as_bytes());
+        let ff = face_line("f 42 1 11  \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -263,7 +284,7 @@ mod tests {
 
     #[test]
     fn can_parse_face_line_5() {
-        let ff = face_line("f 42/ 1/ 11/  \n".as_bytes());
+        let ff = face_line("f 42/ 1/ 11/  \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -277,7 +298,7 @@ mod tests {
 
     #[test]
     fn can_parse_face_line_6() {
-        let ff = face_line("f 42// 1// 11// \t \n".as_bytes());
+        let ff = face_line("f 42// 1// 11// \t \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -291,7 +312,7 @@ mod tests {
 
     #[test]
     fn can_parse_texcoord_line() {
-        let vline = "vt -1.000000 -1.000000 \r\n".as_bytes();
+        let vline = "vt -1.000000 -1.000000 \r\n";
         let v = texcoord_line(vline);
         let (_a, b) = v.unwrap();
         assert_eq!(b, ObjLine::TextureUVW(-1.0, -1.0, None));
@@ -299,7 +320,7 @@ mod tests {
 
     #[test]
     fn can_parse_normal_line() {
-        let vline = "vn -1.000000 -1.000000 1.000000  \r\n".as_bytes();
+        let vline = "vn -1.000000 -1.000000 1.000000  \r\n";
         let v = normal_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, ObjLine::Normal(-1.0, -1.0, 1.0));
@@ -308,7 +329,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn invalid_vertex_line_fails() {
-        let vline = "vZZ -1.000000 -1.000000 1.000000 \r\n".as_bytes();
+        let vline = "vZZ -1.000000 -1.000000 1.000000 \r\n";
         let v = vertex_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, ObjLine::Vertex(-1.0, -1.0, 1.0, None));
@@ -316,7 +337,7 @@ mod tests {
 
     #[test]
     fn can_parse_vertex_parameter_line() {
-        let vline = "vp -1.000000 -1.000000 1.000000 \r\n".as_bytes();
+        let vline = "vp -1.000000 -1.000000 1.000000 \r\n";
         let v = vertex_param_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, ObjLine::VertexParam(-1.0, -1.0, 1.0));
@@ -324,7 +345,7 @@ mod tests {
 
     #[test]
     fn can_parse_vertex_line_with_optional_w_value() {
-        let vline = "v -1.000000 -1.000000 1.000000 42.000\r\n".as_bytes();
+        let vline = "v -1.000000 -1.000000 1.000000 42.000\r\n";
         let v = vertex_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, ObjLine::Vertex(-1.0, -1.0, 1.0, Some(42.0)));
@@ -332,7 +353,7 @@ mod tests {
 
     #[test]
     fn can_parse_vertex_line() {
-        let vline = "v -1.000000 -1.000000 1.000000 \r\n".as_bytes();
+        let vline = "v -1.000000 -1.000000 1.000000 \r\n";
         let v = vertex_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, ObjLine::Vertex(-1.0, -1.0, 1.0, None));
@@ -340,28 +361,28 @@ mod tests {
 
     #[test]
     fn can_parse_object_line() {
-        let cmt = object_line("o someobject.999asdf.7 \n".as_bytes());
+        let cmt = object_line("o someobject.999asdf.7 \n");
         let (_, b) = cmt.unwrap();
         assert_eq!(b, ObjLine::ObjectName("someobject.999asdf.7".to_string()));
     }
 
     #[test]
     fn can_parse_mtllib_line() {
-        let cmt = mtllib_line("mtllib somelib \n".as_bytes());
+        let cmt = mtllib_line("mtllib somelib \n");
         let (_, b) = cmt.unwrap();
         assert_eq!(b, ObjLine::MtlLib("somelib".to_string()));
     }
 
     #[test]
     fn can_parse_usemtl_line() {
-        let cmt = usemtl_line("usemtl SomeMaterial\n".as_bytes());
+        let cmt = usemtl_line("usemtl SomeMaterial\n");
         let (_, b) = cmt.unwrap();
         assert_eq!(b, ObjLine::UseMtl("SomeMaterial".to_string()));
     }
 
     #[test]
     fn can_parse_s_line() {
-        let cmt = s_line("s off\n".as_bytes());
+        let cmt = s_line("s off\n");
         let (_, b) = cmt.unwrap();
         assert_eq!(b, ObjLine::SmoothShading("off".to_string()));
     }

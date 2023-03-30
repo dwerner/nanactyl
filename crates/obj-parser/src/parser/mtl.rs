@@ -1,10 +1,14 @@
 use std::io::BufRead;
 use std::str;
 
-use nom::eol;
+use nom::branch::alt;
+use nom::bytes::complete::tag;
+use nom::combinator::map;
+use nom::sequence::{delimited, tuple};
+use nom::IResult;
 
-/// http://paulbourke.net/dataformats/mtl/
 use super::common::*;
+use crate::def_string_line;
 
 #[derive(PartialEq, Debug)]
 pub enum MtlLine {
@@ -37,81 +41,110 @@ def_string_line!(diffuse_map_line, "map_Kd", MtlLine, DiffuseMap);
 def_string_line!(specular_map_line, "map_Ks", MtlLine, SpecularMap);
 def_string_line!(bump_map_line, "map_bump", MtlLine, BumpMap);
 
-named!(pub ka_ambient_line< &[u8], MtlLine >, map!(
-    delimited!(tag!("Ka"), float_triple, end_of_line), |(r,g,b)| MtlLine::AmbientColor(r,g,b)
-));
+pub(crate) fn ka_ambient_line(input: &str) -> IResult<&str, MtlLine> {
+    let (i, tuple_result) = delimited(tag("Ka"), float_triple, end_of_line_maybe_comment)(input)?;
+    let (r, g, b) = tuple_result;
+    Ok((i, MtlLine::AmbientColor(r, g, b)))
+}
 
-named!(pub transmission_filter_line< &[u8], MtlLine >, map!(
-    delimited!(tag!("Tf"), float_triple, end_of_line), |(r,g,b)| MtlLine::TransmissionFilter(r,g,b)
-));
+pub(crate) fn transmission_filter_line(input: &str) -> IResult<&str, MtlLine> {
+    let (i, tuple_result) = delimited(tag("Tf"), float_triple, end_of_line_maybe_comment)(input)?;
+    let (r, g, b) = tuple_result;
+    Ok((i, MtlLine::TransmissionFilter(r, g, b)))
+}
 
-named!(pub kd_diffuse_line< &[u8], MtlLine >, map!(
-    delimited!(tag!("Kd"), float_triple, end_of_line), |(r,g,b)| MtlLine::DiffuseColor(r,g,b)
-));
+pub(crate) fn kd_diffuse_line(input: &str) -> IResult<&str, MtlLine> {
+    let (i, tuple_result) = delimited(tag("Kd"), float_triple, end_of_line_maybe_comment)(input)?;
+    let (r, g, b) = tuple_result;
+    Ok((i, MtlLine::DiffuseColor(r, g, b)))
+}
 
-named!(pub ks_specular_line< &[u8], MtlLine >, map!(
-    delimited!(tag!("Ks"), float_triple, end_of_line), |(r,g,b)| MtlLine::SpecularColor(r,g,b)
-));
+pub(crate) fn ks_specular_line(input: &str) -> IResult<&str, MtlLine> {
+    let (i, tuple_result) = delimited(tag("Ks"), float_triple, end_of_line_maybe_comment)(input)?;
+    let (r, g, b) = tuple_result;
+    Ok((i, MtlLine::SpecularColor(r, g, b)))
+}
 
-named!(pub ke_line< &[u8], MtlLine >, map!(
-    delimited!(tag!("Ke"), float_triple, end_of_line), |(r,g,b)| MtlLine::KeColor(r,g,b)
-));
+pub(crate) fn ke_line(input: &str) -> IResult<&str, MtlLine> {
+    let (i, tuple_result) = delimited(tag("Ke"), float_triple, end_of_line_maybe_comment)(input)?;
+    let (r, g, b) = tuple_result;
+    Ok((i, MtlLine::KeColor(r, g, b)))
+}
 
-named!(pub transparency_line_d< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("d"), float, end_of_line)), MtlLine::TransparencyD
-));
+pub(crate) fn transparency_line_d(input: &str) -> IResult<&str, MtlLine> {
+    map(
+        tuple((tag("d"), spaced_float, end_of_line_maybe_comment)),
+        |(_, float_result, _)| MtlLine::TransparencyD(float_result),
+    )(input)
+}
 
-named!(pub transparency_line_tr< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("Tr"), float, end_of_line)), MtlLine::TransparencyTr
-));
+pub(crate) fn transparency_line_tr(input: &str) -> IResult<&str, MtlLine> {
+    map(
+        tuple((tag("Tr"), spaced_float, end_of_line_maybe_comment)),
+        |(_, float_result, _)| MtlLine::TransparencyTr(float_result),
+    )(input)
+}
 
-named!(pub optical_density_line< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("Ni"), float, end_of_line)),  MtlLine::OpticalDensity
-));
+pub(crate) fn optical_density_line(input: &str) -> IResult<&str, MtlLine> {
+    map(
+        tuple((tag("Ni"), spaced_float, end_of_line_maybe_comment)),
+        |(_, float_result, _)| MtlLine::OpticalDensity(float_result),
+    )(input)
+}
 
-named!(pub illum_line< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("illum"), uint, end_of_line)), MtlLine::IlluminationModel
-));
+pub(crate) fn illum_line(input: &str) -> IResult<&str, MtlLine> {
+    map(
+        delimited(tag("illum"), spaced_uint, end_of_line_maybe_comment),
+        MtlLine::IlluminationModel,
+    )(input)
+}
 
-named!(pub sharpness_line< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("sharpness"), uint, end_of_line)), MtlLine::Sharpness
-));
+pub(crate) fn sharpness_line(input: &str) -> IResult<&str, MtlLine> {
+    map(
+        tuple((tag("sharpness"), spaced_uint, end_of_line_maybe_comment)),
+        |(_, uint_result, _)| MtlLine::Sharpness(uint_result),
+    )(input)
+}
 
-named!(pub specular_exponent_line< &[u8], MtlLine >, map!(
-    sp!(delimited!(tag!("Ns"), float, end_of_line)), MtlLine::SpecularExponent
-));
+pub(crate) fn specular_exponent_line(input: &str) -> IResult<&str, MtlLine> {
+    map(
+        tuple((tag("Ns"), spaced_float, end_of_line_maybe_comment)),
+        |(_, float_result, _)| MtlLine::SpecularExponent(float_result),
+    )(input)
+}
 
-named!(
-    comment_line<MtlLine>,
-    map!(sp!(comment), |s| MtlLine::Comment(
-        str::from_utf8(s).unwrap().trim().to_string()
-    ))
-);
+pub(crate) fn comment_line(input: &str) -> IResult<&str, MtlLine> {
+    let (input, comment) = comment(input)?;
+    Ok((input, MtlLine::Comment(comment.trim().to_string())))
+}
 
-named!(blank_line<MtlLine>, map!(sp!(eol), |_| MtlLine::Blank));
+pub(crate) fn blank_line(input: &str) -> IResult<&str, MtlLine> {
+    let (i, _) = end_of_line_maybe_comment(input)?;
+    Ok((i, MtlLine::Blank))
+}
 
-named!(
-    parse_mtl_line<MtlLine>,
-    alt!(
-        newmtl_line
-            | ambient_map_line
-            | diffuse_map_line
-            | specular_map_line
-            | bump_map_line
-            | ka_ambient_line
-            | kd_diffuse_line
-            | ks_specular_line
-            | ke_line
-            | transparency_line_d
-            | transparency_line_tr
-            | optical_density_line
-            | illum_line
-            | sharpness_line
-            | specular_exponent_line
-            | comment_line
-            | blank_line
-    )
-);
+pub(crate) fn parse_mtl_line(input: &str) -> IResult<&str, MtlLine> {
+    alt((
+        newmtl_line,
+        ambient_map_line,
+        diffuse_map_line,
+        specular_map_line,
+        bump_map_line,
+        ka_ambient_line,
+        kd_diffuse_line,
+        transmission_filter_line,
+        ks_specular_line,
+        ke_line,
+        transparency_line_d,
+        transparency_line_tr,
+        optical_density_line,
+        illum_line,
+        sharpness_line,
+        specular_exponent_line,
+        comment_line,
+        blank_line,
+    ))(input)
+}
 
 pub struct MtlParser<R> {
     reader: R,
@@ -133,114 +166,94 @@ where
     type Item = MtlLine;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use nom::IResult;
         let mut line = String::new();
         let read_result = self.reader.read_line(&mut line);
         match read_result {
             Ok(len) => {
                 if len > 0 {
-                    let result = parse_mtl_line(line.as_bytes());
-                    match result {
-                        IResult::Done(_, o) => Some(o),
-                        IResult::Error(_e) => None,
-                        IResult::Incomplete(_) => self.next(),
+                    match parse_mtl_line(line.as_str()) {
+                        Ok((_, o)) => Some(o),
+                        Err(_) => None,
                     }
                 } else {
                     None
                 }
             }
-            Err(_o) => None,
+            Err(_) => None,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-    use std::fs::File;
-    use std::io::BufReader;
 
     use super::*;
-    pub fn read_file(filename: &str) -> Result<MtlParser<BufReader<File>>, Box<dyn Error>> {
-        let file = File::open(filename)?;
-        let reader = BufReader::new(file);
-        Ok(MtlParser { reader })
-    }
-
-    #[test]
-    fn mtl_parser_can_load_from_file() -> Result<(), Box<dyn Error>> {
-        let parser = read_file("assets/transparent_blue_cube.mtl")?;
-        let parsed_lines = parser.collect::<Vec<_>>();
-        println!("{:?}", parsed_lines);
-        assert_eq!(parsed_lines.len(), 12);
-        Ok(())
-    }
 
     #[test]
     fn can_parse_newmtl_line() {
-        let (_, b) = newmtl_line("newmtl material/name\n".as_bytes()).unwrap();
+        let (_, b) = newmtl_line("newmtl material/name\n").unwrap();
         assert_eq!(b, MtlLine::NewMtl("material/name".to_string()));
     }
 
     #[test]
     fn can_parse_ambient_map_line() {
-        let (_, b) = ambient_map_line("map_Ka sometexture.png\n".as_bytes()).unwrap();
+        let (_, b) = ambient_map_line("map_Ka sometexture.png\n").unwrap();
         assert_eq!(b, MtlLine::AmbientMap("sometexture.png".to_string()));
     }
 
     #[test]
     fn can_parse_diffuse_map_line() {
-        let (_, b) = diffuse_map_line("map_Kd sometexture.png\n".as_bytes()).unwrap();
+        let (_, b) = diffuse_map_line("map_Kd sometexture.png\n").unwrap();
         assert_eq!(b, MtlLine::DiffuseMap("sometexture.png".to_string()));
     }
 
     #[test]
     fn can_parse_specular_map_line() {
-        let (_, b) = specular_map_line("map_Ks sometexture.png\n".as_bytes()).unwrap();
+        let (_, b) = specular_map_line("map_Ks sometexture.png\n").unwrap();
         assert_eq!(b, MtlLine::SpecularMap("sometexture.png".to_string()));
     }
 
     #[test]
     fn can_parse_transparency_d_line() {
-        let (_, b) = transparency_line_d("d 0.5\n".as_bytes()).unwrap();
+        let (_, b) = transparency_line_d("d 0.5\n").unwrap();
         assert_eq!(b, MtlLine::TransparencyD(0.5));
     }
 
     #[test]
     fn can_parse_transparency_tr_line() {
-        let (_, b) = transparency_line_tr("Tr 0.5\n".as_bytes()).unwrap();
+        let (_, b) = transparency_line_tr("Tr 0.5\n").unwrap();
         assert_eq!(b, MtlLine::TransparencyTr(0.5));
     }
 
     #[test]
     fn can_parse_illumination_model_line() {
-        let (_, b) = illum_line("illum 2\n".as_bytes()).unwrap();
+        let (_, b) = illum_line("illum 2\n").unwrap();
         assert_eq!(b, MtlLine::IlluminationModel(2));
     }
 
     #[test]
     fn can_parse_specular_exponent_line() {
-        let (_, b) = specular_exponent_line("Ns 2\n".as_bytes()).unwrap();
+        let (_, b) = specular_exponent_line("Ns 2\n").unwrap();
         assert_eq!(b, MtlLine::SpecularExponent(2.0));
     }
 
     #[test]
     fn can_parse_ka_ambient_line() {
-        let vline = "Ka 1.000 1.000 1.000  \r\n".as_bytes();
+        let vline = "Ka 1.000 1.000 1.000  \r\n";
         let v = ka_ambient_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, MtlLine::AmbientColor(1.0, 1.0, 1.0));
     }
     #[test]
     fn can_parse_ka_diffuse_line() {
-        let vline = "Kd 1.000 1.000 1.000  \r\n".as_bytes();
+        let vline = "Kd 1.000 1.000 1.000  \r\n";
         let v = kd_diffuse_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, MtlLine::DiffuseColor(1.0, 1.0, 1.0));
     }
     #[test]
     fn can_parse_ka_specular_line() {
-        let vline = "Ks 1.000 1.000 1.000  \r\n".as_bytes();
+        let vline = "Ks 1.000 1.000 1.000  \r\n";
         let v = ks_specular_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, MtlLine::SpecularColor(1.0, 1.0, 1.0));

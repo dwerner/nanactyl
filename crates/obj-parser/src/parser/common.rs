@@ -1,12 +1,12 @@
 use std::str::{self, FromStr};
 
 use nom::branch::alt;
-use nom::bytes::complete::{is_not, tag, take_while};
+use nom::bytes::complete::{is_not, tag};
 use nom::character::complete::{digit1, line_ending, multispace0};
 use nom::combinator::{eof, map_res, opt, recognize};
 use nom::number::complete::recognize_float;
 use nom::sequence::tuple;
-use nom::{error, IResult};
+use nom::IResult;
 
 fn eol(input: &str) -> IResult<&str, &str> {
     line_ending(input)
@@ -65,11 +65,6 @@ pub(crate) fn float_triple(input: &str) -> IResult<&str, (f32, f32, f32)> {
     Ok((i, tuple_result))
 }
 
-pub(crate) fn float_pair(input: &str) -> IResult<&str, (f32, f32)> {
-    let (i, tuple_result) = tuple((spaced_float, spaced_float))(input.trim())?;
-    Ok((i, tuple_result))
-}
-
 pub(crate) fn spaced_float(input: &str) -> IResult<&str, f32> {
     let (i, _) = multispace0(input)?;
     let (i, value) = float(i)?;
@@ -115,12 +110,6 @@ mod tests {
         assert_eq!(float("-2.5e-2"), Ok(("", -0.025)));
         assert_eq!(float("+1.e3"), Ok(("", 1000.0)));
         assert!(float("abc").is_err());
-    }
-
-    #[test]
-    fn can_parse_float_pair() {
-        let ff = float_pair("     -1.000001 7742.9 ");
-        assert_eq!(ff, Ok(("", (-1.000001, 7742.9))));
     }
 
     #[test]

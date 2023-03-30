@@ -160,6 +160,14 @@ impl ObjObject {
         (vert, text, norm)
     }
 
+    // pub fn interleaved2(&self) -> Vec<(T4<f32>, T3<f32>, T3<f32>)> {
+    //     let mut data = Vec::new();
+    //     for line in self.vertices().iter().zip(self.faces.iter()) {
+    //         match line {}
+    //     }
+    //     data
+    // }
+
     pub fn interleaved(&self) -> Interleaved {
         let mut vertex_map = HashMap::new();
 

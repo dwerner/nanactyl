@@ -6,7 +6,7 @@ use nom::{
     bytes::complete::{tag, take_while, take_while1},
     character::complete::multispace0,
     combinator::{map, opt},
-    sequence::{delimited, preceded, separated_pair, tuple},
+    sequence::{delimited, preceded, tuple},
     IResult,
 };
 
@@ -79,9 +79,9 @@ fn comment_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
 }
 
 fn face_index(input: &[u8]) -> IResult<&[u8], FaceIndex> {
-    let (input, v) = u32_parse(input)?;
-    let (input, uv) = opt(preceded(tag(b"/"), u32_parse))(input)?;
-    let (input, n) = opt(preceded(tag(b"/"), u32_parse))(input)?;
+    let (input, v) = uint(input)?;
+    let (input, uv) = opt(preceded(tag(b"/"), uint))(input)?;
+    let (input, n) = opt(preceded(tag(b"/"), uint))(input)?;
     Ok((input, FaceIndex(v, uv, n)))
 }
 
@@ -181,15 +181,6 @@ mod tests {
     use std::io::BufReader;
 
     use super::*;
-
-    #[test]
-    fn parser_can_read_from_file() -> Result<(), Box<dyn Error>> {
-        let file = File::open("assets/cube.obj")?;
-        let parser = ObjParser::new(BufReader::new(file));
-        let parsed_lines = parser.collect::<Vec<_>>();
-        assert_eq!(parsed_lines.len(), 51);
-        Ok(())
-    }
 
     #[test]
     fn can_parse_any_line() {

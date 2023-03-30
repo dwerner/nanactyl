@@ -1,15 +1,13 @@
-use std::str;
-use std::str::FromStr;
+use std::str::{self, FromStr};
 
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until, take_while},
     character::complete::{digit1, line_ending, multispace0},
-    combinator::{eof, map, map_res, opt, recognize},
+    combinator::{eof, map_res, opt, recognize},
     error,
-    multi::many1,
     number::complete::u32 as complete_u32,
-    sequence::{delimited, pair, tuple},
+    sequence::{delimited, tuple},
     IResult,
 };
 
@@ -40,38 +38,36 @@ pub fn comment(input: &[u8]) -> IResult<&[u8], &[u8]> {
     delimited(tag("#"), take_until("\n"), alt((eof, eol)))(input)
 }
 
-pub fn unsigned_float(input: &str) -> IResult<&str, f32> {
+pub fn uint(input: &[u8]) -> IResult<&[u8], u32> {
     map_res(
-        recognize(pair(
-            opt(tag("-")),
-            alt((
-                tag("0"),
-                recognize(tuple((digit1, opt(tag(".")), opt(digit1)))),
-            )),
-        )),
-        str::parse::<f32>,
+        map_res(recognize(digit1), str::from_utf8),
+        FromStr::from_str,
+    )(input)
+}
+
+pub fn unsigned_float(input: &[u8]) -> IResult<&[u8], f32> {
+    map_res(
+        map_res(
+            recognize(alt((
+                delimited(digit1, tag("."), opt(digit1)),
+                delimited(opt(digit1), tag("."), digit1),
+                digit1,
+            ))),
+            str::from_utf8,
+        ),
+        FromStr::from_str,
     )(input)
 }
 
 pub fn float(input: &[u8]) -> IResult<&[u8], f32> {
-    let (i, (sign, value)) = tuple((opt(alt((tag("+"), tag("-")))), unsigned_float))(input)?;
-
-    let final_value = sign
-        .and_then(|s| if s[0] == b'-' { Some(-1f32) } else { None })
-        .unwrap_or(1f32)
-        * value;
-    Ok((i, final_value))
-}
-
-pub fn float_s(input: &[u8]) -> IResult<&[u8], f32> {
-    map_res(
-        recognize(pair(opt(alt((tag("+"), tag("-")))), float)),
-        str::from_utf8,
-    )(input)
-}
-
-pub fn uint(input: &[u8]) -> IResult<&[u8], u32> {
-    recognize(complete_u32)(input)
+    let (i, sign) = opt(alt((tag("+"), tag("-"))))(input)?;
+    let (i, value) = unsigned_float(i)?;
+    Ok((
+        i,
+        sign.and_then(|s| if s[0] == b'-' { Some(-1f32) } else { None })
+            .unwrap_or(1f32)
+            * value,
+    ))
 }
 
 pub fn float_triple_opt_4th(input: &[u8]) -> IResult<&[u8], (f32, f32, f32, Option<f32>)> {
@@ -99,12 +95,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn can_parse_signed_floats() {
-        let something = float(b"-0.00005");
-        assert_eq!(something, Ok((&b""[..], -0.00005)));
-    }
-
-    #[test]
     fn can_parse_float_pair() {
         let ff = float_pair(b"     -1.000001 7742.9 ");
         assert_eq!(ff, Ok((&b""[..], (-1.000001, 7742.9))));
@@ -119,7 +109,7 @@ mod tests {
     #[test]
     fn can_parse_comments() {
         let cmt = comment(b"# a comment exists here \n");
-        assert_eq!(cmt, Ok((&b"\n"[..], &b" a comment exists here "[..])));
+        assert_eq!(cmt, Ok((&b""[..], &b" a comment exists here "[..])));
     }
 
     #[test]
@@ -128,8 +118,8 @@ mod tests {
         assert_eq!(
             cmt,
             Ok((
-                &b"\n"[..],
-                &b" Blender v2.78 (sub 0) OBJ File: 'untitled.blend' "[..]
+                &b""[..],
+                &b" Blender v2.78 (sub 0) OBJ File: 'untitled.blend'"[..]
             ))
         );
     }

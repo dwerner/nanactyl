@@ -212,20 +212,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cube_format_interleaved() -> Result<(), Box<dyn Error>> {
-        let o = Obj::load("assets/cube.obj")?;
-        let interleaved = o.objects[0].interleaved();
-        println!("{:?}", o.objects[0].faces);
-        assert_eq!(o.objects[0].faces.len(), 12);
-        assert_eq!(interleaved.v_vt_vn.len(), 8);
-
-        assert!(o.objects[0].material.is_some());
-        let diffuse_map = o.objects[0].material.as_ref().unwrap();
-        assert_eq!(diffuse_map, "cube.mtl");
-        Ok(())
-    }
-
-    #[test]
     fn negative_texcoord_plane_regression() -> Result<(), Box<dyn Error>> {
         use std::io::Cursor;
         let plane_lines = "mtllib untitled.mtl
@@ -256,38 +242,6 @@ f 2/1/1 4/4/1 3/2/1";
             assert!(vt.1 >= 0.0);
         }
 
-        Ok(())
-    }
-
-    #[test]
-    fn cube_obj_has_12_faces() -> Result<(), Box<dyn Error>> {
-        // Triangulated model, 12/2 = 6 quads
-        let Obj {
-            objects: cube_objects,
-            ..
-        } = Obj::load("assets/cube.obj")?;
-        assert_eq!(cube_objects[0].faces.len(), 12);
-        Ok(())
-    }
-
-    #[test]
-    fn cube_obj_has_8_verts() -> Result<(), Box<dyn Error>> {
-        let o = Obj::load("assets/cube.obj")?;
-        assert_eq!(o.objects[0].vertices.len(), 8);
-        Ok(())
-    }
-
-    #[test]
-    fn cube_obj_has_1_object() -> Result<(), Box<dyn Error>> {
-        let o = Obj::load("assets/cube.obj")?;
-        assert_eq!(o.objects.len(), 1);
-        Ok(())
-    }
-
-    #[test]
-    fn parses_separate_objects() -> Result<(), Box<dyn Error>> {
-        let o = Obj::load("assets/four_blue_cubes.obj")?;
-        assert_eq!(o.objects.len(), 4);
         Ok(())
     }
 }

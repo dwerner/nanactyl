@@ -3,8 +3,7 @@ use std::str;
 
 use nom::branch::alt;
 use nom::bytes::complete::{is_not, tag};
-use nom::character::complete::end_of_line_maybe_comment;
-use nom::combinator::{map, opt};
+use nom::combinator::map;
 use nom::sequence::{delimited, tuple};
 use nom::IResult;
 

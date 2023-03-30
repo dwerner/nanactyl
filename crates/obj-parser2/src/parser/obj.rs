@@ -30,78 +30,79 @@ pub enum ObjLine {
     TextureUVW(f32, f32, Option<f32>), // u,v, then w defaults to 0.0
 }
 
-def_string_line!(object_line, b"o", ObjLine, ObjectName);
-def_string_line!(group_line, b"g", ObjLine, GroupName);
-def_string_line!(mtllib_line, b"mtllib", ObjLine, MtlLib);
-def_string_line!(usemtl_line, b"usemtl", ObjLine, UseMtl);
-def_string_line!(s_line, b"s", ObjLine, SmoothShading);
+def_string_line!(object_line, "o", ObjLine, ObjectName);
+def_string_line!(group_line, "g", ObjLine, GroupName);
+def_string_line!(mtllib_line, "mtllib", ObjLine, MtlLib);
+def_string_line!(usemtl_line, "usemtl", ObjLine, UseMtl);
+def_string_line!(s_line, "s", ObjLine, SmoothShading);
 
-fn vertex_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
+fn vertex_line(input: &str) -> IResult<&str, ObjLine> {
     map(
-        delimited(tag(b"v"), float_triple_opt_4th, take_while(|c| c == b'\n')),
+        delimited(tag("v"), float_triple_opt_4th, take_while(|c| c == '\n')),
         |(x, y, z, w)| ObjLine::Vertex(x, y, z, w),
     )(input)
 }
 
-fn normal_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
+fn normal_line(input: &str) -> IResult<&str, ObjLine> {
     map(
-        delimited(tag(b"vn"), float_triple, take_while(|c| c == b'\n')),
+        delimited(tag("vn"), float_triple, take_while(|c| c == '\n')),
         |(x, y, z)| ObjLine::Normal(x, y, z),
     )(input)
 }
 
-fn texcoord_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
+fn texcoord_line(input: &str) -> IResult<&str, ObjLine> {
     map(
-        delimited(tag(b"vt"), float_pair_opt_3rd, take_while(|c| c == b'\n')),
+        delimited(tag("vt"), float_pair_opt_3rd, take_while(|c| c == '\n')),
         |(u, v, w)| ObjLine::TextureUVW(u, v, w),
     )(input)
 }
 
-fn vertex_param_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
+fn vertex_param_line(input: &str) -> IResult<&str, ObjLine> {
     map(
-        delimited(tag(b"vp"), float_triple, take_while(|c| c == b'\n')),
+        delimited(tag("vp"), float_triple, take_while(|c| c == '\n')),
         |(x, y, z)| ObjLine::VertexParam(x, y, z),
     )(input)
 }
 
-fn comment_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
+fn comment_line(input: &str) -> IResult<&str, ObjLine> {
     map(
         delimited(
-            tag(b"#"),
-            delimited(multispace0, take_while1(|c| c != b'\n'), multispace0),
-            take_while(|c| c == b'\n'),
+            tag("#"),
+            delimited(multispace0, take_while1(|c| c != '\n'), multispace0),
+            take_while(|c| c == '\n'),
         ),
-        |s: &[u8]| ObjLine::Comment(str::from_utf8(s).unwrap().trim().to_string()),
+        |s: &str| ObjLine::Comment(s.trim().to_string()),
     )(input)
 }
 
-fn face_index(input: &[u8]) -> IResult<&[u8], FaceIndex> {
-    let (input, v) = uint(sp(input)?.1)?;
-    let (input, uv) = opt(preceded(tag(b"/"), uint))(sp(input)?.1)?;
-    let (input, n) = opt(preceded(tag(b"/"), uint))(sp(input)?.1)?;
+fn face_index(input: &str) -> IResult<&str, FaceIndex> {
+    let (input, _) = sp(input)?;
+    let (input, v) = unsigned_integer(input)?;
+    let (input, uv) = opt(preceded(tag("/"), unsigned_integer))(input)?;
+    let (input, n) = opt(preceded(tag("/"), unsigned_integer))(input)?;
     Ok((input, FaceIndex(v, uv, n)))
 }
 
-fn face_triple(input: &[u8]) -> IResult<&[u8], FaceIndex> {
-    let (input, v) = uint(input)?;
-    let (input, _) = tag(b"/")(input)?;
-    let (input, vt) = opt(uint)(input)?;
-    let (input, _) = tag(b"/")(input)?;
-    let (input, vn) = opt(uint)(input)?;
+fn face_triple(input: &str) -> IResult<&str, FaceIndex> {
+    let (input, v) = unsigned_integer(input)?;
+    let (input, _) = tag("/")(input)?;
+    let (input, vt) = opt(unsigned_integer)(input)?;
+    let (input, _) = tag("/")(input)?;
+    let (input, vn) = opt(unsigned_integer)(input)?;
 
     Ok((input, FaceIndex(v, vt, vn)))
 }
 
-fn face_pair(input: &[u8]) -> IResult<&[u8], FaceIndex> {
-    let (input, v) = uint(input)?;
-    let (input, _) = tag(b"/")(input)?;
-    let (input, vt) = opt(uint)(input)?;
+fn face_pair(input: &str) -> IResult<&str, FaceIndex> {
+    let (input, v) = unsigned_integer(input)?;
+    let (input, _) = tag("/")(input)?;
+    let (input, vt) = opt(unsigned_integer)(input)?;
 
     Ok((input, FaceIndex(v, vt, None)))
 }
 
-fn face_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
-    let (input, _) = delimited(opt(multispace1), tag(b"f"), space1)(input)?;
+fn face_line(input: &str) -> IResult<&str, ObjLine> {
+    let (input, _) = delimited(opt(multispace1), tag("f"), space1)(input)?;
     let (input, face) = alt((
         tuple((face_index, face_index, face_index)),
         tuple((face_pair, face_pair, face_pair)),
@@ -111,7 +112,7 @@ fn face_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
     Ok((input, ObjLine::Face(face.0, face.1, face.2)))
 }
 
-pub fn parse_obj_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
+pub fn parse_obj_line(input: &str) -> IResult<&str, ObjLine> {
     alt((
         comment_line,
         object_line,
@@ -127,24 +128,13 @@ pub fn parse_obj_line(input: &[u8]) -> IResult<&[u8], ObjLine> {
     ))(input)
 }
 
-pub fn parse_obj<T: BufRead>(input: T) -> Result<Vec<ObjLine>, ()> {
-    let lines = input
-        .lines()
-        .map(|l| l.unwrap())
-        .collect::<Vec<String>>()
-        .join("\n")
-        .into_bytes();
-
+pub fn parse_obj<T: BufRead>(input: T) -> Result<Vec<ObjLine>, std::io::Error> {
     let mut result = Vec::new();
-    let mut buf = lines.as_slice();
-    loop {
-        match parse_obj_line(buf) {
-            Ok((rest, line)) => {
-                buf = rest;
-                result.push(line);
-            }
-            Err(_) => break,
-        }
+
+    for line in input.lines() {
+        let line = line?;
+        let (_, line) = parse_obj_line(&line).unwrap();
+        result.push(line);
     }
 
     Ok(result)
@@ -175,7 +165,7 @@ where
         match read_result {
             Ok(len) => {
                 if len > 0 {
-                    let result = parse_obj_line(line.as_bytes());
+                    let result = parse_obj_line(&line);
                     match result {
                         Ok((_, o)) => Some(o),
                         Err(_) => None,
@@ -195,9 +185,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_face_index() {
+        assert_eq!(
+            face_index("1/2/3"),
+            Ok(("", FaceIndex(1, Some(2), Some(3))))
+        );
+        assert_eq!(face_index("4/5"), Ok(("", FaceIndex(4, Some(5), None))));
+        assert_eq!(face_index("6"), Ok(("", FaceIndex(6, None, None))));
+    }
+
+    #[test]
+    fn test_face_triple() {
+        assert_eq!(
+            face_triple("1/2/3"),
+            Ok(("", FaceIndex(1, Some(2), Some(3))))
+        );
+        assert_eq!(
+            face_triple("4/5"),
+            Err(nom::Err::Error(nom::error::Error::new(
+                "4/5",
+                nom::error::ErrorKind::Tag
+            )))
+        );
+        assert_eq!(
+            face_triple("6"),
+            Err(nom::Err::Error(nom::error::Error::new(
+                "6",
+                nom::error::ErrorKind::Tag
+            )))
+        );
+    }
+
+    #[test]
+    fn test_face_pair() {
+        assert_eq!(face_pair("1/2"), Ok(("", FaceIndex(1, Some(2), None))));
+        assert_eq!(face_pair("3"), Ok(("", FaceIndex(3, None, None))));
+    }
+
+    #[test]
     fn can_parse_any_line() {
-        let result =
-            parse_obj_line("f 1/11/4 1/3/4 1/11/4  #this is an important face \n".as_bytes());
+        let result = parse_obj_line("f 1/11/4 1/3/4 1/11/4  #this is an important face \n");
         let (_, line) = result.unwrap();
         assert_eq!(
             line,
@@ -211,7 +238,7 @@ mod tests {
 
     #[test]
     fn can_ignore_comment_at_eol() {
-        let ff = face_line("f 1/11/4 1/3/4 1/11/4  #this is an important face \n".as_bytes());
+        let ff = face_line("f 1/11/4 1/3/4 1/11/4  #this is an important face \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -225,7 +252,7 @@ mod tests {
 
     #[test]
     fn can_parse_face_line_1() {
-        let ff = face_line("f 1/11/4 1/3/4 1/11/4  \n".as_bytes());
+        let ff = face_line("f 1/11/4 1/3/4 1/11/4  \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -240,7 +267,7 @@ mod tests {
     #[test]
     fn can_parse_face_line_2() {
         //
-        let ff = face_line("f 1/3 2/62 4/3\n".as_bytes());
+        let ff = face_line("f 1/3 2/62 4/3\n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -254,7 +281,7 @@ mod tests {
 
     #[test]
     fn can_parse_face_line_3() {
-        let ff = face_line("f 1//4 1//4 1//11  \n".as_bytes());
+        let ff = face_line("f 1//4 1//4 1//11  \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -268,7 +295,7 @@ mod tests {
 
     #[test]
     fn can_parse_face_line_4() {
-        let ff = face_line("f 42 1 11  \n".as_bytes());
+        let ff = face_line("f 42 1 11  \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -282,7 +309,7 @@ mod tests {
 
     #[test]
     fn can_parse_face_line_5() {
-        let ff = face_line("f 42/ 1/ 11/  \n".as_bytes());
+        let ff = face_line("f 42/ 1/ 11/  \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -296,7 +323,7 @@ mod tests {
 
     #[test]
     fn can_parse_face_line_6() {
-        let ff = face_line("f 42// 1// 11// \t \n".as_bytes());
+        let ff = face_line("f 42// 1// 11// \t \n");
         let (_, b) = ff.unwrap();
         assert_eq!(
             b,
@@ -310,7 +337,7 @@ mod tests {
 
     #[test]
     fn can_parse_texcoord_line() {
-        let vline = "vt -1.000000 -1.000000 \r\n".as_bytes();
+        let vline = "vt -1.000000 -1.000000 \r\n";
         let v = texcoord_line(vline);
         let (_a, b) = v.unwrap();
         assert_eq!(b, ObjLine::TextureUVW(-1.0, -1.0, None));
@@ -318,7 +345,7 @@ mod tests {
 
     #[test]
     fn can_parse_normal_line() {
-        let vline = "vn -1.000000 -1.000000 1.000000  \r\n".as_bytes();
+        let vline = "vn -1.000000 -1.000000 1.000000  \r\n";
         let v = normal_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, ObjLine::Normal(-1.0, -1.0, 1.0));
@@ -327,7 +354,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn invalid_vertex_line_fails() {
-        let vline = "vZZ -1.000000 -1.000000 1.000000 \r\n".as_bytes();
+        let vline = "vZZ -1.000000 -1.000000 1.000000 \r\n";
         let v = vertex_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, ObjLine::Vertex(-1.0, -1.0, 1.0, None));
@@ -335,7 +362,7 @@ mod tests {
 
     #[test]
     fn can_parse_vertex_parameter_line() {
-        let vline = "vp -1.000000 -1.000000 1.000000 \r\n".as_bytes();
+        let vline = "vp -1.000000 -1.000000 1.000000 \r\n";
         let v = vertex_param_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, ObjLine::VertexParam(-1.0, -1.0, 1.0));
@@ -343,7 +370,7 @@ mod tests {
 
     #[test]
     fn can_parse_vertex_line_with_optional_w_value() {
-        let vline = "v -1.000000 -1.000000 1.000000 42.000\r\n".as_bytes();
+        let vline = "v -1.000000 -1.000000 1.000000 42.000\r\n";
         let v = vertex_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, ObjLine::Vertex(-1.0, -1.0, 1.0, Some(42.0)));
@@ -351,7 +378,7 @@ mod tests {
 
     #[test]
     fn can_parse_vertex_line() {
-        let vline = "v -1.000000 -1.000000 1.000000 \r\n".as_bytes();
+        let vline = "v -1.000000 -1.000000 1.000000 \r\n";
         let v = vertex_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, ObjLine::Vertex(-1.0, -1.0, 1.0, None));
@@ -359,28 +386,28 @@ mod tests {
 
     #[test]
     fn can_parse_object_line() {
-        let cmt = object_line("o someobject.999asdf.7 \n".as_bytes());
+        let cmt = object_line("o someobject.999asdf.7 \n");
         let (_, b) = cmt.unwrap();
         assert_eq!(b, ObjLine::ObjectName("someobject.999asdf.7".to_string()));
     }
 
     #[test]
     fn can_parse_mtllib_line() {
-        let cmt = mtllib_line("mtllib somelib \n".as_bytes());
+        let cmt = mtllib_line("mtllib somelib \n");
         let (_, b) = cmt.unwrap();
         assert_eq!(b, ObjLine::MtlLib("somelib".to_string()));
     }
 
     #[test]
     fn can_parse_usemtl_line() {
-        let cmt = usemtl_line("usemtl SomeMaterial\n".as_bytes());
+        let cmt = usemtl_line("usemtl SomeMaterial\n");
         let (_, b) = cmt.unwrap();
         assert_eq!(b, ObjLine::UseMtl("SomeMaterial".to_string()));
     }
 
     #[test]
     fn can_parse_s_line() {
-        let cmt = s_line("s off\n".as_bytes());
+        let cmt = s_line("s off\n");
         let (_, b) = cmt.unwrap();
         assert_eq!(b, ObjLine::SmoothShading("off".to_string()));
     }

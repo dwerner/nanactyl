@@ -155,7 +155,10 @@ impl ObjObject {
 
     fn interleave_tuples(&self, id: &FaceIndex) -> (T4<f32>, T3<f32>, T3<f32>) {
         let vert = self.get_v_tuple(id);
-        let text = self.get_vt_tuple(id);
+        let mut text = self.get_vt_tuple(id);
+
+        // Adjust v texture coordinate as .obj and vulkan use different systems
+        text.1 = 1.0 - text.1;
         let norm = self.get_vn_tuple(id);
         (vert, text, norm)
     }

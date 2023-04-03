@@ -160,56 +160,34 @@ impl ObjObject {
         (vert, text, norm)
     }
 
-    // pub fn interleaved2(&self) -> Vec<(T4<f32>, T3<f32>, T3<f32>)> {
-    //     let mut data = Vec::new();
-    //     for line in self.vertices().iter().zip(self.faces.iter()) {
-    //         match line {}
-    //     }
-    //     data
-    // }
-
+    // TODO contiguous array of vertices
     pub fn interleaved(&self) -> Interleaved {
-        let mut vertex_map = HashMap::new();
-
-        let mut data = Interleaved {
-            v_vt_vn: Vec::new(),
-            idx: Vec::new(),
-        };
-
-        for i in 0usize..self.faces.len() {
-            match self.faces[i] {
+        let mut vertices = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
+        for (index, line) in self.faces.iter().enumerate() {
+            let idx = index as u32;
+            match line {
                 ObjLine::Face(ref id1, ref id2, ref id3) => {
-                    let next_idx = (id1.0 as usize) - 1;
-                    data.idx.push(next_idx);
-                    vertex_map
-                        .entry(next_idx)
-                        .or_insert_with(|| self.interleave_tuples(id1));
-
-                    let next_idx = (id2.0 as usize) - 1;
-                    data.idx.push(next_idx);
-                    vertex_map
-                        .entry(next_idx)
-                        .or_insert_with(|| self.interleave_tuples(id2));
-
-                    let next_idx = (id3.0 as usize) - 1;
-                    data.idx.push(next_idx);
-                    vertex_map
-                        .entry(next_idx)
-                        .or_insert_with(|| self.interleave_tuples(id3));
+                    let vert1 = self.interleave_tuples(id1);
+                    let vert2 = self.interleave_tuples(id2);
+                    let vert3 = self.interleave_tuples(id3);
+                    vertices.push(vert1);
+                    vertices.push(vert2);
+                    vertices.push(vert3);
+                    indices.push(idx * 3);
+                    indices.push(idx * 3 + 1);
+                    indices.push(idx * 3 + 2);
                 }
-                _ => panic!("Found something other than a ObjLine::Face in object.faces"),
+                _ => {}
             }
         }
-        for i in 0usize..vertex_map.len() {
-            data.v_vt_vn.push(vertex_map.remove(&i).unwrap());
-        }
-        data
+        Interleaved { vertices, indices }
     }
 }
 
 pub struct Interleaved {
-    pub v_vt_vn: Vec<(T4<f32>, T3<f32>, T3<f32>)>,
-    pub idx: Vec<usize>,
+    pub vertices: Vec<(T4<f32>, T3<f32>, T3<f32>)>,
+    pub indices: Vec<u32>,
 }
 
 #[cfg(test)]
@@ -243,9 +221,9 @@ f 2/1/1 4/4/1 3/2/1";
         let interleaved = o.objects[0].interleaved();
 
         assert_eq!(o.objects[0].faces.len(), 2);
-        assert_eq!(interleaved.v_vt_vn.len(), 4);
+        assert_eq!(interleaved.vertices.len(), 4);
 
-        for (_v, vt, _vn) in interleaved.v_vt_vn {
+        for (_v, vt, _vn) in interleaved.vertices {
             assert!(vt.0 >= 0.0);
             assert!(vt.1 >= 0.0);
         }

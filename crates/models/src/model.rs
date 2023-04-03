@@ -161,15 +161,14 @@ impl Mesh {
                 .get(0)
                 .ok_or(LoadError::ObjHasMultipleModelsDefined)?
         };
-        let Interleaved { v_vt_vn, idx } = object.interleaved();
-        let verts = v_vt_vn
+        let Interleaved { vertices, indices } = object.interleaved();
+        let verts = vertices
             .iter()
             .map(|&(v, vt, vn)| Vertex::new(v, vt, vn))
             .collect::<Vec<_>>();
         if verts.is_empty() {
             return Err(LoadError::ModelHasNoVerts);
         }
-        let indices = idx.iter().map(|x: &usize| *x as u32).collect::<Vec<_>>();
         Ok((Self::new(verts, indices), obj))
     }
 }

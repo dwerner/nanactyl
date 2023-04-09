@@ -220,22 +220,19 @@ impl ObjObject {
         let mut indices: Vec<u32> = Vec::new();
         let mut seen_vertices = Vec::new();
         for line in self.face_lines.iter() {
-            println!("face line: {:?}", line);
             match line {
                 ObjLine::Face(id1, id2, id3) => {
                     for face in [id1, id2, id3] {
-                        println!("face: {}", face);
-                        if !seen_vertices.contains(&(face.v - 1)) {
-                            println!("new vertex found {}", face.v);
+                        let index = face.v - 1;
+                        if !seen_vertices.contains(&index) {
                             let vert = self.get_vertex_by_index(face.v)?;
                             let text = self.get_vt_by_index(face.vt)?;
                             let norm = self.get_vn_by_index(face.vn)?;
-                            seen_vertices.push(id1.v - 1);
                             let vertex_data = (vert, text, norm);
                             vertices.push(vertex_data);
+                            seen_vertices.push(index);
                         }
-                        indices.push(face.v - 1);
-                        println!("indices: {:?}", indices);
+                        indices.push(index);
                     }
                 }
                 _ => {}
@@ -276,13 +273,16 @@ f 1/1/1 2/2/2 3/3/3";
         let o = Obj::from_reader(BufReader::new(cursor))?;
         let interleaved = o.objects[0].interleaved().unwrap();
 
-        let expected_vertices = vec![
-            ((0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.3), (0.0, 0.0, 0.2)),
-            ((1.0, 0.0, 0.0, 1.0), (0.3, 0.0, 0.0), (0.0, 0.2, 0.0)),
-            ((0.0, 1.0, 0.0, 1.0), (0.0, 0.3, 0.0), (0.2, 0.0, 0.0)),
-        ];
+        // we choose to convert obj to vulkan texture coordinates, so v is 1-v
 
-        assert_eq!(interleaved.vertices, expected_vertices);
+        let v1 = ((0.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.3), (0.0, 0.0, 0.2));
+        assert_eq!(interleaved.vertices[0], v1);
+
+        let v2 = ((1.0, 0.0, 0.0, 1.0), (0.3, 1.0, 0.0), (0.0, 0.2, 0.0));
+        assert_eq!(interleaved.vertices[1], v2);
+
+        let v3 = ((0.0, 1.0, 0.0, 1.0), (0.0, 0.7, 0.0), (0.2, 0.0, 0.0));
+        assert_eq!(interleaved.vertices[2], v3);
 
         Ok(())
     }
@@ -341,7 +341,14 @@ f 2/1/1 4/4/1 3/2/1";
         let interleaved = o.objects[0].interleaved().unwrap();
 
         assert_eq!(o.objects[0].face_lines.len(), 2);
-        assert_eq!(interleaved.vertices.len(), 4);
+        assert_eq!(interleaved.indices.len(), 6);
+        assert_eq!(
+            interleaved.vertices.len(),
+            4,
+            "wrong number of vertices found\n\nvertices{:?}\n\nindices: {:?}\n\n",
+            interleaved.vertices,
+            interleaved.indices
+        );
 
         for (_v, vt, _vn) in interleaved.vertices {
             assert!(vt.0 >= 0.0);

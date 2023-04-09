@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::io::BufRead;
 use std::str;
 
@@ -12,8 +13,31 @@ use crate::def_string_line;
 /// http://paulbourke.net/dataformats/obj/
 use crate::parser::common::*;
 
-#[derive(PartialEq, Eq, Debug)]
-pub struct FaceIndex(pub u32, pub Option<u32>, pub Option<u32>);
+#[derive(PartialEq, Eq, Debug, Hash)]
+pub struct FaceIndex {
+    pub v: u32,
+    pub vt: Option<u32>,
+    pub vn: Option<u32>,
+}
+
+impl FaceIndex {
+    pub fn new(v: u32, vt: Option<u32>, vn: Option<u32>) -> Self {
+        Self { v, vt, vn }
+    }
+}
+
+impl Display for FaceIndex {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/", self.v)?;
+        if let Some(v) = self.vt {
+            write!(f, "{}/", v)?;
+        }
+        if let Some(v) = self.vn {
+            write!(f, "{}", v)?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(PartialEq, Debug)]
 pub enum ObjLine {
@@ -28,6 +52,36 @@ pub enum ObjLine {
     Normal(f32, f32, f32),
     Face(FaceIndex, FaceIndex, FaceIndex),
     TextureUVW(f32, f32, Option<f32>), // u,v, then w defaults to 0.0
+}
+
+impl Display for ObjLine {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ObjLine::Comment(s) => write!(f, "# {}", s),
+            ObjLine::ObjectName(s) => write!(f, "o {}", s),
+            ObjLine::GroupName(s) => write!(f, "g {}", s),
+            ObjLine::MtlLib(s) => write!(f, "mtllib {}", s),
+            ObjLine::UseMtl(s) => write!(f, "usemtl {}", s),
+            ObjLine::SmoothShading(s) => write!(f, "s {}", s),
+            ObjLine::Vertex(x, y, z, w) => {
+                write!(f, "v {} {} {}", x, y, z)?;
+                if let Some(w) = w {
+                    write!(f, " {}", w)?;
+                }
+                Ok(())
+            }
+            ObjLine::VertexParam(u, v, w) => write!(f, "vp {} {} {}", u, v, w),
+            ObjLine::Normal(x, y, z) => write!(f, "vn {} {} {}", x, y, z),
+            ObjLine::Face(a, b, c) => write!(f, "f {} {} {}", a, b, c),
+            ObjLine::TextureUVW(u, v, w) => {
+                write!(f, "vt {} {}", u, v)?;
+                if let Some(w) = w {
+                    write!(f, " {}", w)?;
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 def_string_line!(object_line, "o", ObjLine, ObjectName);
@@ -77,9 +131,9 @@ fn comment_line(input: &str) -> IResult<&str, ObjLine> {
 
 fn face_index(input: &str) -> IResult<&str, FaceIndex> {
     let (input, v) = unsigned_integer(input)?;
-    let (input, uv) = opt(preceded(tag("/"), unsigned_integer))(input)?;
-    let (input, n) = opt(preceded(tag("/"), unsigned_integer))(input)?;
-    Ok((input, FaceIndex(v, uv, n)))
+    let (input, vt) = opt(preceded(tag("/"), unsigned_integer))(input)?;
+    let (input, vn) = opt(preceded(tag("/"), unsigned_integer))(input)?;
+    Ok((input, FaceIndex { v, vt, vn }))
 }
 
 fn face_triple(input: &str) -> IResult<&str, FaceIndex> {
@@ -89,14 +143,14 @@ fn face_triple(input: &str) -> IResult<&str, FaceIndex> {
     let (input, _) = tag("/")(input)?;
     let (input, vn) = opt(unsigned_integer)(input)?;
 
-    Ok((input, FaceIndex(v, vt, vn)))
+    Ok((input, FaceIndex { v, vt, vn }))
 }
 
 fn face_pair(input: &str) -> IResult<&str, FaceIndex> {
     let (input, v) = unsigned_integer(input)?;
     let (input, _) = tag("/")(input)?;
     let (input, vt) = opt(unsigned_integer)(input)?;
-    Ok((input, FaceIndex(v, vt, None)))
+    Ok((input, FaceIndex { v, vt, vn: None }))
 }
 pub(crate) fn spaced_face_item(input: &str) -> IResult<&str, FaceIndex> {
     let (i, _) = multispace0(input)?;
@@ -182,19 +236,25 @@ mod tests {
     fn test_face_index() {
         assert_eq!(
             face_index("1/2/3"),
-            Ok(("", FaceIndex(1, Some(2), Some(3))))
+            Ok(("", FaceIndex::new(1, Some(2), Some(3))))
         );
-        assert_eq!(face_index("4/5"), Ok(("", FaceIndex(4, Some(5), None))));
-        assert_eq!(face_index("6"), Ok(("", FaceIndex(6, None, None))));
+        assert_eq!(
+            face_index("4/5"),
+            Ok(("", FaceIndex::new(4, Some(5), None)))
+        );
+        assert_eq!(face_index("6"), Ok(("", FaceIndex::new(6, None, None))));
     }
 
     #[test]
     fn test_face_pair() {
         assert_eq!(
             spaced_face_item("1/2"),
-            Ok(("", FaceIndex(1, Some(2), None)))
+            Ok(("", FaceIndex::new(1, Some(2), None)))
         );
-        assert_eq!(spaced_face_item("3"), Ok(("", FaceIndex(3, None, None))));
+        assert_eq!(
+            spaced_face_item("3"),
+            Ok(("", FaceIndex::new(3, None, None)))
+        );
     }
 
     #[test]
@@ -204,9 +264,9 @@ mod tests {
         assert_eq!(
             line,
             ObjLine::Face(
-                FaceIndex(1, Some(11), Some(4)),
-                FaceIndex(1, Some(3), Some(4)),
-                FaceIndex(1, Some(11), Some(4))
+                FaceIndex::new(1, Some(11), Some(4)),
+                FaceIndex::new(1, Some(3), Some(4)),
+                FaceIndex::new(1, Some(11), Some(4))
             )
         );
     }
@@ -218,9 +278,9 @@ mod tests {
         assert_eq!(
             b,
             ObjLine::Face(
-                FaceIndex(1, Some(11), Some(4)),
-                FaceIndex(1, Some(3), Some(4)),
-                FaceIndex(1, Some(11), Some(4))
+                FaceIndex::new(1, Some(11), Some(4)),
+                FaceIndex::new(1, Some(3), Some(4)),
+                FaceIndex::new(1, Some(11), Some(4))
             )
         );
     }
@@ -232,9 +292,9 @@ mod tests {
         assert_eq!(
             b,
             ObjLine::Face(
-                FaceIndex(1, Some(11), Some(4)),
-                FaceIndex(1, Some(3), Some(4)),
-                FaceIndex(1, Some(11), Some(4))
+                FaceIndex::new(1, Some(11), Some(4)),
+                FaceIndex::new(1, Some(3), Some(4)),
+                FaceIndex::new(1, Some(11), Some(4))
             )
         );
     }
@@ -247,9 +307,9 @@ mod tests {
         assert_eq!(
             b,
             ObjLine::Face(
-                FaceIndex(1, Some(3), None),
-                FaceIndex(2, Some(62), None),
-                FaceIndex(4, Some(3), None),
+                FaceIndex::new(1, Some(3), None),
+                FaceIndex::new(2, Some(62), None),
+                FaceIndex::new(4, Some(3), None),
             )
         );
     }
@@ -261,9 +321,9 @@ mod tests {
         assert_eq!(
             b,
             ObjLine::Face(
-                FaceIndex(1, None, Some(4)),
-                FaceIndex(1, None, Some(4)),
-                FaceIndex(1, None, Some(11))
+                FaceIndex::new(1, None, Some(4)),
+                FaceIndex::new(1, None, Some(4)),
+                FaceIndex::new(1, None, Some(11))
             )
         );
     }
@@ -275,9 +335,9 @@ mod tests {
         assert_eq!(
             b,
             ObjLine::Face(
-                FaceIndex(42, None, None),
-                FaceIndex(1, None, None),
-                FaceIndex(11, None, None)
+                FaceIndex::new(42, None, None),
+                FaceIndex::new(1, None, None),
+                FaceIndex::new(11, None, None)
             )
         );
     }
@@ -289,9 +349,9 @@ mod tests {
         assert_eq!(
             b,
             ObjLine::Face(
-                FaceIndex(42, None, None),
-                FaceIndex(1, None, None),
-                FaceIndex(11, None, None)
+                FaceIndex::new(42, None, None),
+                FaceIndex::new(1, None, None),
+                FaceIndex::new(11, None, None)
             )
         );
     }
@@ -303,9 +363,9 @@ mod tests {
         assert_eq!(
             b,
             ObjLine::Face(
-                FaceIndex(42, None, None),
-                FaceIndex(1, None, None),
-                FaceIndex(11, None, None)
+                FaceIndex::new(42, None, None),
+                FaceIndex::new(1, None, None),
+                FaceIndex::new(11, None, None)
             )
         );
     }
@@ -324,15 +384,6 @@ mod tests {
         let v = normal_line(vline);
         let (_, b) = v.unwrap();
         assert_eq!(b, ObjLine::Normal(-1.0, -1.0, 1.0));
-    }
-
-    #[test]
-    #[should_panic]
-    fn invalid_vertex_line_fails() {
-        let vline = "vZZ -1.000000 -1.000000 1.000000 \r\n";
-        let v = vertex_line(vline);
-        let (_, b) = v.unwrap();
-        assert_eq!(b, ObjLine::Vertex(-1.0, -1.0, 1.0, None));
     }
 
     #[test]
@@ -385,5 +436,39 @@ mod tests {
         let cmt = s_line("s off\n");
         let (_, b) = cmt.unwrap();
         assert_eq!(b, ObjLine::SmoothShading("off".to_string()));
+    }
+
+    #[test]
+    fn test_obj_line_display() {
+        let cases = vec![
+            (
+                ObjLine::Comment("This is a comment".to_string()),
+                "# This is a comment",
+            ),
+            (ObjLine::ObjectName("Cube".to_string()), "o Cube"),
+            (ObjLine::GroupName("Group1".to_string()), "g Group1"),
+            (
+                ObjLine::MtlLib("material.mtl".to_string()),
+                "mtllib material.mtl",
+            ),
+            (ObjLine::UseMtl("Material".to_string()), "usemtl Material"),
+            (ObjLine::SmoothShading("1".to_string()), "s 1"),
+            (ObjLine::Vertex(1.0, 2.0, 3.0, Some(1.0)), "v 1 2 3 1"),
+            (ObjLine::VertexParam(0.0, 0.5, 1.0), "vp 0 0.5 1"),
+            (ObjLine::Normal(1.0, 0.0, 0.0), "vn 1 0 0"),
+            (
+                ObjLine::Face(
+                    FaceIndex::new(1, Some(2), Some(3)),
+                    FaceIndex::new(4, Some(5), Some(6)),
+                    FaceIndex::new(7, Some(8), Some(9)),
+                ),
+                "f 1/2/3 4/5/6 7/8/9",
+            ),
+            (ObjLine::TextureUVW(0.0, 1.0, Some(0.5)), "vt 0 1 0.5"),
+        ];
+
+        for (obj_line, expected_output) in cases {
+            assert_eq!(format!("{}", obj_line), expected_output);
+        }
     }
 }

@@ -161,7 +161,7 @@ impl Mesh {
                 .get(0)
                 .ok_or(LoadError::ObjHasMultipleModelsDefined)?
         };
-        let Interleaved { vertices, indices } = object.interleaved();
+        let Interleaved { vertices, indices } = object.interleaved().map_err(LoadError::Obj)?;
         let verts = vertices
             .iter()
             .map(|&(v, vt, vn)| Vertex::new(v, vt, vn))

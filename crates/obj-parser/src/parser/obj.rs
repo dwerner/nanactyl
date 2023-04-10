@@ -13,7 +13,7 @@ use crate::def_string_line;
 /// http://paulbourke.net/dataformats/obj/
 use crate::parser::common::*;
 
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone)]
 pub struct FaceIndex {
     pub v: u32,
     pub vt: Option<u32>,
@@ -475,7 +475,6 @@ mod tests {
     }
 
     const CUBE_OBJ_TEXT: &str = "# Blender 3.4.1
-# www.blender.org
 mtllib cube.mtl
 o Cube
 v 1 -1 -1

@@ -232,27 +232,29 @@ impl ObjObject {
 
     // TODO contiguous array of vertices
     pub fn interleaved(&self) -> Result<Interleaved, ObjError> {
-        let mut vertices = Vec::new();
-        let mut indices: Vec<u32> = Vec::new();
-        let mut seen_vertices = Vec::new();
+        let mut face_order = Vec::new();
+        let mut face_map = HashMap::new();
         for line in self.face_lines.iter() {
             match line {
                 ObjLine::Face(id1, id2, id3) => {
-                    for face in [id1, id2, id3] {
-                        let index = face.v - 1;
-                        if !seen_vertices.contains(&index) {
-                            let vert = self.get_vertex_by_index(face.v)?;
-                            let text = self.get_vt_by_index(face.vt)?;
-                            let norm = self.get_vn_by_index(face.vn)?;
-                            let vertex_data = (vert, text, norm);
-                            vertices.push(vertex_data);
-                            seen_vertices.push(index);
-                        }
-                        indices.push(index);
+                    for face in [id1, id2, id3].into_iter() {
+                        let vert = self.get_vertex_by_index(face.v)?;
+                        let text = self.get_vt_by_index(face.vt)?;
+                        let norm = self.get_vn_by_index(face.vn)?;
+                        let vertex_data = (vert, text, norm);
+                        face_map.insert(face.clone(), vertex_data);
+                        face_order.push(face);
                     }
                 }
                 _ => {}
             }
+        }
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        for face in face_order {
+            let vertex_data = face_map.get(face).unwrap();
+            vertices.push(*vertex_data);
+            indices.push(vertices.len() as u32 - 1);
         }
         Ok(Interleaved { vertices, indices })
     }
@@ -453,22 +455,14 @@ f 2/1/1 4/4/1 3/2/1";
             indices: actual_indices,
         } = obj.objects[0].interleaved().unwrap();
 
-        let f0 = ((1.0, 1.0, -1.0, 0.0), (0.375, 1.0, 1.0), (1.0, -0.0, -0.0));
-        let f1 = ((1.0, -1.0, -1.0, 0.0), (0.375, 0.0, 1.0), (1.0, -0.0, -0.0));
-        let f2 = ((1.0, -1.0, 1.0, 0.0), (0.625, 0.0, 1.0), (-0.0, -0.0, 1.0));
-        let f3 = ((1.0, 1.0, 1.0, 0.0), (0.625, 1.0, 1.0), (-0.0, -0.0, 1.0));
-        let f4 = ((-1.0, 1.0, 1.0, 0.0), (0.625, 0.0, 1.0), (-1.0, -0.0, -0.0));
-        let f5 = ((-1.0, -1.0, 1.0, 0.0), (0.625, 1.0, 1.0), (-1.0, -0.0, 0.0));
-        let f6 = (
-            (-1.0, -1.0, -1.0, 0.0),
-            (0.375, 0.0, 1.0),
-            (-0.0, -0.0, -1.0),
-        );
-        let f7 = (
-            (-1.0, 1.0, -1.0, 0.0),
-            (0.375, 1.0, 1.0),
-            (-0.0, -0.0, -1.0),
-        );
+        let f0 = ((1.0, 1.0, -1.0, 1.0), (0.625, 1.0, 0.0), (1.0, -0.0, -0.0));
+        let f1 = ((1.0, -1.0, 1.0, 1.0), (0.625, 0.25, 0.0), (0.0, 0.0, 1.0));
+        let f2 = ((1.0, -1.0, -1.0, 1.0), (0.375, 0.0, 0.0), (1.0, 0.0, 0.0));
+        let f3 = ((1.0, 1.0, 1.0, 1.0), (0.875, 0.75, 1.0), (0.0, 0.0, 1.0));
+        let f4 = ((-1.0, -1.0, 1.0, 1.0), (0.625, 0.5, 1.0), (-1.0, 0.0, 0.0));
+        let f5 = ((-1.0, 1.0, 1.0, 1.0), (0.625, 0.0, 1.0), (-1.0, 0.0, 0.0));
+        let f6 = ((-1.0, -1.0, -1.0, 1.0), (0.375, 0.0, 1.0), (0.0, 0.0, -1.0));
+        let f7 = ((-1.0, 1.0, -1.0, 1.0), (0.375, 1.0, 1.0), (0.0, 0.0, -1.0));
 
         // Expected vertices based on the CUBE_OBJ_TEXT content
         let expected_vertices = vec![f0, f1, f2, f3, f4, f5, f6, f7];

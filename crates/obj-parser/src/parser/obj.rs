@@ -230,6 +230,8 @@ where
 #[cfg(test)]
 mod tests {
 
+    use std::io::{BufReader, Cursor};
+
     use super::*;
 
     #[test]
@@ -469,6 +471,72 @@ mod tests {
 
         for (obj_line, expected_output) in cases {
             assert_eq!(format!("{}", obj_line), expected_output);
+        }
+    }
+
+    const CUBE_OBJ_TEXT: &str = "# Blender 3.4.1
+# www.blender.org
+mtllib cube.mtl
+o Cube
+v 1 -1 -1
+v 1 1 -1
+v 1 -1 1
+v 1 1 1
+v -1 -1 -1
+v -1 1 -1
+v -1 -1 1
+v -1 1 1
+vn 1 -0 -0
+vn -0 -0 1
+vn -1 -0 -0
+vn -0 -0 -1
+vn -0 -1 -0
+vn -0 1 -0
+vt 0.375 0
+vt 0.375 1
+vt 0.125 0.75
+vt 0.625 0
+vt 0.625 1
+vt 0.875 0.75
+vt 0.125 0.5
+vt 0.375 0.25
+vt 0.625 0.25
+vt 0.875 0.5
+vt 0.375 0.75
+vt 0.625 0.75
+vt 0.375 0.5
+vt 0.625 0.5
+s 0
+usemtl Material.001
+f 2/4/1 3/8/1 1/1/1
+f 4/9/2 7/13/2 3/8/2
+f 8/14/3 5/11/3 7/13/3
+f 6/12/4 1/2/4 5/11/4
+f 7/13/5 1/3/5 3/7/5
+f 4/10/6 6/12/6 8/14/6
+f 2/4/1 4/9/1 3/8/1
+f 4/9/2 8/14/2 7/13/2
+f 8/14/3 6/12/3 5/11/3
+f 6/12/4 2/5/4 1/2/4
+f 7/13/5 5/11/5 1/3/5
+f 4/10/6 2/6/6 6/12/6
+";
+
+    #[test]
+    fn obj_parse_roundtrip() {
+        let mut obj = {
+            let cursor = Cursor::new(CUBE_OBJ_TEXT);
+            let reader = BufReader::new(cursor);
+            ObjParser::new(reader)
+        };
+        let cursor = Cursor::new(CUBE_OBJ_TEXT);
+        let reader = BufReader::new(cursor);
+        for line in reader.lines() {
+            let line = line.unwrap();
+            if let Some(obj_line) = obj.next() {
+                let obj_text_line = obj_line.to_string();
+                assert_eq!(obj_text_line.trim(), line.trim());
+            }
         }
     }
 }

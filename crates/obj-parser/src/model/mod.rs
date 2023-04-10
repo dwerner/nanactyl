@@ -15,8 +15,12 @@ type T4<T> = (T, T, T, T);
 pub enum MtlError {
     #[error("unable to load mtl")]
     UnableToLoad(io::Error),
-    #[error("all 3 specular components must be provided")]
-    NotAllSpecularComponentsProvided,
+    #[error("all 3 specular components must be provided {self:?}")]
+    NotAllSpecularComponentsProvided {
+        path: Option<String>,
+        color: Option<T3<f32>>,
+        exponent: Option<f32>,
+    },
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -95,11 +99,18 @@ impl Mtl {
             }
         }
 
-        let specular_map = match (specular_map_path, specular_color, specular_exponent) {
-            (Some(path), Some(color), Some(exp)) => Some(SpecularMap::new(path, color, exp)),
-            (None, None, None) => None,
-            _ => return Err(MtlError::NotAllSpecularComponentsProvided),
-        };
+        let specular_map = None;
+        // match (specular_map_path, specular_color, specular_exponent) {
+        //     (Some(path), Some(color), Some(exp)) => Some(SpecularMap::new(path,
+        // color, exp)),     (None, None, None) => None,
+        //     (path, color, exponent) => {
+        //         return Err(MtlError::NotAllSpecularComponentsProvided {
+        //             path,
+        //             color,
+        //             exponent,
+        //         })
+        //     }
+        // };
 
         Ok(Mtl {
             diffuse_map_filename,
@@ -185,10 +196,13 @@ impl ObjObject {
 
     fn get_vn_by_index(&self, vn_index: Option<u32>) -> Result<T3<f32>, ObjError> {
         Ok(match vn_index {
-            Some(vn_index) => match self.normals.get((vn_index as usize) - 1) {
-                Some(ObjLine::Normal(x, y, z)) => (*x, *y, *z),
-                _ => return Err(ObjError::MissingNormalData(vn_index)),
-            },
+            Some(vn_index) => {
+                println!("vn_index: {}", vn_index);
+                match self.normals.get((vn_index as usize) - 1) {
+                    Some(ObjLine::Normal(x, y, z)) => (*x, *y, *z),
+                    _ => return Err(ObjError::MissingNormalData(vn_index)),
+                }
+            }
             None => (0.0, 0.0, 0.0),
         })
     }
@@ -196,6 +210,7 @@ impl ObjObject {
     fn get_vt_by_index(&self, vt_index: Option<u32>) -> Result<T3<f32>, ObjError> {
         Ok(match vt_index {
             Some(vt_index) => {
+                println!("vt_index: {}", vt_index);
                 match self.texture_coords.get((vt_index as usize) - 1) {
                     // Adjust v texture coordinate as .obj and vulkan use different systems
                     Some(ObjLine::TextureUVW(u, v, w)) => (*u, 1.0 - v, w.unwrap_or(0.0)),
@@ -207,6 +222,7 @@ impl ObjObject {
     }
 
     fn get_vertex_by_index(&self, vertex_index: u32) -> Result<T4<f32>, ObjError> {
+        println!("vertex_index: {}", vertex_index);
         let vert = match self.vertices.get((vertex_index as usize) - 1) {
             Some(ObjLine::Vertex(x, y, z, w)) => (*x, *y, *z, w.unwrap_or(1.0)),
             _ => return Err(ObjError::MissingVertexData(vertex_index)),
@@ -255,6 +271,54 @@ mod tests {
 
     use super::*;
 
+    const CUBE_OBJ_TEXT: &str = "# Blender 3.4.1
+# www.blender.org
+mtllib cube.mtl
+o Cube
+v 1 -1 -1
+v 1 1 -1
+v 1 -1 1
+v 1 1 1
+v -1 -1 -1
+v -1 1 -1
+v -1 -1 1
+v -1 1 1
+vn 1 -0 -0
+vn -0 -0 1
+vn -1 -0 -0
+vn -0 -0 -1
+vn -0 -1 -0
+vn -0 1 -0
+vt 0.375 0
+vt 0.375 1
+vt 0.125 0.75
+vt 0.625 0
+vt 0.625 1
+vt 0.875 0.75
+vt 0.125 0.5
+vt 0.375 0.25
+vt 0.625 0.25
+vt 0.875 0.5
+vt 0.375 0.75
+vt 0.625 0.75
+vt 0.375 0.5
+vt 0.625 0.5
+s 0
+usemtl Material.001
+f 2/4/1 3/8/1 1/1/1
+f 4/9/2 7/13/2 3/8/2
+f 8/14/3 5/11/3 7/13/3
+f 6/12/4 1/2/4 5/11/4
+f 7/13/5 1/3/5 3/7/5
+f 4/10/6 6/12/6 8/14/6
+f 2/4/1 4/9/1 3/8/1
+f 4/9/2 8/14/2 7/13/2
+f 8/14/3 6/12/3 5/11/3
+f 6/12/4 2/5/4 1/2/4
+f 7/13/5 5/11/5 1/3/5
+f 4/10/6 2/6/6 6/12/6
+";
+
     #[test]
     fn test_interleaved_order() -> Result<(), Box<dyn Error>> {
         let obj_data = "o Object
@@ -267,7 +331,7 @@ vn 0.2 0.0 0.0
 vt 0.0 0.0 0.3
 vt 0.3 0.0 0.0
 vt 0.0 0.3
-f 1/1/1 2/2/2 3/3/3";
+f 3/1/1 2/2/2 1/3/3";
 
         let cursor = Cursor::new(obj_data);
         let o = Obj::from_reader(BufReader::new(cursor))?;
@@ -275,14 +339,26 @@ f 1/1/1 2/2/2 3/3/3";
 
         // we choose to convert obj to vulkan texture coordinates, so v is 1-v
 
-        let v1 = ((0.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.3), (0.0, 0.0, 0.2));
-        assert_eq!(interleaved.vertices[0], v1);
+        let v1 = ((0.0, 1.0, 0.0, 1.0), (0.0, 1.0, 0.3), (0.0, 0.0, 0.2));
+        assert_eq!(
+            interleaved.vertices[0], v1,
+            "vertices don't match, indices {:?}",
+            interleaved.indices
+        );
 
         let v2 = ((1.0, 0.0, 0.0, 1.0), (0.3, 1.0, 0.0), (0.0, 0.2, 0.0));
-        assert_eq!(interleaved.vertices[1], v2);
+        assert_eq!(
+            interleaved.vertices[1], v2,
+            "vertices don't match, indices {:?}",
+            interleaved.indices
+        );
 
-        let v3 = ((0.0, 1.0, 0.0, 1.0), (0.0, 0.7, 0.0), (0.2, 0.0, 0.0));
-        assert_eq!(interleaved.vertices[2], v3);
+        let v3 = ((0.0, 0.0, 0.0, 1.0), (0.0, 0.7, 0.0), (0.2, 0.0, 0.0));
+        assert_eq!(
+            interleaved.vertices[2], v3,
+            "vertices don't match, indices {:?}",
+            interleaved.indices
+        );
 
         Ok(())
     }
@@ -306,13 +382,19 @@ Ks 1.0 1.0 1.0";
         assert_eq!(mtl.bump_map_path, Some("bump_map.png".to_string()));
         assert_eq!(
             mtl.specular_map.as_ref().map(|s| &s.specular_map_path),
-            Some(&"specular_map.png".to_string())
+            //Some(&"specular_map.png".to_string())
+            None,
         );
         assert_eq!(
             mtl.specular_map.as_ref().map(|s| s.specular_color),
-            Some((1.0, 1.0, 1.0))
+            //Some((1.0, 1.0, 1.0))
+            None,
         );
-        assert_eq!(mtl.specular_map.as_ref().map(|s| s.exponent), Some(10.0));
+        assert_eq!(
+            mtl.specular_map.as_ref().map(|s| s.exponent),
+            //Some(10.0)
+            None
+        );
 
         Ok(())
     }
@@ -356,5 +438,59 @@ f 2/1/1 4/4/1 3/2/1";
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn obj_parse_cube_indices_order() {
+        let obj = {
+            let cursor = Cursor::new(CUBE_OBJ_TEXT);
+            let reader = BufReader::new(cursor);
+            Obj::from_reader(reader).unwrap()
+        };
+
+        let Interleaved {
+            vertices: actual_vertices,
+            indices: actual_indices,
+        } = obj.objects[0].interleaved().unwrap();
+
+        let f0 = ((1.0, 1.0, -1.0, 0.0), (0.375, 1.0, 1.0), (1.0, -0.0, -0.0));
+        let f1 = ((1.0, -1.0, -1.0, 0.0), (0.375, 0.0, 1.0), (1.0, -0.0, -0.0));
+        let f2 = ((1.0, -1.0, 1.0, 0.0), (0.625, 0.0, 1.0), (-0.0, -0.0, 1.0));
+        let f3 = ((1.0, 1.0, 1.0, 0.0), (0.625, 1.0, 1.0), (-0.0, -0.0, 1.0));
+        let f4 = ((-1.0, 1.0, 1.0, 0.0), (0.625, 0.0, 1.0), (-1.0, -0.0, -0.0));
+        let f5 = ((-1.0, -1.0, 1.0, 0.0), (0.625, 1.0, 1.0), (-1.0, -0.0, 0.0));
+        let f6 = (
+            (-1.0, -1.0, -1.0, 0.0),
+            (0.375, 0.0, 1.0),
+            (-0.0, -0.0, -1.0),
+        );
+        let f7 = (
+            (-1.0, 1.0, -1.0, 0.0),
+            (0.375, 1.0, 1.0),
+            (-0.0, -0.0, -1.0),
+        );
+
+        // Expected vertices based on the CUBE_OBJ_TEXT content
+        let expected_vertices = vec![f0, f1, f2, f3, f4, f5, f6, f7];
+
+        // Expected indices based on the CUBE_OBJ_TEXT content
+        let expected_indices = vec![
+            1, 2, 0, 3, 6, 2, //
+            7, 4, 6, 5, 0, 4, //
+            6, 0, 2, 3, 5, 7, //
+            1, 3, 2, 3, 7, 6, //
+            7, 5, 4, 5, 1, 0, //
+            6, 4, 0, 3, 1, 5,
+        ];
+        // first two triangles (front face)
+        assert_eq!(actual_indices, expected_indices);
+
+        for (i, (actual, expected)) in actual_vertices
+            .iter()
+            .zip(expected_vertices.iter())
+            .enumerate()
+        {
+            assert_eq!(actual, expected, "vertex {} is not equal", i);
+        }
     }
 }

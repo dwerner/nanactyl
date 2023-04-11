@@ -94,7 +94,6 @@ fn dispatch(cmd: Command) -> Result<(), std::io::Error> {
         }
         Command::BuildAll => {
             fmt_and_lint()?;
-            build_shaders()?;
             build_plugins()?;
             Ok(())
         }
@@ -102,7 +101,7 @@ fn dispatch(cmd: Command) -> Result<(), std::io::Error> {
 }
 
 fn fmt_and_lint() -> Result<(), std::io::Error> {
-    let output = cmd!("cargo", "+nightly", "fmt").run()?;
+    let output = cmd!("cargo", "fmt").run()?;
     println!("xtask fmt {}", String::from_utf8_lossy(&output.stdout));
     let output = cmd!("cargo", "clippy").run()?;
     println!("xtask clippy {}", String::from_utf8_lossy(&output.stdout));

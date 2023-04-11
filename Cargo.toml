@@ -68,8 +68,11 @@ parry3d = "0.13.0"
 raw-window-handle = "0.4.2" # lock on 0.4.2 for now
 serde = { version = "1", features = ["derive"]}
 serde_yaml = "0.9"
-sdl2 = { version = "0.35.2", features = ["raw-window-handle"] }
+sdl2 = { version = "0.35.2", features = ["raw-window-handle", "bundled"] }
 structopt = "0.3"
 tempdir = "0.3.7"
 thiserror = "1"
 zstd = "0.12.2"
+
+
+

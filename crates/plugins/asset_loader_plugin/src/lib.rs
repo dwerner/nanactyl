@@ -25,8 +25,8 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     let cube_model_facet = ModelFacet::new(cube_model);
     let cube_model_idx = world.add_model(cube_model_facet);
 
-    for _ in 0..2 {
-        let physical = PhysicalFacet::new(0.0, 4.0, -10.0, &bounding_mesh);
+    for (x, y) in [(10.0, 0.0), (-10.0, 0.0)].into_iter() {
+        let physical = PhysicalFacet::new(x, y, -10.0, 1.0, &bounding_mesh);
         let mut camera_facet = CameraFacet::new(&physical);
         camera_facet.set_associated_model(ico_model_idx);
 
@@ -48,7 +48,7 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
                 ico_model_idx
             };
             let (x, z) = (i as f32, j as f32);
-            let mut physical = PhysicalFacet::new(x * 4.0, 2.0, z * 10.0, &bounding_mesh);
+            let mut physical = PhysicalFacet::new(x * 4.0, 2.0, z * 10.0, 1.0, &bounding_mesh);
             physical.angles.y = j as f32 * 4.0;
             //physical.linear_velocity = Vector3::new(x, 0.0, z);
             physical.angular_velocity.y = 1.0;
@@ -59,19 +59,34 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     }
 
     {
-        let arena_model = models::Model::load(
-            "assets/models/static/arena.obj",
+        let sky_model = models::Model::load(
+            "assets/models/static/skybox.obj",
             "assets/shaders/vertex_rustgpu.spv",
             "assets/shaders/fragment_rustgpu.spv",
         )
         .unwrap();
-        let arena_physical = PhysicalFacet::new(0.0, 0.0, 0.0, &arena_model.mesh);
-        let model_facet = ModelFacet::new(arena_model);
-        let arena_model_idx = world.add_model(model_facet);
-        let arena_phys_idx = world.add_physical(arena_physical);
-        let arena_thing = Thing::model(arena_phys_idx, arena_model_idx);
-        world.add_thing(arena_thing).unwrap();
+        let sky_phys = PhysicalFacet::new(0.0, 0.0, 0.0, 100.0, &sky_model.mesh);
+        let model_facet = ModelFacet::new(sky_model);
+        let sky_model_idx = world.add_model(model_facet);
+        let sky_phys_idx = world.add_physical(sky_phys);
+        let thing = Thing::model(sky_phys_idx, sky_model_idx);
+        world.add_thing(thing).unwrap();
     }
+
+    // {
+    //     let arena_model = models::Model::load(
+    //         "assets/models/static/arena.obj",
+    //         "assets/shaders/vertex_rustgpu.spv",
+    //         "assets/shaders/fragment_rustgpu.spv",
+    //     )
+    //     .unwrap();
+    //     let arena_physical = PhysicalFacet::new(0.0, 0.0, 0.0, 1.0,
+    // &arena_model.mesh);     let model_facet = ModelFacet::new(arena_model);
+    //     let arena_model_idx = world.add_model(model_facet);
+    //     let arena_phys_idx = world.add_physical(arena_physical);
+    //     let arena_thing = Thing::model(arena_phys_idx, arena_model_idx);
+    //     world.add_thing(arena_thing).unwrap();
+    // }
 
     println!(
         "loaded asset loader plugin (updates {}) - models {})",

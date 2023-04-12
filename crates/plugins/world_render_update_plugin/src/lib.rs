@@ -76,6 +76,7 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
                     model: cam.associated_model.unwrap(),
                     pos,
                     angles,
+                    scale: phys.scale,
                 }
             }
             // 2. grab a scene model ref for loaded model instances
@@ -90,6 +91,7 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
                     model: *model,
                     pos: facet.position,
                     angles: facet.angles,
+                    scale: facet.scale,
                 }
             }
         };

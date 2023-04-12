@@ -1088,6 +1088,7 @@ pub struct SceneModelInstance {
     pub model: ModelIndex,
     pub pos: Vector3<f32>,
     pub angles: Vector3<f32>,
+    pub scale: f32,
 }
 
 /// Acts as a combiner for Mutex, locking both mutexes but also releases both
@@ -1136,6 +1137,7 @@ impl LockWorldAndRenderState {
                         model: cam.associated_model.unwrap(),
                         pos,
                         angles,
+                        scale: phys.scale,
                     }
                 }
                 world::thing::ThingType::ModelObject { phys, model } => {
@@ -1149,6 +1151,7 @@ impl LockWorldAndRenderState {
                         model: *model,
                         pos: facet.position,
                         angles: facet.angles,
+                        scale: facet.scale,
                     }
                 }
             };

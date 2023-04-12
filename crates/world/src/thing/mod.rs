@@ -138,16 +138,18 @@ pub enum Shape {
 pub struct PhysicalFacet {
     pub position: Vector3<f32>,
     pub angles: Vector3<f32>,
+    pub scale: f32,
     pub linear_velocity: Vector3<f32>,
     pub angular_velocity: Vector3<f32>,
     pub phys_mesh: parry3d::shape::TriMesh,
 }
 
 impl PhysicalFacet {
-    pub fn new(x: f32, y: f32, z: f32, mesh: &models::Mesh) -> Self {
+    pub fn new(x: f32, y: f32, z: f32, scale: f32, mesh: &models::Mesh) -> Self {
         Self {
             position: Vector3::new(x, y, z),
             angles: Vector3::zeros(),
+            scale,
             linear_velocity: Vector3::new(0.0, 0.0, 0.0),
             angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             phys_mesh: parry3d::shape::TriMesh::new(
@@ -174,6 +176,7 @@ impl std::fmt::Debug for PhysicalFacet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PhysicalFacet")
             .field("position", &self.position)
+            .field("scale", &self.scale)
             .field("angles", &self.angles)
             .field("linear_velocity", &self.linear_velocity)
             .field("angular_velocity", &self.angular_velocity)
@@ -207,7 +210,7 @@ impl CameraFacet {
             perspective: Perspective3::<f32>::new(
                 1.7,    //aspect
                 0.75,   //fovy
-                0.0,    // near
+                0.1,    // near
                 1000.0, //far
             ),
             associated_model: None,

@@ -104,12 +104,18 @@ impl Renderer {
         let rotation = Matrix4::new_rotation(phys_cam.angles);
         let viewscale = scale * rotation * Matrix4::new_translation(&phys_cam.position); // look;
 
-        let proj_mat = Matrix4::new_perspective(
-            base.surface_resolution.width as f32 / base.surface_resolution.height as f32,
-            ::std::f32::consts::FRAC_PI_2,
-            0.01,
-            100.0,
-        ) * viewscale;
+        fn calculate_fov(aspect_ratio: f32) -> f32 {
+            let vertical_fov = 74.0f32;
+            let vertical_radians = vertical_fov.to_radians();
+            let horizontal_radians = 2.0 * (vertical_radians / 2.0).atan() * aspect_ratio;
+            let horizontal_fov = horizontal_radians.to_degrees();
+            -horizontal_fov
+        }
+        let aspect_ratio =
+            base.surface_resolution.width as f32 / base.surface_resolution.height as f32;
+        let proj_mat =
+            Matrix4::new_perspective(aspect_ratio, calculate_fov(aspect_ratio), 0.01, 100.0)
+                * viewscale;
 
         for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
             // TODO: unified struct for models & pipelines
@@ -154,7 +160,8 @@ impl Renderer {
             );
             for drawable in scene.drawables.iter().filter(|p| p.model == *model_index) {
                 // create a matrix for translating to the given position.
-                let model_mat = Matrix4::new_translation(&(-drawable.pos))
+                let model_mat = Matrix4::new_scaling(drawable.scale)
+                    * Matrix4::new_translation(&(-drawable.pos))
                     * Matrix4::from_euler_angles(
                         drawable.angles.x,
                         drawable.angles.y,
@@ -1195,7 +1202,7 @@ fn upload_models(
             )
             .unwrap();
 
-        let uploaded_model = GpuModelRef::new(
+        let mut uploaded_model = GpuModelRef::new(
             dest_texture,
             vertex_buffer,
             index_buffer,

@@ -2,3 +2,6 @@ target
 */**/target
 
 callgrind.*
+
+# temp files
+*/**/*~

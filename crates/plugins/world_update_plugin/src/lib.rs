@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use input::wire::InputState;
 use input::Button;
-use world::{Identity, Matrix4, Vector3, World, WorldError};
+use world::{Identity, Mat4, Quat, Vec3, World, WorldError};
 
 #[no_mangle]
 pub extern "C" fn load(world: &mut World) {
@@ -84,16 +84,18 @@ fn move_camera_based_on_controller_state(
 
     // FOR NOW: this works ok but needs work.
 
-    let rot = Matrix4::new_rotation(-1.0 * pcam.angles);
-    let forward = rot.transform_vector(&Vector3::new(0.0, 0.0, 1.0));
+    let Vec3 { x, y, z } = pcam.angles;
+    let quat = Quat::from_xyzw(x, y, z, 1.0);
+    let rot = Mat4::from_rotation_translation(quat, -1.0 * pcam.angles);
+    let forward = rot.transform_vector3(Vec3::new(0.0, 0.0, 1.0));
     if controller.is_button_pressed(Button::Down) {
-        let transform = cam.view * Matrix4::new_scaling(-1.0 * speed);
-        pcam.linear_velocity += transform.transform_vector(&forward);
+        let transform = cam.view * Mat4::from_scale(-1.0 * (pcam.linear_velocity * speed));
+        pcam.linear_velocity += transform.transform_vector3(forward);
     } else if controller.is_button_pressed(Button::Up) {
-        let transform = cam.view * Matrix4::new_scaling(speed);
-        pcam.linear_velocity += transform.transform_vector(&forward);
+        let transform = cam.view * Mat4::from_scale(speed * pcam.linear_velocity);
+        pcam.linear_velocity += transform.transform_vector3(forward);
     } else {
-        pcam.linear_velocity = Vector3::zeros();
+        pcam.linear_velocity = Vec3::ZERO;
     }
 
     if controller.is_button_pressed(Button::Left) {

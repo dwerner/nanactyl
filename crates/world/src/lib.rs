@@ -20,7 +20,7 @@ mod scene;
 pub mod thing;
 mod tree;
 
-pub use nalgebra::{Matrix4, Vector3};
+pub use glam::{Mat4, Quat, Vec3};
 
 #[repr(C)]
 pub struct WorldLockAndControllerState {

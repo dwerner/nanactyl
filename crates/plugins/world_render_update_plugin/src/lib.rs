@@ -7,7 +7,7 @@ use std::time::Duration;
 use render::{
     LockWorldAndRenderState, RenderScene, SceneError, SceneModelInstance, SceneQueryError,
 };
-use world::Vector3;
+use world::Vec3;
 
 #[no_mangle]
 pub extern "C" fn load(state: &mut LockWorldAndRenderState) {
@@ -68,9 +68,8 @@ pub fn update_render_scene(zelf: &mut LockWorldAndRenderState) -> Result<(), Sce
                 // For Now: position a model with an offset to the camera.
                 let right = cam.right(phys);
                 let forward = cam.forward(phys);
-                let pos =
-                    phys.position + Vector3::new(right.x + forward.x, -2.0, right.z + forward.z);
-                let angles = Vector3::new(0.0, phys.angles.y - 1.57, 0.0);
+                let pos = phys.position + Vec3::new(right.x + forward.x, -2.0, right.z + forward.z);
+                let angles = Vec3::new(0.0, phys.angles.y - 1.57, 0.0);
 
                 SceneModelInstance {
                     model: cam.associated_model.unwrap(),

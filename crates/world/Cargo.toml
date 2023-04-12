@@ -10,6 +10,7 @@ input = { path = "../input" }
 
 # workspace deps
 async-lock = { workspace = true }
+glam = { workspace = true }
 parry3d = { workspace = true }
 nalgebra = { workspace = true }
 thiserror= { workspace = true }

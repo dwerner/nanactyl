@@ -18,7 +18,7 @@ use input::wire::InputState;
 use network::{Connection, Message, RpcError, Typed, MAX_UNACKED_PACKETS, MSG_LEN, PAYLOAD_LEN};
 use wire::{WirePosition, WireThing, WorldUpdate};
 use world::thing::Thing;
-use world::{Vector3, World, WorldError, WorldLockAndControllerState};
+use world::{Vec3, World, WorldError, WorldLockAndControllerState};
 
 const NUM_UPDATES_PER_MSG: u32 = 96;
 
@@ -167,7 +167,7 @@ async fn pump_connection_as_client(
         };
         match s.facets.physical.get_mut(id as usize) {
             Some(phys) => {
-                phys.position = Vector3::new(position.0, position.1, position.2);
+                phys.position = Vec3::new(position.0, position.1, position.2);
                 phys.angles.y = y_rotation;
             }
             None => println!("no physical facet at index {}", position.0),

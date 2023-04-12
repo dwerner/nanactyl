@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use nalgebra::{Matrix4, Perspective3, Point3, Vector3};
+use glam::{Mat4, Vec3};
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct PhysicalIndex(pub(crate) u32);
@@ -136,38 +136,21 @@ pub enum Shape {
 
 #[derive(Clone)]
 pub struct PhysicalFacet {
-    pub position: Vector3<f32>,
-    pub angles: Vector3<f32>,
+    pub position: Vec3,
+    pub angles: Vec3,
     pub scale: f32,
-    pub linear_velocity: Vector3<f32>,
-    pub angular_velocity: Vector3<f32>,
-    pub phys_mesh: parry3d::shape::TriMesh,
+    pub linear_velocity: Vec3,
+    pub angular_velocity: Vec3,
 }
 
 impl PhysicalFacet {
-    pub fn new(x: f32, y: f32, z: f32, scale: f32, mesh: &models::Mesh) -> Self {
+    pub fn new(x: f32, y: f32, z: f32, scale: f32, _TODO_mesh: &models::Mesh) -> Self {
         Self {
-            position: Vector3::new(x, y, z),
-            angles: Vector3::zeros(),
+            position: Vec3::new(x, y, z),
+            angles: Vec3::ZERO,
             scale,
-            linear_velocity: Vector3::new(0.0, 0.0, 0.0),
-            angular_velocity: Vector3::new(0.0, 0.0, 0.0),
-            phys_mesh: parry3d::shape::TriMesh::new(
-                mesh.vertices
-                    .iter()
-                    .map(|vertex| Point3::new(vertex.pos[0], vertex.pos[1], vertex.pos[2]))
-                    .collect(),
-                mesh.indices
-                    .windows(3)
-                    .flat_map(|w| {
-                        if w.len() == 3 {
-                            Some([w[0], w[1], w[2]])
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>(),
-            ),
+            linear_velocity: Vec3::new(0.0, 0.0, 0.0),
+            angular_velocity: Vec3::new(0.0, 0.0, 0.0),
         }
     }
 }
@@ -180,15 +163,14 @@ impl std::fmt::Debug for PhysicalFacet {
             .field("angles", &self.angles)
             .field("linear_velocity", &self.linear_velocity)
             .field("angular_velocity", &self.angular_velocity)
-            .field("phys_mesh", &self.phys_mesh.num_triangles())
             .finish()
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct CameraFacet {
-    pub view: Matrix4<f32>,
-    pub perspective: Perspective3<f32>,
+    pub view: Mat4,
+    pub perspective: Mat4,
     pub associated_model: Option<ModelIndex>,
 }
 
@@ -205,9 +187,9 @@ pub enum Direction {
 impl CameraFacet {
     pub fn new(phys: &PhysicalFacet) -> Self {
         let mut c = CameraFacet {
-            view: Matrix4::<f32>::identity(),
+            view: Mat4::IDENTITY,
             // TODO fix default perspective values
-            perspective: Perspective3::<f32>::new(
+            perspective: Mat4::perspective_lh(
                 1.7,    //aspect
                 0.75,   //fovy
                 0.1,    // near
@@ -224,35 +206,31 @@ impl CameraFacet {
     }
 
     pub fn set_perspective(&mut self, fov: f32, aspect: f32, near: f32, far: f32) {
-        self.perspective = Perspective3::<f32>::new(aspect, fov, near, far);
+        self.perspective = Mat4::perspective_lh(aspect, fov, near, far);
     }
 
-    pub fn update_aspect_ratio(&mut self, aspect: f32) {
-        self.perspective.set_aspect(aspect);
-    }
-
-    pub fn forward(&self, phys: &PhysicalFacet) -> Vector3<f32> {
+    pub fn forward(&self, phys: &PhysicalFacet) -> Vec3 {
         let rx = phys.angles.x;
         let ry = phys.angles.y;
         let vec = {
             let x = -rx.cos() * ry.sin();
             let y = rx.sin();
             let z = rx.cos() * ry.cos();
-            Vector3::new(x, y, z)
+            Vec3::new(x, y, z)
         };
         vec.normalize()
     }
 
-    pub fn right(&self, phys: &PhysicalFacet) -> Vector3<f32> {
-        let y = Vector3::new(1.0, 0.0, 0.0);
+    pub fn right(&self, phys: &PhysicalFacet) -> Vec3 {
+        let y = Vec3::new(1.0, 0.0, 0.0);
         let forward = self.forward(phys);
-        let cross = y.cross(&forward);
+        let cross = y.cross(forward);
         cross.normalize()
     }
 
-    pub fn up(&self, phys: &PhysicalFacet) -> Vector3<f32> {
-        let x = Vector3::new(0.0, 1.0, 0.0);
-        x.cross(&self.forward(phys)).normalize()
+    pub fn up(&self, phys: &PhysicalFacet) -> Vec3 {
+        let x = Vec3::new(0.0, 1.0, 0.0);
+        x.cross(self.forward(phys)).normalize()
     }
 
     pub fn update(&mut self, dt: &Duration, phys: &mut PhysicalFacet) {
@@ -262,8 +240,8 @@ impl CameraFacet {
     }
 
     pub fn update_view_matrix(&mut self, phys: &PhysicalFacet) {
-        let rot = Matrix4::from_euler_angles(phys.angular_velocity.x, phys.angular_velocity.y, 0.0);
-        let trans = Matrix4::new_translation(&phys.position);
+        let rot = Mat4::from_axis_angle(self.up(phys), phys.angular_velocity.z);
+        let trans = Mat4::from_translation(phys.position);
         self.view = trans * rot;
     }
 }

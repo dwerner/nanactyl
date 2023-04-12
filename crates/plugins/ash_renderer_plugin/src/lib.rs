@@ -14,15 +14,15 @@ use std::time::Duration;
 
 use ash::util::Align;
 use ash::vk;
+use glam::{Mat4, Quat, Vec3};
 use models::{Image, Vertex};
 use render::types::{
     BufferAndMemory, GpuModelRef, PipelineDesc, ShaderBindingDesc, ShaderDesc, ShaderStage,
     ShaderStages, Texture, VertexInputAssembly, VulkanError,
 };
 use render::{Presenter, RenderScene, RenderState, VulkanBase};
-use shader_objects::UniformBuffer;
+use shader_objects::{ShaderConstants, UniformBuffer};
 use world::thing::ModelIndex;
-use world::Matrix4;
 
 impl Renderer {
     fn present_with_base(
@@ -100,10 +100,12 @@ impl Renderer {
 
         let (phys_cam, _camera) = &scene.cameras[scene.active_camera];
 
-        let scale = Matrix4::new_scaling(0.5);
-        // TODO: do we want to do this every frame?
-        let rotation = Matrix4::new_rotation(phys_cam.angles);
-        let viewscale = scale * rotation * Matrix4::new_translation(&phys_cam.position); // look;
+        let scale = Vec3::new(0.5, 0.5, 0.5);
+        // TODO: do we want to do this every frame? combine with
+        // Mat4::from_rotation_translation
+        let rot = Quat::from_xyzw(phys_cam.angles.x, phys_cam.angles.y, phys_cam.angles.z, 0.0);
+        let rotation_and_viewscale =
+            Mat4::from_scale_rotation_translation(scale, rot, phys_cam.position);
 
         fn calculate_fov(aspect_ratio: f32) -> f32 {
             let vertical_fov = 74.0f32;
@@ -115,8 +117,8 @@ impl Renderer {
         let aspect_ratio =
             base.surface_resolution.width as f32 / base.surface_resolution.height as f32;
         let proj_mat =
-            Matrix4::new_perspective(aspect_ratio, calculate_fov(aspect_ratio), 0.01, 1000.0)
-                * viewscale;
+            Mat4::perspective_lh(aspect_ratio, calculate_fov(aspect_ratio), 0.01, 1000.0)
+                * rotation_and_viewscale;
 
         for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
             // TODO: unified struct for models & pipelines
@@ -130,10 +132,10 @@ impl Renderer {
             };
 
             {
-                let proj_mat = proj_mat.as_slice();
-                let mut mat = [0f32; 16];
-                mat.copy_from_slice(proj_mat);
-                let push_constant_bytes = bytemuck::bytes_of(&mat);
+                let push_constants = ShaderConstants {
+                    model_mat: proj_mat,
+                };
+                let push_constant_bytes = bytemuck::bytes_of(&push_constants);
                 w.update_buffer(&mut desc.uniform_buffer, push_constant_bytes)?;
             }
 
@@ -161,17 +163,17 @@ impl Renderer {
             );
             for drawable in scene.drawables.iter().filter(|p| p.model == *model_index) {
                 // create a matrix for translating to the given position.
-                let model_mat = Matrix4::new_scaling(drawable.scale)
-                    * Matrix4::new_translation(&(-drawable.pos))
-                    * Matrix4::from_euler_angles(
-                        drawable.angles.x,
-                        drawable.angles.y,
-                        1.57 * 2.0, //-drawable.angles.z,
-                    );
-                let model_mat = model_mat.as_slice();
-                let mut mat = [0f32; 16];
-                mat.copy_from_slice(model_mat);
-                let push_constant_bytes = bytemuck::bytes_of(&mat);
+                let scale = drawable.scale * Vec3::new(1.0, 1.0, 1.0);
+                let rot = Quat::from_xyzw(
+                    drawable.angles.x,
+                    drawable.angles.y,
+                    1.57 * 2.0, //-drawable.angles.z,
+                    0.0,
+                );
+
+                let model_mat = Mat4::from_scale_rotation_translation(scale, rot, -drawable.pos);
+                let push_constants = ShaderConstants { model_mat };
+                let push_constant_bytes = bytemuck::bytes_of(&push_constants);
 
                 let (model, _) = base.tracked_models.get(&drawable.model).unwrap();
                 w.cmd_push_constants(
@@ -271,7 +273,6 @@ impl Renderer {
                 let uniform_buffer = UniformBuffer {
                     proj: glam::Mat4::from(glam::Mat4::IDENTITY),
                 };
-
                 let uniform_bytes = bytemuck::bytes_of(&uniform_buffer);
                 let device = DeviceWrap(&bw.0.device);
                 device.allocate_and_init_buffer(
@@ -344,10 +345,8 @@ impl Renderer {
 
             let w = DeviceWrap(&bw.0.device);
 
-            let pipeline_layout = w.pipeline_layout(
-                std::mem::size_of::<Matrix4<f32>>() as u32,
-                &[desc_set_layout],
-            )?;
+            let pipeline_layout =
+                w.pipeline_layout(std::mem::size_of::<Mat4>() as u32, &[desc_set_layout])?;
 
             pipeline_descriptions.insert(
                 *model_index,

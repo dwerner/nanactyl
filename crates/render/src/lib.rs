@@ -16,11 +16,10 @@ use ash::extensions::ext;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry};
 use async_lock::{Mutex, MutexGuardArc};
-use nalgebra::Vector3;
 use platform::WinPtr;
 use types::{Attachments, AttachmentsModifier, GpuModelRef, VulkanError};
 use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalFacet, PhysicalIndex};
-use world::{Identity, World};
+use world::{Identity, Vec3, World};
 
 pub mod types;
 
@@ -1086,8 +1085,8 @@ pub struct RenderScene {
 /// information. Should attach to a game object or similar.
 pub struct SceneModelInstance {
     pub model: ModelIndex,
-    pub pos: Vector3<f32>,
-    pub angles: Vector3<f32>,
+    pub pos: Vec3,
+    pub angles: Vec3,
     pub scale: f32,
 }
 
@@ -1129,9 +1128,9 @@ impl LockWorldAndRenderState {
 
                     let right = cam.right(phys);
                     let forward = cam.forward(phys);
-                    let pos = phys.position
-                        + Vector3::new(right.x + forward.x, -2.0, right.z + forward.z);
-                    let angles = Vector3::new(0.0, phys.angles.y - 1.57, 0.0);
+                    let pos =
+                        phys.position + Vec3::new(right.x + forward.x, -2.0, right.z + forward.z);
+                    let angles = Vec3::new(0.0, phys.angles.y - 1.57, 0.0);
 
                     SceneModelInstance {
                         model: cam.associated_model.unwrap(),

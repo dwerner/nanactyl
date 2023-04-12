@@ -48,9 +48,23 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bytemuck"
-version = "1.13.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c041d3eab048880cb0b86b256447da3f18859a163c3b8d8893f4e6368abe6393"
+checksum = "17febce684fd15d89027105661fec94afb475cb995fbc59d2865198446ba2eea"
+dependencies = [
+ "bytemuck_derive",
+]
+
+[[package]]
+name = "bytemuck_derive"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aca418a974d83d40a0c1f0c5cba6ff4bc28d8df099109ca459a2118d40b6322"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "byteorder"
@@ -93,6 +107,7 @@ dependencies = [
 name = "fragment_rustgpu"
 version = "0.1.0"
 dependencies = [
+ "shader_objects",
  "spirv-std",
 ]
 
@@ -122,6 +137,7 @@ version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12f597d56c1bd55a811a1be189459e8fad2bbc272616375602443bdfb37fa774"
 dependencies = [
+ "bytemuck",
  "num-traits",
 ]
 
@@ -368,6 +384,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "shader_objects"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "glam",
+ "num-traits",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -496,6 +521,7 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 name = "vertex_rustgpu"
 version = "0.1.0"
 dependencies = [
+ "shader_objects",
  "spirv-std",
 ]
 

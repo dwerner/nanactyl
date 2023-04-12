@@ -12,6 +12,7 @@ members = [
     "crates/platform",
     "crates/font-loader",
     "crates/plugin_trait",
+    "crates/shader_objects",
 
     # plugins: these should not be depended upon by anything other than binaries, indirectly
     "crates/plugins/abc_plugin",
@@ -59,11 +60,13 @@ bytemuck = { version = "1.12.1", features = ["derive", "extern_crate_std"] }
 cstr = "0.2.10"
 duct = "0.13.6"
 futures-lite = "1.12.0"
-histogram = "0.6.9" # lock oin 0.6.9 for now
+glam = { version = "0.22", default-features = false, features = ["libm", "bytemuck"] }
+histogram = "0.6.9" # lock in 0.6.9 for now
 image = "0.24.3"
 libloading = "0.7"
 log = "0.4"
 nalgebra = "0.32.1"
+num-traits = { version = "0.2.14", default-features = false, features = ["libm"] }
 parry3d = "0.13.0"
 raw-window-handle = "0.4.2" # lock on 0.4.2 for now
 serde = { version = "1", features = ["derive"]}
@@ -73,6 +76,3 @@ structopt = "0.3"
 tempdir = "0.3.7"
 thiserror = "1"
 zstd = "0.12.2"
-
-
-

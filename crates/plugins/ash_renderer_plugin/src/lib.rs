@@ -20,6 +20,7 @@ use render::types::{
     ShaderStages, Texture, VertexInputAssembly, VulkanError,
 };
 use render::{Presenter, RenderScene, RenderState, VulkanBase};
+use shader_objects::UniformBuffer;
 use world::thing::ModelIndex;
 use world::Matrix4;
 
@@ -267,11 +268,11 @@ impl Renderer {
         for (model_index, (model, _uploaded_instant)) in bw.0.tracked_models.iter() {
             println!("creating descriptor set for model {model_index:?}");
             let uniform_buffer = {
-                let proj_mat = Matrix4::<f32>::identity();
-                let proj_mat = proj_mat.as_slice();
-                let mut mat = [0f32; 16];
-                mat.copy_from_slice(proj_mat);
-                let uniform_bytes = bytemuck::bytes_of(&mat);
+                let uniform_buffer = UniformBuffer {
+                    proj: glam::Mat4::from(glam::Mat4::IDENTITY),
+                };
+
+                let uniform_bytes = bytemuck::bytes_of(&uniform_buffer);
                 let device = DeviceWrap(&bw.0.device);
                 device.allocate_and_init_buffer(
                     vk::BufferUsageFlags::UNIFORM_BUFFER,

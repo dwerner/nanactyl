@@ -1,12 +1,11 @@
-#![no_std]
+#![cfg_attr(target_arch = "spirv", no_std)]
 // HACK(eddyb) can't easily see warnings otherwise from `spirv-builder` builds.
 #![deny(warnings)]
-
-use spirv_std::spirv;
 
 mod hide;
 
 use spirv_std::glam::{Vec2, Vec4};
+use spirv_std::spirv;
 
 #[spirv(fragment)]
 pub fn fragment_main(

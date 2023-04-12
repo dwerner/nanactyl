@@ -114,7 +114,7 @@ impl Renderer {
         let aspect_ratio =
             base.surface_resolution.width as f32 / base.surface_resolution.height as f32;
         let proj_mat =
-            Matrix4::new_perspective(aspect_ratio, calculate_fov(aspect_ratio), 0.01, 100.0)
+            Matrix4::new_perspective(aspect_ratio, calculate_fov(aspect_ratio), 0.01, 1000.0)
                 * viewscale;
 
         for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
@@ -1202,7 +1202,7 @@ fn upload_models(
             )
             .unwrap();
 
-        let mut uploaded_model = GpuModelRef::new(
+        let uploaded_model = GpuModelRef::new(
             dest_texture,
             vertex_buffer,
             index_buffer,

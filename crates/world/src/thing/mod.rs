@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use glam::{Mat4, Vec3};
+use glam::{EulerRot, Mat4, Vec3};
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct PhysicalIndex(pub(crate) u32);
@@ -240,7 +240,12 @@ impl CameraFacet {
     }
 
     pub fn update_view_matrix(&mut self, phys: &PhysicalFacet) {
-        let rot = Mat4::from_axis_angle(self.up(phys), phys.angular_velocity.z);
+        let rot = Mat4::from_euler(
+            EulerRot::XYZ,
+            phys.angular_velocity.x,
+            phys.angular_velocity.y,
+            0.0,
+        );
         let trans = Mat4::from_translation(phys.position);
         self.view = trans * rot;
     }

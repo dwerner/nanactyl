@@ -102,7 +102,7 @@ impl Renderer {
 
         let scale = Mat4::from_scale(Vec3::new(0.5, 0.5, 0.5));
         let rotation = Mat4::from_axis_angle(phys_cam.angles, 1.0);
-        let viewscale = scale * rotation * Mat4::from_translation(phys_cam.position);
+        let viewscale = scale * Mat4::from_translation(phys_cam.position) * rotation;
 
         fn calculate_fov(aspect_ratio: f32) -> f32 {
             let vertical_fov = 74.0f32;
@@ -113,9 +113,7 @@ impl Renderer {
         }
         let aspect_ratio =
             base.surface_resolution.width as f32 / base.surface_resolution.height as f32;
-        let proj_mat =
-            Mat4::perspective_lh(aspect_ratio, calculate_fov(aspect_ratio), 0.01, 1000.0)
-                * viewscale;
+        let proj_mat = Mat4::perspective_lh(1.5, 1.25, 0.01, 1000.0) * viewscale;
 
         for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
             // TODO: unified struct for models & pipelines

@@ -3,7 +3,7 @@
 #![deny(warnings)]
 
 use shader_objects::{ShaderConstants, UniformBuffer};
-use spirv_std::glam::{vec4, Mat3, Mat4, Vec2, Vec4};
+use spirv_std::glam::{Mat3, Mat4, Vec2, Vec4};
 use spirv_std::spirv;
 
 #[spirv(vertex)]
@@ -19,6 +19,6 @@ pub fn vertex_main(
 ) {
     let mat = push_constants.model_mat;
     *o_normal = Mat4::from_mat3(Mat3::from_mat4(mat)).inverse().transpose() * normal;
-    *o_pos = ubo.proj * mat * vec4(pos.x, pos.y, pos.z, 1.0);
+    *o_pos = ubo.proj * mat * Vec4::new(pos.x, pos.y, pos.z, 1.0);
     *o_uv = uv;
 }

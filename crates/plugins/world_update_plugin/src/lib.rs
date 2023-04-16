@@ -6,9 +6,10 @@
 
 use std::time::{Duration, Instant};
 
+use glam::{EulerRot, Mat4, Vec3};
 use input::wire::InputState;
 use input::Button;
-use world::{Identity, Mat4, Quat, Vec3, World, WorldError};
+use world::{Identity, World, WorldError};
 
 #[no_mangle]
 pub extern "C" fn load(world: &mut World) {
@@ -84,7 +85,7 @@ fn move_camera_based_on_controller_state(
 
     // FOR NOW: this works ok but needs work.
 
-    let rot = Mat4::from_axis_angle(pcam.angles, 1.0);
+    let rot = Mat4::from_euler(EulerRot::XYZ, pcam.angles.x, pcam.angles.y, pcam.angles.z);
     let forward = rot.transform_vector3(Vec3::new(0.0, 0.0, 1.0));
     if controller.is_button_pressed(Button::Down) {
         let transform = cam.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));

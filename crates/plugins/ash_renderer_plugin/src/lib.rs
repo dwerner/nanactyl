@@ -101,10 +101,7 @@ impl Renderer {
         let (phys_cam, _camera) = &scene.cameras[scene.active_camera];
 
         let scale = Vec3::new(0.5, 0.5, 0.5);
-        // TODO: do we want to do this every frame? combine with
-        // Mat4::from_rotation_translation
-        let rotation = Vec3::new(phys_cam.angles.x, phys_cam.angles.y, phys_cam.angles.z);
-        let rotation = Quat::from_axis_angle(rotation, 1.0);
+        let rotation = Quat::from_axis_angle(phys_cam.angles, 1.0);
         let rotation_and_viewscale =
             Mat4::from_scale_rotation_translation(scale, rotation, phys_cam.position);
 

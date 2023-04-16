@@ -84,14 +84,13 @@ fn move_camera_based_on_controller_state(
 
     // FOR NOW: this works ok but needs work.
 
-    let quat = Quat::from_axis_angle(pcam.angles, 1.0);
-    let rot = Mat4::from_rotation_translation(quat, -1.0 * pcam.angles);
+    let rot = Mat4::from_axis_angle(pcam.angles, 1.0);
     let forward = rot.transform_vector3(Vec3::new(0.0, 0.0, 1.0));
     if controller.is_button_pressed(Button::Down) {
-        let transform = cam.view * Mat4::from_scale(-1.0 * (pcam.linear_velocity * speed));
+        let transform = cam.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));
         pcam.linear_velocity += transform.transform_vector3(forward);
     } else if controller.is_button_pressed(Button::Up) {
-        let transform = cam.view * Mat4::from_scale(speed * pcam.linear_velocity);
+        let transform = cam.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
         pcam.linear_velocity += transform.transform_vector3(forward);
     } else {
         pcam.linear_velocity = Vec3::ZERO;

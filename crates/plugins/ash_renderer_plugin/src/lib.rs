@@ -103,9 +103,10 @@ impl Renderer {
         let scale = Vec3::new(0.5, 0.5, 0.5);
         // TODO: do we want to do this every frame? combine with
         // Mat4::from_rotation_translation
-        let rot = Quat::from_xyzw(phys_cam.angles.x, phys_cam.angles.y, phys_cam.angles.z, 0.0);
+        let rotation = Vec3::new(phys_cam.angles.x, phys_cam.angles.y, phys_cam.angles.z);
+        let rotation = Quat::from_axis_angle(rotation, 1.0);
         let rotation_and_viewscale =
-            Mat4::from_scale_rotation_translation(scale, rot, phys_cam.position);
+            Mat4::from_scale_rotation_translation(scale, rotation, phys_cam.position);
 
         fn calculate_fov(aspect_ratio: f32) -> f32 {
             let vertical_fov = 74.0f32;
@@ -164,10 +165,12 @@ impl Renderer {
             for drawable in scene.drawables.iter().filter(|p| p.model == *model_index) {
                 // create a matrix for translating to the given position.
                 let scale = drawable.scale * Vec3::new(1.0, 1.0, 1.0);
-                let rot = Quat::from_xyzw(
-                    drawable.angles.x,
-                    drawable.angles.y,
-                    1.57 * 2.0, //-drawable.angles.z,
+                let rot = Quat::from_axis_angle(
+                    Vec3::new(
+                        drawable.angles.x,
+                        drawable.angles.y,
+                        1.57 * 2.0, //-drawable.angles.z,
+                    ),
                     0.0,
                 );
 

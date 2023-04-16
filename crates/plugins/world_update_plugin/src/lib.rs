@@ -84,8 +84,7 @@ fn move_camera_based_on_controller_state(
 
     // FOR NOW: this works ok but needs work.
 
-    let Vec3 { x, y, z } = pcam.angles;
-    let quat = Quat::from_xyzw(x, y, z, 1.0);
+    let quat = Quat::from_axis_angle(pcam.angles, 1.0);
     let rot = Mat4::from_rotation_translation(quat, -1.0 * pcam.angles);
     let forward = rot.transform_vector3(Vec3::new(0.0, 0.0, 1.0));
     if controller.is_button_pressed(Button::Down) {

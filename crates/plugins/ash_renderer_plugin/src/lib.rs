@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use ash::util::Align;
 use ash::vk;
-use glam::{Mat4, Quat, Vec3};
+use glam::{EulerRot, Mat4, Quat, Vec3};
 use models::{Image, Vertex};
 use render::types::{
     BufferAndMemory, GpuModelRef, PipelineDesc, ShaderBindingDesc, ShaderDesc, ShaderStage,
@@ -100,10 +100,9 @@ impl Renderer {
 
         let (phys_cam, _camera) = &scene.cameras[scene.active_camera];
 
-        let scale = Vec3::new(0.5, 0.5, 0.5);
-        let rotation = Quat::from_axis_angle(phys_cam.angles, 1.0);
-        let rotation_and_viewscale =
-            Mat4::from_scale_rotation_translation(scale, rotation, phys_cam.position);
+        let scale = Mat4::from_scale(Vec3::new(0.5, 0.5, 0.5));
+        let rotation = Mat4::from_axis_angle(phys_cam.angles, 1.0);
+        let viewscale = scale * rotation * Mat4::from_translation(phys_cam.position);
 
         fn calculate_fov(aspect_ratio: f32) -> f32 {
             let vertical_fov = 74.0f32;
@@ -116,7 +115,7 @@ impl Renderer {
             base.surface_resolution.width as f32 / base.surface_resolution.height as f32;
         let proj_mat =
             Mat4::perspective_lh(aspect_ratio, calculate_fov(aspect_ratio), 0.01, 1000.0)
-                * rotation_and_viewscale;
+                * viewscale;
 
         for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
             // TODO: unified struct for models & pipelines
@@ -161,17 +160,17 @@ impl Renderer {
             );
             for drawable in scene.drawables.iter().filter(|p| p.model == *model_index) {
                 // create a matrix for translating to the given position.
-                let scale = drawable.scale * Vec3::new(1.0, 1.0, 1.0);
-                let rot = Quat::from_axis_angle(
-                    Vec3::new(
-                        drawable.angles.x,
-                        drawable.angles.y,
-                        1.57 * 2.0, //-drawable.angles.z,
-                    ),
-                    0.0,
+                let scale = Mat4::from_scale(drawable.scale * Vec3::ONE);
+                let translation = Mat4::from_translation(-drawable.pos);
+                let rot = Mat4::from_euler(
+                    EulerRot::XYZ,
+                    drawable.angles.x,
+                    drawable.angles.y,
+                    1.57 * 2.0, //-drawable.angles.z,
                 );
 
-                let model_mat = Mat4::from_scale_rotation_translation(scale, rot, -drawable.pos);
+                let model_mat = scale * rot * translation;
+
                 let push_constants = ShaderConstants { model_mat };
                 let push_constant_bytes = bytemuck::bytes_of(&push_constants);
 
@@ -345,8 +344,10 @@ impl Renderer {
 
             let w = DeviceWrap(&bw.0.device);
 
-            let pipeline_layout =
-                w.pipeline_layout(std::mem::size_of::<Mat4>() as u32, &[desc_set_layout])?;
+            let pipeline_layout = w.pipeline_layout(
+                std::mem::size_of::<ShaderConstants>() as u32,
+                &[desc_set_layout],
+            )?;
 
             pipeline_descriptions.insert(
                 *model_index,

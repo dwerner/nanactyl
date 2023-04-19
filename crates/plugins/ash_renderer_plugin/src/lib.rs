@@ -22,7 +22,7 @@ use render::types::{
 };
 use render::{Presenter, RenderScene, RenderState, VulkanBase};
 use shader_objects::{ShaderConstants, UniformBuffer};
-use world::thing::ModelIndex;
+use world::thing::{ModelIndex, EULER_ROT_ORDER};
 
 impl Renderer {
     fn present_with_base(
@@ -161,7 +161,7 @@ impl Renderer {
                 let scale = Mat4::from_scale(drawable.scale * Vec3::ONE);
                 let translation = Mat4::from_translation(-drawable.pos);
                 let rot = Mat4::from_euler(
-                    EulerRot::XYZ,
+                    EULER_ROT_ORDER,
                     drawable.angles.x,
                     drawable.angles.y,
                     1.57 * 2.0, //-drawable.angles.z,

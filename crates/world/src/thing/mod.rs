@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use glam::{EulerRot, Mat4, Vec3};
 
+pub const EULER_ROT_ORDER: EulerRot = EulerRot::YXZ;
+
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct PhysicalIndex(pub(crate) u32);
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -241,7 +243,7 @@ impl CameraFacet {
 
     pub fn update_view_matrix(&mut self, phys: &PhysicalFacet) {
         let rot = Mat4::from_euler(
-            EulerRot::XYZ,
+            EULER_ROT_ORDER,
             phys.angular_velocity.x,
             phys.angular_velocity.y,
             0.0,

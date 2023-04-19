@@ -6,9 +6,10 @@
 
 use std::time::{Duration, Instant};
 
-use glam::{EulerRot, Mat4, Vec3};
+use glam::{Mat4, Vec3};
 use input::wire::InputState;
 use input::Button;
+use world::thing::EULER_ROT_ORDER;
 use world::{Identity, World, WorldError};
 
 #[no_mangle]
@@ -85,7 +86,7 @@ fn move_camera_based_on_controller_state(
 
     // FOR NOW: this works ok but needs work.
 
-    let rot = Mat4::from_euler(EulerRot::XYZ, pcam.angles.x, pcam.angles.y, pcam.angles.z);
+    let rot = Mat4::from_euler(EULER_ROT_ORDER, pcam.angles.x, pcam.angles.y, pcam.angles.z);
     let forward = rot.transform_vector3(Vec3::new(0.0, 0.0, 1.0));
     if controller.is_button_pressed(Button::Down) {
         let transform = cam.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));

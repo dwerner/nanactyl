@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use ash::util::Align;
 use ash::vk;
-use glam::{EulerRot, Mat4, Quat, Vec3};
+use glam::{Mat4, Vec3};
 use models::{Image, Vertex};
 use render::types::{
     BufferAndMemory, GpuModelRef, PipelineDesc, ShaderBindingDesc, ShaderDesc, ShaderStage,
@@ -101,8 +101,13 @@ impl Renderer {
         let (phys_cam, _camera) = &scene.cameras[scene.active_camera];
 
         let scale = Mat4::from_scale(Vec3::new(0.5, 0.5, 0.5));
-        let rotation = Mat4::from_axis_angle(phys_cam.angles, 1.0);
-        let viewscale = scale * Mat4::from_translation(phys_cam.position) * rotation;
+        let rotation = Mat4::from_euler(
+            EULER_ROT_ORDER,
+            phys_cam.angles.x,
+            phys_cam.angles.y,
+            phys_cam.angles.z,
+        );
+        let viewscale = scale * rotation * Mat4::from_translation(phys_cam.position);
 
         fn calculate_fov(aspect_ratio: f32) -> f32 {
             let vertical_fov = 74.0f32;
@@ -167,7 +172,7 @@ impl Renderer {
                     1.57 * 2.0, //-drawable.angles.z,
                 );
 
-                let model_mat = scale * rot * translation;
+                let model_mat = scale * translation * rot;
 
                 let push_constants = ShaderConstants { model_mat };
                 let push_constant_bytes = bytemuck::bytes_of(&push_constants);

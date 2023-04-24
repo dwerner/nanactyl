@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use glam::{EulerRot, Mat4, Vec3};
 
-pub const EULER_ROT_ORDER: EulerRot = EulerRot::YXZ;
+pub const EULER_ROT_ORDER: EulerRot = EulerRot::XYZ;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct PhysicalIndex(pub(crate) u32);
@@ -224,7 +224,7 @@ impl CameraFacet {
     }
 
     pub fn right(&self, phys: &PhysicalFacet) -> Vec3 {
-        let y = Vec3::new(1.0, 0.0, 0.0);
+        let y = Vec3::new(-1.0, 0.0, 0.0);
         let forward = self.forward(phys);
         let cross = y.cross(forward);
         cross.normalize()

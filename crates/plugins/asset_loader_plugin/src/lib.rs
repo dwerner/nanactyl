@@ -25,8 +25,8 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     let cube_model_facet = ModelFacet::new(cube_model);
     let cube_model_idx = world.add_model(cube_model_facet);
 
-    for (x, y) in [(10.0, 0.0), (-10.0, 0.0)].into_iter() {
-        let physical = PhysicalFacet::new(x, y, -10.0, 1.0, &bounding_mesh);
+    for (x, z) in [(10.0, 10.0), (-10.0, -10.0)].into_iter() {
+        let physical = PhysicalFacet::new(x, 0.0, z, 1.0, &bounding_mesh);
         let mut camera_facet = CameraFacet::new(&physical);
         camera_facet.set_associated_model(ico_model_idx);
 

@@ -224,7 +224,7 @@ impl CameraFacet {
     }
 
     pub fn right(&self, phys: &PhysicalFacet) -> Vec3 {
-        let y = Vec3::new(-1.0, 0.0, 0.0);
+        let y = Vec3::new(1.0, 0.0, 0.0);
         let forward = self.forward(phys);
         let cross = y.cross(forward);
         cross.normalize()

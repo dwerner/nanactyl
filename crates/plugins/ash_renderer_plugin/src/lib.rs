@@ -104,8 +104,8 @@ impl Renderer {
         let rotation = Mat4::from_euler(
             EULER_ROT_ORDER,
             phys_cam.angles.x,
-            phys_cam.angles.y,
-            phys_cam.angles.z,
+            -phys_cam.angles.y,
+            0.0, //phys_cam.angles.z,
         );
         let viewscale = scale * rotation * Mat4::from_translation(phys_cam.position);
 

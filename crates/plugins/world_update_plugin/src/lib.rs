@@ -89,10 +89,10 @@ fn move_camera_based_on_controller_state(
     let rot = Mat4::from_euler(EULER_ROT_ORDER, pcam.angles.x, pcam.angles.y, pcam.angles.z);
     let forward = rot.transform_vector3(Vec3::new(0.0, 0.0, 1.0));
     if controller.is_button_pressed(Button::Down) {
-        let transform = cam.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));
+        let transform = cam.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
         pcam.linear_velocity += transform.transform_vector3(forward);
     } else if controller.is_button_pressed(Button::Up) {
-        let transform = cam.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
+        let transform = cam.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));
         pcam.linear_velocity += transform.transform_vector3(forward);
     } else {
         pcam.linear_velocity = Vec3::ZERO;

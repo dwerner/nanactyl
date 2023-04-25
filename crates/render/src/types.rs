@@ -60,12 +60,13 @@ pub enum VulkanError {
 }
 
 /// A handle to a Vulkan GPU buffer and it's backing memory.
+/// TODO: typed buffer and memory
 pub struct BufferAndMemory {
     pub buffer: vk::Buffer,
     pub memory: vk::DeviceMemory,
 
     /// len of the original slice copied from.
-    pub len: usize,
+    pub original_len: usize,
 
     /// len in bytes of the original allocation.
     pub allocation_size: u64,
@@ -77,13 +78,13 @@ impl BufferAndMemory {
     pub fn new(
         buffer: vk::Buffer,
         memory: vk::DeviceMemory,
-        len: usize,
+        original_len: usize,
         allocation_size: u64,
     ) -> Self {
         Self {
             buffer,
             memory,
-            len,
+            original_len,
             allocation_size,
         }
     }

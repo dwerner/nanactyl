@@ -13,5 +13,4 @@ ash = { workspace = true }
 ash-window = { workspace = true }
 async-lock = { workspace = true }
 image = { workspace = true }
-nalgebra = { workspace = true }
 thiserror = { workspace = true }

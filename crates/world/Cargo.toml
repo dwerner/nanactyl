@@ -12,6 +12,5 @@ input = { path = "../input" }
 async-lock = { workspace = true }
 glam = { workspace = true }
 parry3d = { workspace = true }
-nalgebra = { workspace = true }
 thiserror= { workspace = true }
 serde = { workspace = true }

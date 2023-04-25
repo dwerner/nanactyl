@@ -1423,23 +1423,11 @@ checksum = "f6515c882ebfddccaa73ead7320ca28036c4bc84c9bcca3cc0cbba8efe89223a"
 dependencies = [
  "approx",
  "matrixmultiply",
- "nalgebra-macros",
  "num-complex",
  "num-rational",
  "num-traits",
  "simba",
  "typenum",
-]
-
-[[package]]
-name = "nalgebra-macros"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d232c68884c0c99810a5a4d333ef7e47689cfd0edc85efc9e54e1e6bf5212766"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.107",
 ]
 
 [[package]]
@@ -1990,7 +1978,6 @@ dependencies = [
  "async-lock",
  "image",
  "models",
- "nalgebra",
  "platform",
  "thiserror",
  "world",
@@ -2688,7 +2675,6 @@ dependencies = [
  "glam",
  "input",
  "models",
- "nalgebra",
  "network",
  "parry3d",
  "serde",

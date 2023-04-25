@@ -196,13 +196,10 @@ impl ObjObject {
 
     fn get_vn_by_index(&self, vn_index: Option<u32>) -> Result<T3<f32>, ObjError> {
         Ok(match vn_index {
-            Some(vn_index) => {
-                println!("vn_index: {}", vn_index);
-                match self.normals.get((vn_index as usize) - 1) {
-                    Some(ObjLine::Normal(x, y, z)) => (*x, *y, *z),
-                    _ => return Err(ObjError::MissingNormalData(vn_index)),
-                }
-            }
+            Some(vn_index) => match self.normals.get((vn_index as usize) - 1) {
+                Some(ObjLine::Normal(x, y, z)) => (*x, *y, *z),
+                _ => return Err(ObjError::MissingNormalData(vn_index)),
+            },
             None => (0.0, 0.0, 0.0),
         })
     }
@@ -210,7 +207,6 @@ impl ObjObject {
     fn get_vt_by_index(&self, vt_index: Option<u32>) -> Result<T3<f32>, ObjError> {
         Ok(match vt_index {
             Some(vt_index) => {
-                println!("vt_index: {}", vt_index);
                 match self.texture_coords.get((vt_index as usize) - 1) {
                     // Adjust v texture coordinate as .obj and vulkan use different systems
                     Some(ObjLine::TextureUVW(u, v, w)) => (*u, 1.0 - v, w.unwrap_or(0.0)),
@@ -222,7 +218,6 @@ impl ObjObject {
     }
 
     fn get_vertex_by_index(&self, vertex_index: u32) -> Result<T4<f32>, ObjError> {
-        println!("vertex_index: {}", vertex_index);
         let vert = match self.vertices.get((vertex_index as usize) - 1) {
             Some(ObjLine::Vertex(x, y, z, w)) => (*x, *y, *z, w.unwrap_or(1.0)),
             _ => return Err(ObjError::MissingVertexData(vertex_index)),

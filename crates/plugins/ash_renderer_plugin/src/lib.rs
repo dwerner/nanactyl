@@ -132,11 +132,9 @@ impl Renderer {
             };
 
             {
-                let push_constants = ShaderConstants {
-                    model_mat: proj_mat,
-                };
-                let push_constant_bytes = bytemuck::bytes_of(&push_constants);
-                w.update_buffer(&mut desc.uniform_buffer, push_constant_bytes)?;
+                let ubo = UniformBuffer::with_proj(proj_mat);
+                let ubo_bytes = bytemuck::bytes_of(&ubo);
+                w.update_buffer(&mut desc.uniform_buffer, ubo_bytes)?;
             }
 
             w.cmd_bind_descriptor_sets(
@@ -185,7 +183,14 @@ impl Renderer {
                     0,
                     push_constant_bytes,
                 );
-                w.cmd_draw_indexed(base.draw_cmd_buf, model.index_buffer.len as u32, 1, 0, 0, 1);
+                w.cmd_draw_indexed(
+                    base.draw_cmd_buf,
+                    model.index_buffer.original_len as u32,
+                    1,
+                    0,
+                    0,
+                    1,
+                );
             }
         }
 
@@ -272,9 +277,7 @@ impl Renderer {
         for (model_index, (model, _uploaded_instant)) in bw.0.tracked_models.iter() {
             println!("creating descriptor set for model {model_index:?}");
             let uniform_buffer = {
-                let uniform_buffer = UniformBuffer {
-                    proj: glam::Mat4::from(glam::Mat4::IDENTITY),
-                };
+                let uniform_buffer = UniformBuffer::new();
                 let uniform_bytes = bytemuck::bytes_of(&uniform_buffer);
                 let device = DeviceWrap(&bw.0.device);
                 device.allocate_and_init_buffer(
@@ -564,7 +567,7 @@ impl<'a> VulkanBaseWrapper<'a> {
     ) {
         let uniform_descriptors = [*vk::DescriptorBufferInfo::builder()
             .buffer(uniform_buffer.buffer)
-            .range(uniform_buffer.len as u64)];
+            .range(uniform_buffer.allocation_size)];
 
         let tex_descriptors = [*vk::DescriptorImageInfo::builder()
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)

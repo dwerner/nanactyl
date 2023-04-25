@@ -46,32 +46,17 @@ fn workload_benchmark(c: &mut Criterion) {
 
     for iterations in [1000, 10000, 100000] {
         const SIZE1: usize = 1024;
-        group.bench_function(
-            format!("workload_aos_padded_{}_{}", SIZE1, iterations),
-            |b| {
-                b.iter(|| {
-                    task::block_on(run_workload::<SIZE1>(&mut executor, black_box(iterations)))
-                })
-            },
-        );
+        group.bench_function(format!("workload_aos_padded_{SIZE1}_{iterations}"), |b| {
+            b.iter(|| task::block_on(run_workload::<SIZE1>(&mut executor, black_box(iterations))))
+        });
         const SIZE2: usize = 2048;
-        group.bench_function(
-            format!("workload_aos_padded_{}_{}", SIZE2, iterations),
-            |b| {
-                b.iter(|| {
-                    task::block_on(run_workload::<SIZE2>(&mut executor, black_box(iterations)))
-                })
-            },
-        );
+        group.bench_function(format!("workload_aos_padded_{SIZE2}_{iterations}"), |b| {
+            b.iter(|| task::block_on(run_workload::<SIZE2>(&mut executor, black_box(iterations))))
+        });
         const SIZE4: usize = 4096;
-        group.bench_function(
-            format!("workload_aos_padded_{}_{}", SIZE4, iterations),
-            |b| {
-                b.iter(|| {
-                    task::block_on(run_workload::<SIZE4>(&mut executor, black_box(iterations)))
-                })
-            },
-        );
+        group.bench_function(format!("workload_aos_padded_{SIZE4}_{iterations}"), |b| {
+            b.iter(|| task::block_on(run_workload::<SIZE4>(&mut executor, black_box(iterations))))
+        });
     }
 }
 

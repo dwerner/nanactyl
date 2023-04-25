@@ -30,10 +30,10 @@ impl Display for FaceIndex {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}/", self.v)?;
         if let Some(v) = self.vt {
-            write!(f, "{}/", v)?;
+            write!(f, "{v}/")?;
         }
         if let Some(v) = self.vn {
-            write!(f, "{}", v)?;
+            write!(f, "{v}")?;
         }
         Ok(())
     }
@@ -57,26 +57,26 @@ pub enum ObjLine {
 impl Display for ObjLine {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ObjLine::Comment(s) => write!(f, "# {}", s),
-            ObjLine::ObjectName(s) => write!(f, "o {}", s),
-            ObjLine::GroupName(s) => write!(f, "g {}", s),
-            ObjLine::MtlLib(s) => write!(f, "mtllib {}", s),
-            ObjLine::UseMtl(s) => write!(f, "usemtl {}", s),
-            ObjLine::SmoothShading(s) => write!(f, "s {}", s),
+            ObjLine::Comment(s) => write!(f, "# {s}"),
+            ObjLine::ObjectName(s) => write!(f, "o {s}"),
+            ObjLine::GroupName(s) => write!(f, "g {s}"),
+            ObjLine::MtlLib(s) => write!(f, "mtllib {s}"),
+            ObjLine::UseMtl(s) => write!(f, "usemtl {s}"),
+            ObjLine::SmoothShading(s) => write!(f, "s {s}"),
             ObjLine::Vertex(x, y, z, w) => {
-                write!(f, "v {} {} {}", x, y, z)?;
+                write!(f, "v {x} {y} {z}")?;
                 if let Some(w) = w {
-                    write!(f, " {}", w)?;
+                    write!(f, " {w}")?;
                 }
                 Ok(())
             }
-            ObjLine::VertexParam(u, v, w) => write!(f, "vp {} {} {}", u, v, w),
-            ObjLine::Normal(x, y, z) => write!(f, "vn {} {} {}", x, y, z),
-            ObjLine::Face(a, b, c) => write!(f, "f {} {} {}", a, b, c),
+            ObjLine::VertexParam(u, v, w) => write!(f, "vp {u} {v} {w}"),
+            ObjLine::Normal(x, y, z) => write!(f, "vn {x} {y} {z}"),
+            ObjLine::Face(a, b, c) => write!(f, "f {a} {b} {c}"),
             ObjLine::TextureUVW(u, v, w) => {
-                write!(f, "vt {} {}", u, v)?;
+                write!(f, "vt {u} {v}")?;
                 if let Some(w) = w {
-                    write!(f, " {}", w)?;
+                    write!(f, " {w}")?;
                 }
                 Ok(())
             }
@@ -470,7 +470,7 @@ mod tests {
         ];
 
         for (obj_line, expected_output) in cases {
-            assert_eq!(format!("{}", obj_line), expected_output);
+            assert_eq!(format!("{obj_line}"), expected_output);
         }
     }
 

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::ffi::{CString, NulError};
 use std::io;
-use std::marker::PhantomData;
 use std::path::PathBuf;
 
 use ash::vk;

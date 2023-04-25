@@ -249,7 +249,7 @@ impl ThreadAffineSpawner {
             .try_send(ExecutorTask::Task(
                 async move {
                     if let Err(err) = spawned_tx.send(task.await) {
-                        panic!("unable to send task result: {:?}", err);
+                        panic!("unable to send task result: {err:?}");
                     }
                 }
                 .boxed(),
@@ -354,7 +354,7 @@ mod tests {
             tx.send(
                 async move {
                     for thing in 1..5 {
-                        println!("thing {} x {}", thing, x);
+                        println!("thing {thing} x {x}");
                     }
                     task_tx.send(42).unwrap();
                     ThreadShould::Continue

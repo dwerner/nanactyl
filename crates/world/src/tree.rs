@@ -167,13 +167,13 @@ mod tests {
 
         let mut depth_first = vec![];
         for (index, node) in tree.depth_first_iter() {
-            println!("{:?}", node);
+            println!("{node:?}");
             depth_first.push((index, node.value));
         }
 
         assert_eq!(tree.nodes.len(), 26);
         assert!(tree.nodes[0].is_root());
-        println!("{:?}", depth_first);
+        println!("{depth_first:?}");
         let mut depth_first: Vec<_> = depth_first.into_iter().rev().collect();
         for expected in [
             (0, 0),

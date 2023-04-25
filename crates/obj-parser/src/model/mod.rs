@@ -2,11 +2,10 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::io::BufReader;
-use std::ops::Index;
 use std::path::Path;
 
 use crate::parser::mtl::{MtlLine, MtlParser};
-use crate::parser::obj::{FaceIndex, ObjLine, ObjParser};
+use crate::parser::obj::{ObjLine, ObjParser};
 
 type T3<T> = (T, T, T);
 type T4<T> = (T, T, T, T);
@@ -479,7 +478,7 @@ f 2/1/1 4/4/1 3/2/1";
             .zip(expected_vertices.iter())
             .enumerate()
         {
-            assert_eq!(actual, expected, "vertex {} is not equal", i);
+            assert_eq!(actual, expected, "vertex {i} is not equal");
         }
     }
 }

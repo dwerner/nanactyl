@@ -322,16 +322,13 @@ mod tests {
         };
 
         let recv_task = async move {
-            let received =
-                stream::unfold(
-                    receiver,
-                    |r| async move { Some((r.recv().await.unwrap(), r)) },
-                )
-                .take(10)
-                .collect::<Vec<_>>()
-                .await;
-
-            received
+            stream::unfold(
+                receiver,
+                |r| async move { Some((r.recv().await.unwrap(), r)) },
+            )
+            .take(10)
+            .collect::<Vec<_>>()
+            .await
         };
 
         executor.spawn_on_any(send_task).1.await.unwrap();
@@ -349,10 +346,7 @@ mod tests {
 
         let send_task = async move { sender.send_blocking("Hello, world!").unwrap() };
 
-        let recv_task = async move {
-            let received = receiver.recv().await.unwrap();
-            received
-        };
+        let recv_task = async move { receiver.recv().await.unwrap() };
 
         let (_core, send_handle) = executor.spawn_on_any(send_task);
 

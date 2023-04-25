@@ -116,7 +116,7 @@ impl Renderer {
             let horizontal_fov = horizontal_radians.to_degrees();
             -horizontal_fov
         }
-        let aspect_ratio =
+        let _aspect_ratio =
             base.surface_resolution.width as f32 / base.surface_resolution.height as f32;
         let proj_mat = Mat4::perspective_lh(1.5, 1.25, 0.01, 1000.0) * viewscale;
 

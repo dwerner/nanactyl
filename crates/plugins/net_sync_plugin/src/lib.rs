@@ -572,8 +572,7 @@ mod tests {
         let size = size_of::<Message>();
         assert!(
             size < 16 + 16 + 32 + PAYLOAD_LEN,
-            "Message is too large at {} bytes.",
-            size
+            "Message is too large at {size} bytes."
         );
     }
 
@@ -615,7 +614,7 @@ mod tests {
             assert!(mirrored_queue.contains(&msg.seq));
 
             let ack_bits = p2.recvd_ack_bits(dbg!(p2.remote_seq));
-            println!("n{}: {:#034b}", n, ack_bits);
+            println!("n{n}: {ack_bits:#034b}");
             println!("recv queue {}", p2.recv_queue.len());
         }
 
@@ -628,7 +627,7 @@ mod tests {
 
             // print out the ack_bits we would get at this seqence number
             let ack_bits = p2.recvd_ack_bits(dbg!(n));
-            println!("n{}: {:#034b}", n, ack_bits);
+            println!("n{n}: {ack_bits:#034b}");
         }
 
         // send 10 more messages
@@ -642,7 +641,7 @@ mod tests {
             assert!(mirrored_queue.contains(&msg.seq));
 
             let ack_bits = p2.recvd_ack_bits(dbg!(n));
-            println!("n{}: {:#034b}", n, ack_bits);
+            println!("n{n}: {ack_bits:#034b}");
             println!("recv queue {}", p2.recv_queue.len());
         }
 
@@ -678,7 +677,7 @@ mod tests {
         let expected_ack_bits = expected_ack_bits.view_bits::<bitvec::prelude::Lsb0>();
         for (index, bit) in expected_ack_bits[..p1.send_queue.len()].iter().enumerate() {
             let (_, _, ackd) = p1.send_queue[index];
-            assert_eq!(bit, ackd, "ack bit not matched for index {}", index);
+            assert_eq!(bit, ackd, "ack bit not matched for index {index}");
         }
     }
 

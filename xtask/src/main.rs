@@ -70,7 +70,7 @@ fn set_required_rustflags(flags: &[&'static str]) {
 }
 
 fn dispatch(cmd: Command) -> Result<(), std::io::Error> {
-    println!("xtask : {:?}", cmd);
+    println!("xtask : {cmd:?}");
     match cmd {
         Command::RunServerAndClient => {
             run_server_and_client()?;

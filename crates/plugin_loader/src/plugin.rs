@@ -361,7 +361,7 @@ mod tests {
         let src = format!(
             "{global_scope}\n{module_source}",
             global_scope = global_scope,
-            module_source = module.to_string()
+            module_source = module
         );
 
         src
@@ -370,7 +370,7 @@ mod tests {
     // actually compile the generated source using rustc as a dylib
     fn compile_lib(tempdir: &TempDir, plugin_source: &str) -> PathBuf {
         let mut source_file_path = tempdir.path().to_path_buf();
-        source_file_path.push("test_plugin_source.rs".to_string());
+        source_file_path.push("test_plugin_source.rs");
         let mut dest_file_path = tempdir.path().to_path_buf();
         dest_file_path.push("test_plugin.plugin");
 

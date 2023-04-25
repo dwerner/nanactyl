@@ -2,14 +2,14 @@
 // HACK(eddyb) can't easily see warnings otherwise from `spirv-builder` builds.
 #![deny(warnings)]
 
-use shader_objects::{ShaderConstants, UniformBuffer};
+use shader_objects::{PushConstants, UniformBuffer};
 use spirv_std::glam::{Mat3, Mat4, Vec2, Vec4};
 use spirv_std::spirv;
 
 #[spirv(vertex)]
 pub fn vertex_main(
     #[spirv(uniform, descriptor_set = 0, binding = 1)] ubo: &UniformBuffer,
-    #[spirv(push_constant)] push_constants: &ShaderConstants,
+    #[spirv(push_constant)] push_constants: &PushConstants,
     pos: Vec4,
     uv: Vec2,
     normal: Vec4,

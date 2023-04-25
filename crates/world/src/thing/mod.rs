@@ -146,7 +146,7 @@ pub struct PhysicalFacet {
 }
 
 impl PhysicalFacet {
-    pub fn new(x: f32, y: f32, z: f32, scale: f32, _TODO_mesh: &models::Mesh) -> Self {
+    pub fn new(x: f32, y: f32, z: f32, scale: f32, _TODO_bounding_mesh: &models::Mesh) -> Self {
         Self {
             position: Vec3::new(x, y, z),
             angles: Vec3::ZERO,

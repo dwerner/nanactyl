@@ -3,13 +3,14 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use image::GenericImageView;
-// TODO: still need to refactor nom-obj to take BufReader, among other things
 use obj_parser::model::{Interleaved, Mtl, MtlError, Obj, ObjError};
 
 #[derive(Debug, Clone)]
 pub struct Material {
     pub path: PathBuf,
-    pub diffuse_map: Image,
+    pub diffuse_map: Option<Image>,
+    pub specular_map: Option<Image>,
+    pub bump_map: Option<Image>,
 }
 
 #[derive(Clone)]
@@ -85,17 +86,18 @@ impl Model {
         material_path.push(mtl_file_path);
 
         let mtl = Mtl::load(&material_path).map_err(LoadError::Mtl)?;
-        let diffuse_map_stem = mtl.diffuse_map_filename.ok_or(LoadError::NoDiffuseMap)?;
-        let mut diffuse_map_path = base_path;
-        diffuse_map_path.push(diffuse_map_stem);
-        let diffuse_map_data =
-            image::open(&diffuse_map_path).map_err(|err| LoadError::UnableToLoadImage {
-                err,
-                path: diffuse_map_path.clone(),
-            })?;
-        let diffuse_map = Image {
-            path: Path::new(&diffuse_map_path).to_path_buf(),
-            image: diffuse_map_data,
+
+        let diffuse_map = match mtl.diffuse_map_filename {
+            Some(stem) => Some(load_image(&stem, &base_path)?),
+            None => None,
+        };
+        let specular_map = match mtl.specular_map {
+            Some(stem) => Some(load_image(&stem.specular_map_path, &base_path)?),
+            None => None,
+        };
+        let bump_map = match mtl.bump_map_path {
+            Some(stem) => Some(load_image(&stem, &base_path)?),
+            None => None,
         };
 
         Ok(Model {
@@ -105,11 +107,26 @@ impl Model {
             material: Material {
                 path: material_path,
                 diffuse_map,
+                specular_map,
+                bump_map,
             },
             vertex_shader: vertex_shader.as_ref().to_path_buf(),
             fragment_shader: fragment_shader.as_ref().to_path_buf(),
         })
     }
+}
+
+fn load_image(stem: &str, base_path: &PathBuf) -> Result<Image, LoadError> {
+    let image_path = base_path.join(stem);
+    let image_data = image::open(&image_path).map_err(|err| LoadError::UnableToLoadImage {
+        err,
+        path: image_path.clone(),
+    })?;
+    let diffuse_map = Image {
+        path: Path::new(&image_path).to_path_buf(),
+        image: image_data,
+    };
+    Ok(diffuse_map)
 }
 
 #[derive(Debug, Copy, Clone)]

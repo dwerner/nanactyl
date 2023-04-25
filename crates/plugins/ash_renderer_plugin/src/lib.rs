@@ -21,7 +21,7 @@ use render::types::{
     ShaderStages, Texture, VertexInputAssembly, VulkanError,
 };
 use render::{Presenter, RenderScene, RenderState, VulkanBase};
-use shader_objects::{ShaderConstants, UniformBuffer};
+use shader_objects::{PushConstants, UniformBuffer};
 use world::thing::{ModelIndex, EULER_ROT_ORDER};
 
 impl Renderer {
@@ -174,7 +174,7 @@ impl Renderer {
 
                 let model_mat = scale * translation * rot;
 
-                let push_constants = ShaderConstants { model_mat };
+                let push_constants = PushConstants { model_mat };
                 let push_constant_bytes = bytemuck::bytes_of(&push_constants);
 
                 let (model, _) = base.tracked_models.get(&drawable.model).unwrap();
@@ -289,12 +289,16 @@ impl Renderer {
                 )?
             };
 
-            let sampler = bw.create_sampler()?;
             let desc_set_layout =
                 bw.create_descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?;
 
             let descriptor_sets =
                 bw.allocate_descriptor_sets(self.descriptor_pool, &[desc_set_layout])?;
+
+            // TODO compose a struct for containing samplers and related images
+            let diffuse_sampler = bw.create_sampler()?;
+            let specular_sampler = bw.create_sampler()?;
+            let bump_sampler = bw.create_sampler()?;
 
             let descriptor_set = descriptor_sets[0];
 
@@ -302,9 +306,14 @@ impl Renderer {
                 &bw.0.device,
                 descriptor_set,
                 &uniform_buffer,
-                model.texture.image_view,
-                sampler,
+                model.diffuse_map.as_ref().map(|x| x.image_view),
+                model.specular_map.as_ref().map(|x| x.image_view),
+                model.bump_map.as_ref().map(|x| x.image_view),
+                diffuse_sampler,
+                specular_sampler,
+                bump_sampler,
             );
+
             let mut vertex_spv_file = BufReader::new(
                 File::open(&model.shaders.vertex_shader).map_err(VulkanError::ShaderRead)?,
             );
@@ -353,7 +362,7 @@ impl Renderer {
             let w = DeviceWrap(&bw.0.device);
 
             let pipeline_layout = w.pipeline_layout(
-                std::mem::size_of::<ShaderConstants>() as u32,
+                std::mem::size_of::<PushConstants>() as u32,
                 &[desc_set_layout],
             )?;
 
@@ -363,7 +372,9 @@ impl Renderer {
                     desc_set_layout,
                     uniform_buffer,
                     descriptor_set,
-                    sampler,
+                    diffuse_sampler,
+                    specular_sampler,
+                    bump_sampler,
                     pipeline_layout,
                     bw.viewports(),
                     bw.scissors(),
@@ -564,29 +575,54 @@ impl<'a> VulkanBaseWrapper<'a> {
         device: &ash::Device,
         descriptor_set: vk::DescriptorSet,
         uniform_buffer: &BufferAndMemory,
-        tex_image_view: vk::ImageView,
-        sampler: vk::Sampler,
+        diffuse_image_view: Option<vk::ImageView>,
+        specular_image_view: Option<vk::ImageView>,
+        bump_image_view: Option<vk::ImageView>,
+        diffuse_sampler: vk::Sampler,
+        specular_sampler: vk::Sampler,
+        bump_sampler: vk::Sampler,
     ) {
         let uniform_descriptors = [*vk::DescriptorBufferInfo::builder()
             .buffer(uniform_buffer.buffer)
             .range(uniform_buffer.allocation_size)];
 
-        let tex_descriptors = [*vk::DescriptorImageInfo::builder()
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image_view(tex_image_view)
-            .sampler(sampler)];
-        let write_desc_sets = [
-            *vk::WriteDescriptorSet::builder()
-                .dst_set(descriptor_set)
-                .dst_binding(1)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&uniform_descriptors),
-            *vk::WriteDescriptorSet::builder()
-                .dst_set(descriptor_set)
-                .dst_binding(2)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&tex_descriptors),
-        ];
+        let mut write_desc_sets = vec![*vk::WriteDescriptorSet::builder()
+            .dst_set(descriptor_set)
+            .dst_binding(1)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .buffer_info(&uniform_descriptors)];
+
+        let mut tex_descriptors = vec![];
+        if let Some(diffuse) = diffuse_image_view {
+            push_tex_descriptor_create_write(
+                diffuse,
+                diffuse_sampler,
+                descriptor_set,
+                &mut tex_descriptors,
+                &mut write_desc_sets,
+            );
+        }
+
+        if let Some(specular) = specular_image_view {
+            push_tex_descriptor_create_write(
+                specular,
+                specular_sampler,
+                descriptor_set,
+                &mut tex_descriptors,
+                &mut write_desc_sets,
+            );
+        }
+
+        if let Some(bump) = specular_image_view {
+            push_tex_descriptor_create_write(
+                bump,
+                bump_sampler,
+                descriptor_set,
+                &mut tex_descriptors,
+                &mut write_desc_sets,
+            );
+        }
+
         unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
     }
 
@@ -671,6 +707,29 @@ impl<'a> VulkanBaseWrapper<'a> {
         unsafe { self.0.device.create_sampler(&sampler_info, None) }
             .map_err(VulkanError::VkResultToDo)
     }
+}
+
+fn push_tex_descriptor_create_write(
+    image: vk::ImageView,
+    sampler: vk::Sampler,
+    descriptor_set: vk::DescriptorSet,
+    tex_descriptors: &mut Vec<vk::DescriptorImageInfo>,
+    write_desc_sets: &mut Vec<vk::WriteDescriptorSet>,
+) {
+    tex_descriptors.push(
+        *vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(image)
+            .sampler(sampler),
+    );
+
+    write_desc_sets.push(
+        *vk::WriteDescriptorSet::builder()
+            .dst_set(descriptor_set)
+            .dst_binding(2)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .image_info(&tex_descriptors[(tex_descriptors.len() - 1)..]),
+    );
 }
 
 /// Renderer struct owning the descriptor pool, pipelines and descriptions.
@@ -1177,22 +1236,29 @@ fn upload_models(
 
         w.wait_for_fence(fence).unwrap();
         w.begin_command_buffer(command_buffer).unwrap();
-        let image = &model.material.diffuse_map;
-        let (image_extent, src_image) = w
-            .copy_image_to_transfer_src_buffer(image, device_memory_properties)
-            .unwrap();
 
-        println!(
-            "image dimensions {}x{}",
-            image_extent.width, image_extent.height
+        let diffuse_map = maybe_cmd_upload_image(
+            &w,
+            model.material.diffuse_map.as_ref(),
+            device_memory_properties,
+            command_buffer,
+            &mut src_images,
+        );
+        let specular_map = maybe_cmd_upload_image(
+            &w,
+            model.material.specular_map.as_ref(),
+            device_memory_properties,
+            command_buffer,
+            &mut src_images,
+        );
+        let bump_map = maybe_cmd_upload_image(
+            &w,
+            model.material.bump_map.as_ref(),
+            device_memory_properties,
+            command_buffer,
+            &mut src_images,
         );
 
-        let dest_texture = w
-            .allocate_texture_dest_buffer(device_memory_properties, image_extent)
-            .unwrap();
-        w.cmd_pipeline_barrier_start(dest_texture.image, command_buffer);
-        w.cmd_copy_buffer_to_image(&src_image, image_extent, &dest_texture, command_buffer);
-        w.cmd_pipeline_barrier_end(dest_texture.image, command_buffer);
         w.end_command_buffer(command_buffer).unwrap();
 
         let submit_infos = [*vk::SubmitInfo::builder().command_buffers(&command_buffers)];
@@ -1214,32 +1280,52 @@ fn upload_models(
             )
             .unwrap();
 
+        let mut desc_set_layout_bindings = vec![ShaderBindingDesc {
+            binding: 1,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            // make the uniform buffer available at both vertex and fragment stages
+            stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+        }];
+        if diffuse_map.is_some() {
+            desc_set_layout_bindings.push(ShaderBindingDesc {
+                binding: 2,
+                descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            });
+        }
+        if specular_map.is_some() {
+            desc_set_layout_bindings.push(ShaderBindingDesc {
+                binding: 3,
+                descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            });
+        }
+        if bump_map.is_some() {
+            desc_set_layout_bindings.push(ShaderBindingDesc {
+                binding: 4,
+                descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            });
+        }
+
         let uploaded_model = GpuModelRef::new(
-            dest_texture,
+            diffuse_map,
+            specular_map,
+            bump_map,
             vertex_buffer,
             index_buffer,
-            // TODO: generate this from model metadata!
+            // TODO: generate this from model/shader metadata
             // hardcoding this for now to move forward with model rendering
             ShaderDesc {
-                desc_set_layout_bindings: vec![
-                    ShaderBindingDesc {
-                        binding: 1,
-                        descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                        descriptor_count: 1,
-                        stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                    },
-                    ShaderBindingDesc {
-                        binding: 2,
-                        descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                        descriptor_count: 1,
-                        stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                    },
-                ],
+                desc_set_layout_bindings,
                 vertex_shader: model.vertex_shader.clone(),
                 fragment_shader: model.fragment_shader.clone(),
             },
         );
-        src_images.push(src_image);
         completed_uploads.push((index, uploaded_model));
     }
     unsafe {
@@ -1253,6 +1339,47 @@ fn upload_models(
         device.destroy_command_pool(pool, None);
     }
     completed_uploads
+}
+
+fn maybe_cmd_upload_image(
+    w: &DeviceWrap,
+    map: Option<&Image>,
+    device_memory_properties: vk::PhysicalDeviceMemoryProperties,
+    command_buffer: vk::CommandBuffer,
+    src_images: &mut Vec<BufferAndMemory>,
+) -> Option<Texture> {
+    if let Some(image) = map {
+        let (diffuse_map_buffer, dest_texture) =
+            record_upload_image(w, image, device_memory_properties, command_buffer);
+        src_images.push(diffuse_map_buffer);
+        Some(dest_texture)
+    } else {
+        None
+    }
+}
+
+fn record_upload_image(
+    w: &DeviceWrap,
+    image: &Image,
+    device_memory_properties: vk::PhysicalDeviceMemoryProperties,
+    command_buffer: vk::CommandBuffer,
+) -> (BufferAndMemory, Texture) {
+    let (image_extent, src_image) = w
+        .copy_image_to_transfer_src_buffer(image, device_memory_properties)
+        .unwrap();
+
+    println!(
+        "image dimensions {}x{}",
+        image_extent.width, image_extent.height
+    );
+
+    let dest_texture = w
+        .allocate_texture_dest_buffer(device_memory_properties, image_extent)
+        .unwrap();
+    w.cmd_pipeline_barrier_start(dest_texture.image, command_buffer);
+    w.cmd_copy_buffer_to_image(&src_image, image_extent, &dest_texture, command_buffer);
+    w.cmd_pipeline_barrier_end(dest_texture.image, command_buffer);
+    (src_image, dest_texture)
 }
 
 #[no_mangle]

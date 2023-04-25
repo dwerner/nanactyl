@@ -98,18 +98,19 @@ impl Mtl {
             }
         }
 
-        let specular_map = None;
-        // match (specular_map_path, specular_color, specular_exponent) {
-        //     (Some(path), Some(color), Some(exp)) => Some(SpecularMap::new(path,
-        // color, exp)),     (None, None, None) => None,
-        //     (path, color, exponent) => {
-        //         return Err(MtlError::NotAllSpecularComponentsProvided {
-        //             path,
-        //             color,
-        //             exponent,
-        //         })
-        //     }
-        // };
+        let specular_map = match (specular_map_path, specular_color, specular_exponent) {
+            (Some(path), Some(color), Some(exp)) => Some(SpecularMap::new(path, color, exp)),
+            (None, None, None) => None,
+            (path, color, exponent) => {
+                let err = MtlError::NotAllSpecularComponentsProvided {
+                    path,
+                    color,
+                    exponent,
+                };
+                println!("err: {err:?}");
+                None
+            }
+        };
 
         Ok(Mtl {
             diffuse_map_filename,

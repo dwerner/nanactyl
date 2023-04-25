@@ -12,6 +12,19 @@ pub struct UniformBuffer {
 
 pub const MAX_LIGHTS: usize = 2;
 
+#[derive(Copy, Clone, Pod, Zeroable)]
+#[repr(C)]
+pub struct Light {
+    pub color: Vec4,
+    pub pos: Vec4,
+}
+
+#[derive(Copy, Clone, Pod, Zeroable)]
+#[repr(C)]
+pub struct PushConstants {
+    pub model_mat: Mat4,
+}
+
 impl UniformBuffer {
     pub fn new() -> Self {
         Self::with_proj(Mat4::IDENTITY)
@@ -31,17 +44,4 @@ impl UniformBuffer {
             ],
         }
     }
-}
-
-#[derive(Copy, Clone, Pod, Zeroable)]
-#[repr(C)]
-pub struct Light {
-    pub color: Vec4,
-    pub pos: Vec4,
-}
-
-#[derive(Copy, Clone, Pod, Zeroable)]
-#[repr(C)]
-pub struct ShaderConstants {
-    pub model_mat: Mat4,
 }

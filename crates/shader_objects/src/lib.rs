@@ -19,7 +19,7 @@ impl UniformBuffer {
             proj,
             light: Light {
                 color: Vec4::new(1.0, 1.0, 1.0, 1.0),
-                pos: Vec4::new(0.0, 0.0, 0.0, 1.0),
+                pos: Vec4::new(0.0, 10.0, 0.0, 1.0),
             },
         }
     }

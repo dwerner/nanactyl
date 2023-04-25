@@ -116,9 +116,11 @@ impl Renderer {
             let horizontal_fov = horizontal_radians.to_degrees();
             -horizontal_fov
         }
-        let _aspect_ratio =
+        let aspect_ratio =
             base.surface_resolution.width as f32 / base.surface_resolution.height as f32;
-        let proj_mat = Mat4::perspective_lh(1.5, 1.25, 0.01, 1000.0) * viewscale;
+        let proj_mat =
+            Mat4::perspective_lh(calculate_fov(aspect_ratio), aspect_ratio, 0.01, 1000.0)
+                * viewscale;
 
         for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
             // TODO: unified struct for models & pipelines
@@ -1224,7 +1226,7 @@ fn upload_models(
                         binding: 1,
                         descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
                         descriptor_count: 1,
-                        stage_flags: vk::ShaderStageFlags::VERTEX,
+                        stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                     },
                     ShaderBindingDesc {
                         binding: 2,

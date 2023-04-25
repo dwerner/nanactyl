@@ -2,14 +2,14 @@
 // HACK(eddyb) can't easily see warnings otherwise from `spirv-builder` builds.
 #![deny(warnings)]
 
-mod hide;
+mod sampler;
 
 use spirv_std::glam::{Vec2, Vec4};
 use spirv_std::spirv;
 
 #[spirv(fragment)]
 pub fn fragment_main(
-    #[spirv(descriptor_set = 0, binding = 2)] sampler: &hide::Sampler2d,
+    #[spirv(descriptor_set = 0, binding = 2)] sampler: &sampler::Sampler2d,
     _normal: Vec4,
     uv: Vec2,
     frag_color: &mut Vec4,

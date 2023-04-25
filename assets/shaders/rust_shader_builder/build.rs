@@ -14,7 +14,7 @@ fn main() {
     //     spirv-unknown-vulkan1.1spv1.4
     //     spirv-unknown-vulkan1.2
     println!("cargo:rerun-if-changed=./rust_shader_builder");
-    for shader in ["vertex_rustgpu", "fragment_rustgpu"].iter() {
+    for shader in ["vertex_rustgpu", "fragment_rustgpu", "fragment_nolighting"].iter() {
         println!("cargo:rerun-if-changed=./{}", shader);
         let module_path = SpirvBuilder::new(
             format!("{}/../{}", env!("CARGO_MANIFEST_DIR"), shader),

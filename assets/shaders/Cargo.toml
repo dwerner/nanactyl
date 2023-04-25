@@ -3,6 +3,7 @@ members = [
     "rust_shader_builder",
     "vertex_rustgpu",
     "fragment_rustgpu",
+    "fragment_nolighting",
 ]
 # Compile build-dependencies in release mode with
 # the same settings as regular dependencies.

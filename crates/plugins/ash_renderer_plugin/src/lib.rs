@@ -679,6 +679,8 @@ pub struct Renderer {
 }
 
 /// Newtype over `ash::Device` allowing our own methods to be implemented.
+/// TODO: decide on what parts of this API should be implemented in the plugin
+/// vs in the rendering module
 pub struct DeviceWrap<'a>(&'a ash::Device);
 
 impl<'a> DeviceWrap<'a> {
@@ -786,7 +788,8 @@ impl<'a> DeviceWrap<'a> {
     }
 
     /// Allocate a buffer with usage flags, initialize with data.
-    /// TODO: internalize
+    /// TODO:
+    ///     - HOST_COHERENT + HOST_VISIBLE
     pub fn allocate_and_init_buffer<T>(
         &self,
         usage: vk::BufferUsageFlags,

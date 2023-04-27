@@ -158,13 +158,37 @@ async fn pump_connection_as_client(
     controllers: &[InputState],
 ) -> Result<(), PluginError> {
     let logger = s.logger.sub("pump_connection_as_client");
-    let data = s
-        .connection
-        .as_mut()
-        .unwrap()
-        .recv_with_timeout(Duration::from_millis(1))
-        .await
-        .map_err(WorldError::Network)?;
+    let mut last_pkt = None;
+
+    // read until we timeout with 0ms, because we want to know only the very latest
+    // packet
+    let data = 'recv: loop {
+        match s
+            .connection
+            .as_mut()
+            .unwrap()
+            .recv_with_timeout(Duration::from_millis(0))
+            .await
+        {
+            Ok(pkt) => {
+                last_pkt = Some(pkt);
+            }
+            Err(network::RpcError::Receive(err)) => {
+                if err.kind() == std::io::ErrorKind::TimedOut {
+                    if let Some(last_pkt) = last_pkt {
+                        break 'recv last_pkt;
+                    }
+                } else {
+                    return Err(PluginError::World(WorldError::Network(
+                        network::RpcError::Receive(err),
+                    )));
+                }
+            }
+            Err(other) => {
+                return Err(PluginError::World(WorldError::Network(other)));
+            }
+        }
+    };
 
     let decompressed_updates = wire::decompress_world_updates(
         &data.try_ref().map_err(WorldError::UpdateFromBytes)?.payload,

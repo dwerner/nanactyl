@@ -9,8 +9,10 @@ use spirv_std::spirv;
 
 #[spirv(fragment)]
 pub fn fragment_main(
-    #[spirv(descriptor_set = 0, binding = 2)] sampler: &sampler::Sampler2d,
-    _normal: Vec4,
+    #[spirv(frag_coord)] _in_frag_coord: Vec4,
+    #[spirv(uniform, descriptor_set = 0, binding = 1)] _ubo: &UniformBuffer,
+    #[spirv(descriptor_set = 0, binding = 2)] _sampler: &sampler::Sampler2d,
+    normal: Vec4,
     uv: Vec2,
     frag_color: &mut Vec4,
 ) {

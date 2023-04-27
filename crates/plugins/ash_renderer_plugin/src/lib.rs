@@ -464,7 +464,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         // sets.
         //? TODO: any pool can be a thread local, but then any object must be destroyed
         //? on that thread.
-        let descriptor_pool = self.descriptor_pool(10, 4, 4)?;
+        let descriptor_pool = self.descriptor_pool(10, 10, 4)?;
         let mut renderer = Renderer {
             descriptor_pool,
             graphics_pipelines: HashMap::new(),
@@ -627,7 +627,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             );
         }
 
-        if let Some(bump) = specular_image_view {
+        if let Some(bump) = bump_image_view {
             push_tex_descriptor_create_write(
                 bump,
                 bump_sampler,
@@ -723,6 +723,9 @@ impl<'a> VulkanBaseWrapper<'a> {
     }
 }
 
+// TODO: clean up how descriptor sets are created
+// for now we just rely on the model and shader to tell us what to do
+// but this index-based approach is not very flexible
 fn push_tex_descriptor_create_write(
     image: vk::ImageView,
     sampler: vk::Sampler,
@@ -740,7 +743,7 @@ fn push_tex_descriptor_create_write(
     write_desc_sets.push(
         *vk::WriteDescriptorSet::builder()
             .dst_set(descriptor_set)
-            .dst_binding(2)
+            .dst_binding((1 + tex_descriptors.len()) as u32)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .image_info(&tex_descriptors[(tex_descriptors.len() - 1)..]),
     );

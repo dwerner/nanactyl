@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use async_lock::{Mutex, MutexGuardArc};
 use input::wire::InputState;
+use logger::{LogLevel, Logger};
 use models::Model;
 use network::{Connection, RpcError};
 use scene::Scene;
@@ -26,6 +27,7 @@ pub use glam::{Mat4, Quat, Vec3};
 pub struct WorldLockAndControllerState {
     pub world: MutexGuardArc<World>,
     pub controller_state: MutexGuardArc<[InputState; 2]>,
+    pub logger: Logger,
 }
 
 impl WorldLockAndControllerState {
@@ -40,6 +42,7 @@ impl WorldLockAndControllerState {
         Self {
             world,
             controller_state,
+            logger: LogLevel::Info.logger(),
         }
     }
 }
@@ -188,6 +191,7 @@ pub struct World {
     pub server_controller_state: Option<InputState>,
 
     pub maybe_server_addr: Option<SocketAddr>,
+    pub logger: Logger,
 }
 
 impl World {
@@ -197,7 +201,7 @@ impl World {
     /// waits for a client to connect before continuing.
     ///
     /// FIXME: make this /// independent of any connecting clients.
-    pub fn new(maybe_server_addr: Option<SocketAddr>) -> Self {
+    pub fn new(maybe_server_addr: Option<SocketAddr>, logger: &Logger) -> Self {
         Self {
             maybe_server_addr,
             maybe_camera: None,
@@ -210,6 +214,7 @@ impl World {
             connection: None,
             client_controller_state: None,
             server_controller_state: None,
+            logger: logger.sub("world"),
         }
     }
 

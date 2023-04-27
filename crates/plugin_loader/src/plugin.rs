@@ -6,6 +6,7 @@ use std::{fs, io};
 
 use async_lock::Mutex;
 use libloading::Library;
+use logger::{debug, LogLevel, Logger};
 use tempdir::TempDir;
 
 include!(concat!(env!("OUT_DIR"), "/const_gen.rs"));
@@ -65,6 +66,7 @@ pub enum PluginCheck {
 /// copy the file, along with a version counter to a temporary directory to load
 /// it from.
 pub struct Plugin<T: Send + Sync + 'static> {
+    logger: Logger,
     /// Source filename to watch
     path: PathBuf,
     updates: u64,
@@ -87,13 +89,14 @@ use libloading::os::unix::Symbol as PlatformSymbol;
 use libloading::os::windows::Symbol as PlatformSymbol;
 
 struct LibCache<T> {
-    load: PlatformSymbol<CallFn<T>>,
+    load: PlatformSymbol<LoadFn<T>>,
     update: PlatformSymbol<UpdateFn<T>>,
-    unload: PlatformSymbol<CallFn<T>>,
+    unload: PlatformSymbol<UnloadFn<T>>,
 }
 
 type UpdateFn<T> = unsafe extern "C" fn(&mut T, &Duration);
-type CallFn<T> = unsafe extern "C" fn(&mut T);
+type LoadFn<T> = unsafe extern "C" fn(&mut T);
+type UnloadFn<T> = unsafe extern "C" fn(&mut T);
 
 impl<T> Plugin<T>
 where
@@ -138,6 +141,7 @@ where
         })?;
 
         Ok(Plugin {
+            logger: LogLevel::Info.logger(),
             path,
             tempdir: TempDir::new(&name).map_err(PluginError::TempdirIo)?,
             name: name.to_string(),
@@ -185,13 +189,13 @@ where
             fs::copy(&source, temp_file_path.as_path()).map_err(PluginError::CopyFile)?;
             let lib = unsafe { Library::new(temp_file_path).map_err(PluginError::ErrorOnOpen)? };
             let libcache = unsafe {
-                let load = lib.get::<CallFn<T>>(LOAD_METHOD).map_err(|error| {
+                let load = lib.get::<LoadFn<T>>(LOAD_METHOD).map_err(|error| {
                     PluginError::MethodNotFound {
                         name: "load".to_string(),
                         error,
                     }
                 })?;
-                let unload = lib.get::<CallFn<T>>(UNLOAD_METHOD).map_err(|error| {
+                let unload = lib.get::<UnloadFn<T>>(UNLOAD_METHOD).map_err(|error| {
                     PluginError::MethodNotFound {
                         name: "unload".to_string(),
                         error,
@@ -248,7 +252,8 @@ where
         }
         self.updates += 1;
         self.last_reloaded += 1;
-        log::debug!(
+        debug!(
+            self.logger,
             "Updated {} version {} (updates {}, last_reloaded {})",
             self.name(),
             self.version,
@@ -266,7 +271,12 @@ where
                 (cache.load)(state);
             }
         }
-        log::debug!("Loaded {} version {}", self.name(), self.version);
+        debug!(
+            self.logger,
+            "Loaded {} version {}",
+            self.name(),
+            self.version
+        );
         Ok(())
     }
 
@@ -281,17 +291,25 @@ where
             lib.close().map_err(PluginError::ErrorOnClose)?;
             self.libcache.take();
         }
-        log::debug!("Unloaded {} version {}", self.name(), self.version);
+        debug!(
+            self.logger,
+            "Unloaded {} version {}",
+            self.name(),
+            self.version
+        );
         Ok(())
     }
 
     #[cfg(unix)]
     pub fn check_linux_mappings(&self) {
+        use logger::warn;
+
         let mappings = crate::linux::distinct_plugins_mapped(&self.name);
         if mappings.len() > 1 {
             let mut mappings = mappings.into_iter().collect::<Vec<_>>();
             mappings.sort();
-            log::warn!(
+            warn!(
+                self.logger,
                 "multiple plugins mapped for {name}:\n{mappings:#?}",
                 name = self.name
             );

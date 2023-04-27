@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 input = { path = "../input" }
+logger = { path = "../logger" }
 
 # workspace
 sdl2 = { workspace = true }

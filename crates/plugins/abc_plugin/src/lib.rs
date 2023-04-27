@@ -1,3 +1,4 @@
+use logger::{info, LogLevel};
 use plugin_trait::{impl_plugin, LoadablePlugin};
 
 struct AbcPlugin;
@@ -9,15 +10,15 @@ impl LoadablePlugin for AbcPlugin {
     type State = ();
 
     fn load(_state: &mut Self::State) {
-        println!("{} loaded", Self::NAME);
+        info!(LogLevel::Info.logger(), "{} loaded", Self::NAME);
     }
 
     fn update(_state: &mut Self::State, _delta_time: &std::time::Duration) {
-        println!("{} updated", Self::NAME);
+        info!(LogLevel::Info.logger(), "{} updated", Self::NAME);
     }
 
     fn unload(_state: &mut Self::State) {
-        println!("{} unloaded", Self::NAME);
+        info!(LogLevel::Info.logger(), "{} unloaded", Self::NAME);
     }
 }
 

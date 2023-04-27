@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 plugin_trait = { path = "../../plugin_trait" }
+logger = { path = "../../logger" }
 
 
 [dev-dependencies]

@@ -9,3 +9,4 @@ crate-type = ["cdylib"]
 [dependencies]
 world = { path = "../../world" }
 render = { path = "../../render" }
+logger = { path = "../../logger" }

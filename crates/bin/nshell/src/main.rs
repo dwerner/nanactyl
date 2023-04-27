@@ -1,8 +1,10 @@
 //! Implements a simple shell entrypoint for the engine.
 
+use std::fs::File;
 use std::future::Future;
+use std::io::{BufReader, Read};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -12,13 +14,18 @@ use core_executor::ThreadPoolExecutor;
 use futures_lite::future;
 use input::wire::InputState;
 use input::{DeviceEvent, EngineEvent};
+use logger::{error, info, LogLevel, Logger};
 use plugin_loader::{Plugin, PluginCheck, PluginError};
 use render::{LockWorldAndRenderState, RenderState};
+use serde::Deserialize;
+use structopt::StructOpt;
+use structopt_yaml::StructOptYaml;
 use world::{AssetLoaderState, AssetLoaderStateAndWorldLock, World, WorldLockAndControllerState};
 
 const FRAME_LENGTH_MS: u64 = 16;
 
-#[derive(structopt::StructOpt, Debug)]
+#[derive(StructOpt, Debug, StructOptYaml, Deserialize)]
+#[serde(default)]
 struct CliOpts {
     #[structopt(long, default_value = plugin_loader::RELATIVE_TARGET_DIR)]
     plugin_dir: PathBuf,
@@ -34,32 +41,57 @@ struct CliOpts {
 
     #[structopt(long)]
     connect_to_server: Option<SocketAddr>,
+
+    #[structopt(long, default_value = "15")]
+    check_plugin_interval: u64,
+
+    #[structopt(long, default_value = "info")]
+    log_level: LogLevel,
+}
+
+impl CliOpts {
+    fn load_with_overrides(logger: &Logger) -> CliOpts {
+        let config_file = Path::new("nshell.yaml");
+        let opts = if config_file.exists() {
+            let mut reader = BufReader::new(File::open(config_file).unwrap());
+            let mut yaml_buf = String::new();
+            reader.read_to_string(&mut yaml_buf).unwrap();
+            CliOpts::from_args_with_yaml(&yaml_buf).unwrap()
+        } else {
+            CliOpts::from_args()
+        };
+
+        if opts.backtrace {
+            info!(logger, "Setting RUST_BACKTRACE=1 to enable stack traces.");
+            std::env::set_var("RUST_BACKTRACE", "1");
+            info!(logger, "PWD: {:?}", std::env::current_dir().unwrap());
+        }
+        if let Some(ref cwd) = opts.cwd {
+            std::env::set_current_dir(cwd).expect("unable to set dir");
+            info!(logger, "cwd set to {:?}", std::env::current_dir().unwrap());
+        }
+        opts
+    }
 }
 
 fn main() {
-    let opts: CliOpts = structopt::StructOpt::from_args();
-    if opts.backtrace {
-        println!("Setting RUST_BACKTRACE=1 to enable stack traces.");
-        std::env::set_var("RUST_BACKTRACE", "1");
-        println!("PWD: {:?}", std::env::current_dir().unwrap());
-    }
-    if let Some(cwd) = opts.cwd {
-        std::env::set_current_dir(cwd).expect("unable to set dir");
-        println!("cwd set to {:?}", std::env::current_dir().unwrap());
-    }
-
+    let logger = LogLevel::Info.logger();
     plugin_loader::register_tls_dtor_hook!();
+
+    let opts = CliOpts::load_with_overrides(&logger);
 
     let executor = ThreadPoolExecutor::new(8);
     let mut spawners = executor.spawners();
 
     // FIXME: currently the server-side must be started first, and waits for a
     // client to connect here.
-    let world = world::World::new(opts.connect_to_server);
+    let world = world::World::new(opts.connect_to_server, &logger);
     let world = Arc::new(Mutex::new(world));
 
+    let logger2 = logger.sub("main async task");
     future::block_on(async move {
-        let mut platform_context = platform::PlatformContext::new().unwrap();
+        let logger = logger2;
+        let mut platform_context = platform::PlatformContext::new(&logger).unwrap();
 
         let index = if opts.connect_to_server.is_some() {
             platform_context
@@ -137,33 +169,42 @@ fn main() {
             frame_start = Instant::now();
 
             platform_context.pump_events();
+
             if let Some(EngineEvent::ExitToDesktop) = handle_input_events(
                 platform_context.peek_events(),
                 &mut *own_controllers.lock().await,
+                logger.sub("handle_input_events"),
             ) {
                 break 'frame_loop;
             }
 
             // Essentially, check for updated versions of plugins every 2 seconds
-            if frame % 60 == 0 {
+            if frame % opts.check_plugin_interval == 0 {
                 check_plugin(
                     &mut *asset_loader_plugin.lock().await,
                     &mut AssetLoaderStateAndWorldLock::lock(&world, &asset_loader_state).await,
+                    &logger,
                 );
 
                 check_plugin(
                     &mut *world_render_update_plugin.lock().await,
                     &mut LockWorldAndRenderState::lock(&world, &render_state).await,
+                    &logger,
                 );
 
                 check_plugin(
                     &mut *net_sync_plugin.lock().await,
                     &mut WorldLockAndControllerState::lock(&world, &own_controllers).await,
+                    &logger,
                 );
 
                 let _check_plugins = futures_util::future::join(
-                    spawners[3].spawn(check_plugin_async(&ash_renderer_plugin, &render_state)),
-                    spawners[5].spawn(check_plugin_async(&world_update_plugin, &world)),
+                    spawners[3].spawn(check_plugin_async(
+                        &ash_renderer_plugin,
+                        &render_state,
+                        &logger,
+                    )),
+                    spawners[5].spawn(check_plugin_async(&world_update_plugin, &world, &logger)),
                 )
                 .await;
             }
@@ -245,7 +286,7 @@ fn main() {
             frame += 1;
         }
     });
-    println!("nshell closed");
+    info!(logger, "nshell closed");
 }
 
 fn call_plugin_update_async<T>(
@@ -271,29 +312,28 @@ where
 fn handle_input_events(
     events: &[EngineEvent],
     controllers: &mut [InputState; 2],
+    logger: Logger,
 ) -> Option<EngineEvent> {
     if !events.is_empty() {
         for event in events {
             match event {
-                EngineEvent::Continue => {
-                    //println!("nothing event");
-                }
+                EngineEvent::Continue => {}
                 EngineEvent::InputDevice(DeviceEvent::GameControllerAdded(id)) => {
-                    println!("gamepad {id} added");
+                    info!(logger, "gamepad {id} added");
                     controllers[*id as usize] = InputState::new(*id as u8);
                 }
                 EngineEvent::InputDevice(DeviceEvent::GameControllerRemoved(id)) => {
-                    println!("gamepad {id} removed");
+                    info!(logger, "gamepad {id} removed");
                     controllers[*id as usize] = Default::default();
                 }
                 EngineEvent::InputDevice(input_device_event) => {
-                    println!("input device event {input_device_event:?}");
+                    info!(logger, "input device event {input_device_event:?}");
                 }
                 EngineEvent::Input(input_event) => {
                     controllers[0].update_from_event(input_event);
                 }
                 ret @ EngineEvent::ExitToDesktop => {
-                    println!("Got exit with code {ret:?}");
+                    info!(logger, "Got exit with code {ret:?}");
                     return Some(ret.clone());
                 }
             }
@@ -305,38 +345,43 @@ fn handle_input_events(
 fn check_plugin_async<T>(
     plugin: &Arc<Mutex<Plugin<T>>>,
     state: &Arc<Mutex<T>>,
+    logger: &Logger,
 ) -> Pin<Box<impl Future<Output = ()> + Send + Sync>>
 where
     T: Send + Sync,
 {
+    let logger = logger.sub("check_plugin_async");
     let plugin = Arc::clone(plugin);
     let state = Arc::clone(state);
     Box::pin(async move {
-        check_plugin(&mut *plugin.lock().await, &mut *state.lock().await);
+        check_plugin(&mut *plugin.lock().await, &mut *state.lock().await, &logger);
     })
 }
 
 // Main loop policy for handling plugin errors
-fn check_plugin<T>(plugin: &mut Plugin<T>, state: &mut T)
+fn check_plugin<T>(plugin: &mut Plugin<T>, state: &mut T, logger: &Logger)
 where
     T: Send + Sync,
 {
+    let logger = logger.sub("check_plugin");
     match plugin.check(state) {
-        Ok(PluginCheck::FoundNewVersion) => println!(
-            "{} plugin found new version {}",
+        Ok(PluginCheck::FoundNewVersion) => info!(
+            logger,
+            "found new version ({}) of plugin: {}",
+            plugin.version(),
             plugin.name(),
-            plugin.version()
         ),
         Ok(PluginCheck::Unchanged) => (),
         Err(m @ PluginError::MetadataIo { .. }) => {
-            println!(
+            error!(
+                logger,
                 "error getting file metadata for plugin {}: {:?}",
                 plugin.name(),
                 m
             );
         }
         Err(o @ PluginError::ErrorOnOpen(_)) => {
-            println!("error opening plugin {}: {:?}", plugin.name(), o);
+            error!(logger, "error opening plugin {}: {:?}", plugin.name(), o);
         }
         Err(err) => panic!("unexpected error checking plugin - {err:?}"),
     }

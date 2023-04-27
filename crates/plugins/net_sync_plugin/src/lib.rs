@@ -15,6 +15,7 @@ use bytemuck::PodCastError;
 use futures_lite::FutureExt;
 use histogram::Histogram;
 use input::wire::InputState;
+use logger::{error, info, LogLevel};
 use network::{Connection, Message, RpcError, Typed, MAX_UNACKED_PACKETS, MSG_LEN, PAYLOAD_LEN};
 use wire::{WirePosition, WireThing, WorldUpdate};
 use world::thing::Thing;
@@ -32,7 +33,10 @@ enum PluginError {
 
 #[no_mangle]
 pub extern "C" fn load(state: &mut WorldLockAndControllerState) {
-    println!("re loaded net sync plugin ({})!", state.world.updates);
+    info!(
+        state.logger,
+        "reloaded net sync plugin ({})!", state.world.updates
+    );
     let connection = match state.world.maybe_server_addr {
         Some(addr) => {
             futures_lite::future::block_on(async move {
@@ -46,10 +50,12 @@ pub extern "C" fn load(state: &mut WorldLockAndControllerState) {
             })
         }
         None => {
+            let logger = LogLevel::Info.logger();
             // We will run as a server, accepting new connections.
             futures_lite::future::block_on(async move {
-                println!("binding 12002");
-                let mut client = Peer::bind_only("0.0.0.0:12002").await.unwrap();
+                let addr = "0.0.0.0:12002";
+                info!(logger, "binding addr {addr}");
+                let mut client = Peer::bind_only(addr).await.unwrap();
                 client.recv().await.unwrap();
                 client
             })
@@ -62,18 +68,17 @@ pub extern "C" fn load(state: &mut WorldLockAndControllerState) {
 
 #[no_mangle]
 pub extern "C" fn update(s: &mut WorldLockAndControllerState, _dt: &Duration) {
-    // TODO: fix sized net sync issue (try > NUM_UPDATES_PER_MSG items)
+    let logger = s.logger.sub("net_sync_plugin-update");
+    // TODO: fix sized net sync issue (try > NUM_UPDTES_PER_MSG items)
     if s.world.is_server() && s.world.things.len() >= 96 {
         match futures_lite::future::block_on(pump_connection_as_server(&mut s.world)) {
             Ok(controller_state) => {
-                //println!("got controller state from client
-                // {controller_state:?}");
                 // TODO: support N controllers, or just one per client?
                 s.world.set_client_controller_state(controller_state[0]);
                 let new_server_states = s.controller_state[0];
                 s.world.set_server_controller_state(new_server_states);
             }
-            Err(err) => println!("error pumping server connection {err:?}"),
+            Err(err) => error!(logger, "error pumping server connection {err:?}"),
         }
     } else {
         match futures_lite::future::block_on(pump_connection_as_client(
@@ -83,7 +88,7 @@ pub extern "C" fn update(s: &mut WorldLockAndControllerState, _dt: &Duration) {
             Err(PluginError::World(WorldError::Network(network::RpcError::Receive(kind))))
                 if kind.kind() == std::io::ErrorKind::TimedOut => {}
             Err(err) => {
-                println!("error pumping client connection {err:?}");
+                error!(logger, "error in client connection {err:?}");
             }
             _ => (),
         }
@@ -92,7 +97,10 @@ pub extern "C" fn update(s: &mut WorldLockAndControllerState, _dt: &Duration) {
 
 #[no_mangle]
 pub extern "C" fn unload(state: &mut WorldLockAndControllerState) {
-    println!("unloaded net sync plugin ({})...", state.world.updates);
+    info!(
+        state.logger,
+        "unloaded net sync plugin ({})...", state.world.updates
+    );
     state.world.connection.take();
 }
 
@@ -122,7 +130,7 @@ async fn pump_connection_as_server(s: &mut World) -> Result<[InputState; 2], Plu
         .connection
         .as_mut()
         .unwrap()
-        .recv_with_timeout(Duration::from_millis(0))
+        .recv_with_timeout(Duration::from_millis(1))
         .await
         .map_err(WorldError::Network)?;
 
@@ -132,6 +140,14 @@ async fn pump_connection_as_server(s: &mut World) -> Result<[InputState; 2], Plu
         .payload;
     let len: &u16 = bytemuck::from_bytes(&payload[0..2]);
     let len = *len;
+    if len + 2 > payload.len() as u16 {
+        return Err(PluginError::World(WorldError::Network(
+            network::RpcError::Receive(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("invalid payload length - {}/{}", len, payload.len()),
+            )),
+        )));
+    }
     let cast: &[InputState; 2] = bytemuck::try_from_bytes(&payload[2..2 + len as usize])
         .map_err(|err| PluginError::FromBytes(err, payload.len()))?;
     Ok(*cast)
@@ -141,11 +157,12 @@ async fn pump_connection_as_client(
     s: &mut World,
     controllers: &[InputState],
 ) -> Result<(), PluginError> {
+    let logger = s.logger.sub("pump_connection_as_client");
     let data = s
         .connection
         .as_mut()
         .unwrap()
-        .recv_with_timeout(Duration::from_millis(0))
+        .recv_with_timeout(Duration::from_millis(1))
         .await
         .map_err(WorldError::Network)?;
 
@@ -163,14 +180,14 @@ async fn pump_connection_as_client(
         let thing: Thing = thing.into();
         match s.things.get_mut(id as usize) {
             Some(t) => *t = thing,
-            None => println!("thing not found at index {id}"),
+            None => error!(logger, "thing not found at index {id}"),
         };
         match s.facets.physical.get_mut(id as usize) {
             Some(phys) => {
                 phys.position = Vec3::new(position.0, position.1, position.2);
                 phys.angles.y = y_rotation;
             }
-            None => println!("no physical facet at index {}", position.0),
+            None => error!(logger, "no physical facet at index {}", position.0),
         }
     }
 
@@ -299,6 +316,7 @@ pub mod wire {
     #[cfg(test)]
     mod tests {
 
+        use logger::debug;
         use world::thing::{ModelIndex, PhysicalIndex};
 
         use super::*;
@@ -322,7 +340,11 @@ pub mod wire {
                 .collect::<Vec<_>>();
 
             let compressed_bytes = compress_world_updates(&values).unwrap();
-            println!("compressed_bytes {}", compressed_bytes.len());
+            debug!(
+                LogLevel::Info.logger(),
+                "compressed_bytes {}",
+                compressed_bytes.len()
+            );
             let decompressed = decompress_world_updates(&compressed_bytes).unwrap();
             assert_eq!(values.len(), decompressed.len());
         }

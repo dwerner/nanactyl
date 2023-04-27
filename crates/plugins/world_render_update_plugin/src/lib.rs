@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use logger::info;
 use render::{
     LockWorldAndRenderState, RenderScene, SceneError, SceneModelInstance, SceneQueryError,
 };
@@ -11,7 +12,8 @@ use world::Vec3;
 
 #[no_mangle]
 pub extern "C" fn load(state: &mut LockWorldAndRenderState) {
-    println!(
+    info!(
+        state.world().logger,
         "loaded world render update plugin ({})",
         state.world().updates
     );
@@ -28,7 +30,8 @@ pub extern "C" fn update(state: &mut LockWorldAndRenderState, _dt: &Duration) {
 
 #[no_mangle]
 pub extern "C" fn unload(state: &mut LockWorldAndRenderState) {
-    println!(
+    info!(
+        state.world().logger,
         "unloaded world render update plugin ({})",
         state.world().updates
     );

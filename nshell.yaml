@@ -1,0 +1,7 @@
+check_plugins_interval: 15
+backtrace: true
+enable_validation_layer: true
+log_level: debug
+# plugin_dir: PathBuf
+# cwd: Option<PathBuf>,
+# connect_to_server: Option<SocketAddr>,

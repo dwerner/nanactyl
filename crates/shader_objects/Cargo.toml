@@ -8,5 +8,4 @@ edition = "2021"
 [dependencies]
 # explicitly need to *not* use the std features of bytemuck
 bytemuck = { version = "1.13.1", default-features = false,  features = ["derive"] }
-num-traits = { workspace = true }
 glam = { workspace = true }

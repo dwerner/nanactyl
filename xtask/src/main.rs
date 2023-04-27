@@ -93,7 +93,6 @@ fn dispatch(cmd: Command) -> Result<(), std::io::Error> {
             Ok(())
         }
         Command::BuildAll => {
-            fmt_and_lint()?;
             build_plugins()?;
             Ok(())
         }
@@ -153,8 +152,9 @@ fn build_shaders() -> Result<(), std::io::Error> {
 
     let output = cmd!("cargo", "build").run()?;
     println!(
-        "Shaders compiled to spirv. {}",
-        String::from_utf8_lossy(&output.stdout)
+        "Shaders compiled to spirv. {} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
     std::env::set_current_dir(project_root_dir)?;
     Ok(())

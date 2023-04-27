@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 input = { path = "../../input" }
 world = { path = "../../world" }
 network = { path = "../../network" }
+logger = { path = "../../logger" }
 
 # workspace
 async-io = { workspace = true }
@@ -17,8 +18,8 @@ async-net = { workspace = true }
 async-trait = { workspace = true }
 bitvec = { workspace = true }
 bytemuck = { workspace = true }
-histogram = { workspace = true }
 futures-lite = { workspace = true }
+histogram = { workspace = true }
 thiserror = { workspace = true }
 zstd  = { workspace = true }
 

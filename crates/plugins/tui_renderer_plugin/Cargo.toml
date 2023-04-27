@@ -8,3 +8,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 render = { path = "../../render" }
+logger = { path = "../../logger" }

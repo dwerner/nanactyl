@@ -5,7 +5,6 @@
 //! As parts of this are solidified, they can be moved into the crates/render
 //! crate, and only expose the plugin for truly dynamic things that are
 //! desireable to change at runtime.
-
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::BufReader;
@@ -15,6 +14,7 @@ use std::time::Duration;
 use ash::util::Align;
 use ash::vk;
 use glam::{Mat4, Vec3};
+use logger::{debug, info, Logger};
 use models::{Image, Vertex};
 use render::types::{
     BufferAndMemory, GpuModelRef, PipelineDesc, ShaderBindingDesc, ShaderDesc, ShaderStage,
@@ -44,12 +44,15 @@ impl Renderer {
         } {
             Ok((index, _suboptimal @ false)) => index,
             Ok((_index, _suboptimal @ true)) => {
-                println!("will recreate swapchain");
+                debug!(
+                    self.logger.sub("present_with_base"),
+                    "will recreate swapchain"
+                );
                 base.flag_recreate_swapchain = true;
                 return Ok(());
             }
             Err(vk::Result::TIMEOUT) => {
-                //println!("timeout during acquire next swapchain image");
+                debug!(self.logger, "timeout during acquire_next_image");
                 return Ok(());
             }
             Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
@@ -76,11 +79,11 @@ impl Renderer {
         ];
 
         let (scissors, viewports) = {
-            let bw = VulkanBaseWrapper::new(base);
+            let bw = VulkanBaseWrapper::new(base, &self.logger.sub("scissors+viewports"));
             (bw.scissors(), bw.viewports())
         };
 
-        let w = DeviceWrap(&base.device);
+        let w = DeviceWrapper::wrap(&base.device, &self.logger);
 
         w.wait_for_fence(base.draw_commands_reuse_fence)?;
         w.reset_fence(base.draw_commands_reuse_fence)?;
@@ -251,8 +254,13 @@ impl Renderer {
         &mut self,
         base: &mut VulkanBase,
     ) -> Result<(), VulkanError> {
+        let logger = self.logger.sub("rebuild_pipelines_with_base");
         if !self.graphics_pipelines.is_empty() {
-            println!("destroying {} pipelines", self.graphics_pipelines.len());
+            info!(
+                logger,
+                "destroying {} pipelines",
+                self.graphics_pipelines.len()
+            );
             unsafe {
                 base.device
                     .device_wait_idle()
@@ -267,7 +275,7 @@ impl Renderer {
             }
         }
 
-        let mut bw = VulkanBaseWrapper::new(base);
+        let mut bw = VulkanBaseWrapper::new(base, &logger);
 
         // TODO: shaders that apply only to certain models need different descriptor
         // sets.
@@ -276,15 +284,15 @@ impl Renderer {
         let mut pipeline_descriptions = HashMap::new();
 
         // For now we are creating a pipeline per model.
-        for (model_index, (model, _uploaded_instant)) in bw.0.tracked_models.iter() {
-            println!("creating descriptor set for model {model_index:?}");
+        for (model_index, (model, _uploaded_instant)) in bw.base.tracked_models.iter() {
+            debug!(logger, "creating descriptor set for model {model_index:?}");
             let uniform_buffer = {
                 let uniform_buffer = UniformBuffer::new();
                 let uniform_bytes = bytemuck::bytes_of(&uniform_buffer);
-                let device = DeviceWrap(&bw.0.device);
+                let device = DeviceWrapper::wrap(&bw.base.device, &logger);
                 device.allocate_and_init_buffer(
                     vk::BufferUsageFlags::UNIFORM_BUFFER,
-                    bw.0.device_memory_properties,
+                    bw.base.device_memory_properties,
                     uniform_bytes,
                 )?
             };
@@ -303,7 +311,7 @@ impl Renderer {
             let descriptor_set = descriptor_sets[0];
 
             VulkanBaseWrapper::update_descriptor_set(
-                &bw.0.device,
+                &bw.base.device,
                 descriptor_set,
                 &uniform_buffer,
                 model.diffuse_map.as_ref().map(|x| x.image_view),
@@ -323,14 +331,14 @@ impl Renderer {
 
             let mut shader_stages = ShaderStages::new();
             shader_stages.add_shader(
-                &bw.0.device,
+                &bw.base.device,
                 &mut vertex_spv_file,
                 "vertex_main",
                 vk::ShaderStageFlags::VERTEX,
                 vk::PipelineShaderStageCreateFlags::empty(),
             )?;
             shader_stages.add_shader(
-                &bw.0.device,
+                &bw.base.device,
                 &mut frag_spv_file,
                 "fragment_main",
                 vk::ShaderStageFlags::FRAGMENT,
@@ -359,7 +367,7 @@ impl Renderer {
                 offset_of!(Vertex, normal) as u32,
             );
 
-            let w = DeviceWrap(&bw.0.device);
+            let w = DeviceWrapper::wrap(&bw.base.device, &logger);
 
             let pipeline_layout = w.pipeline_layout(
                 std::mem::size_of::<PushConstants>() as u32,
@@ -385,9 +393,9 @@ impl Renderer {
         }
 
         let graphics_pipelines =
-            bw.create_graphics_pipelines(&pipeline_descriptions, bw.0.render_pass)?;
+            bw.create_graphics_pipelines(&pipeline_descriptions, bw.base.render_pass)?;
 
-        println!("rebuilt {} pipelines", graphics_pipelines.len());
+        debug!(logger, "rebuilt {} pipelines", graphics_pipelines.len());
         self.graphics_pipelines = graphics_pipelines;
         self.pipeline_descriptions = pipeline_descriptions;
 
@@ -439,14 +447,19 @@ macro_rules! offset_of {
     }};
 }
 
-pub struct VulkanBaseWrapper<'a>(&'a mut VulkanBase);
+pub struct VulkanBaseWrapper<'a> {
+    base: &'a mut VulkanBase,
+    logger: Logger,
+}
 
 impl<'a> VulkanBaseWrapper<'a> {
-    pub fn new(base: &'a mut VulkanBase) -> Self {
-        Self(base)
+    pub fn new(base: &'a mut VulkanBase, logger: &Logger) -> Self {
+        let logger = logger.sub("vulkan_base_wrapper");
+        Self { base, logger }
     }
 
     pub fn renderer(&mut self) -> Result<Renderer, VulkanError> {
+        let logger = self.logger.sub("renderer");
         // TODO: shaders that apply only to certain models need different descriptor
         // sets.
         //? TODO: any pool can be a thread local, but then any object must be destroyed
@@ -456,21 +469,22 @@ impl<'a> VulkanBaseWrapper<'a> {
             descriptor_pool,
             graphics_pipelines: HashMap::new(),
             pipeline_descriptions: HashMap::new(),
+            logger,
         };
-        renderer.rebuild_pipelines_with_base(self.0)?;
+        renderer.rebuild_pipelines_with_base(self.base)?;
         Ok(renderer)
     }
 
     pub fn scissors(&self) -> Vec<vk::Rect2D> {
-        vec![self.0.surface_resolution.into()]
+        vec![self.base.surface_resolution.into()]
     }
 
     pub fn viewports(&self) -> Vec<vk::Viewport> {
         vec![vk::Viewport {
             x: 0.0,
             y: 0.0,
-            width: self.0.surface_resolution.width as f32,
-            height: self.0.surface_resolution.height as f32,
+            width: self.base.surface_resolution.width as f32,
+            height: self.base.surface_resolution.height as f32,
             min_depth: 0.0,
             max_depth: 1.0,
         }]
@@ -556,7 +570,7 @@ impl<'a> VulkanBaseWrapper<'a> {
                 .render_pass(render_pass);
 
             let pipeline = unsafe {
-                self.0.device.create_graphics_pipelines(
+                self.base.device.create_graphics_pipelines(
                     vk::PipelineCache::null(),
                     &[*graphics_pipeline_info],
                     None,
@@ -635,7 +649,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         let desc_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(pool)
             .set_layouts(layouts);
-        unsafe { self.0.device.allocate_descriptor_sets(&desc_alloc_info) }
+        unsafe { self.base.device.allocate_descriptor_sets(&desc_alloc_info) }
             .map_err(VulkanError::VkResultToDo)
     }
 
@@ -652,7 +666,7 @@ impl<'a> VulkanBaseWrapper<'a> {
 
         let descriptor_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         let layout = unsafe {
-            self.0
+            self.base
                 .device
                 .create_descriptor_set_layout(&descriptor_info, None)
         }
@@ -681,7 +695,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             .pool_sizes(&descriptor_sizes)
             .max_sets(max_sets);
         unsafe {
-            self.0
+            self.base
                 .device
                 .create_descriptor_pool(&descriptor_pool_info, None)
         }
@@ -704,7 +718,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             ..Default::default()
         };
 
-        unsafe { self.0.device.create_sampler(&sampler_info, None) }
+        unsafe { self.base.device.create_sampler(&sampler_info, None) }
             .map_err(VulkanError::VkResultToDo)
     }
 }
@@ -737,14 +751,24 @@ pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
     graphics_pipelines: HashMap<ModelIndex, vk::Pipeline>,
     pipeline_descriptions: HashMap<ModelIndex, PipelineDesc>,
+    logger: Logger,
 }
 
 /// Newtype over `ash::Device` allowing our own methods to be implemented.
 /// TODO: decide on what parts of this API should be implemented in the plugin
 /// vs in the rendering module
-pub struct DeviceWrap<'a>(&'a ash::Device);
+pub struct DeviceWrapper<'a> {
+    device: &'a ash::Device,
+    logger: Logger,
+}
 
-impl<'a> DeviceWrap<'a> {
+impl<'a> DeviceWrapper<'a> {
+    pub fn wrap(device: &'a ash::Device, logger: &Logger) -> Self {
+        Self {
+            device,
+            logger: logger.sub("device wrapper"),
+        }
+    }
     /// Create a pipeline layout. Note `push_constants_len` must be len in bytes
     /// and a multiple of 4
     pub fn pipeline_layout(
@@ -761,16 +785,19 @@ impl<'a> DeviceWrap<'a> {
             .set_layouts(desc_set_layouts)
             .push_constant_ranges(&push_constant_ranges);
 
-        unsafe { self.0.create_pipeline_layout(&layout_create_info, None) }
-            .map_err(VulkanError::VkResultToDo)
+        unsafe {
+            self.device
+                .create_pipeline_layout(&layout_create_info, None)
+        }
+        .map_err(VulkanError::VkResultToDo)
     }
 
     fn wait_for_fence(&self, fence: vk::Fence) -> Result<(), VulkanError> {
         unsafe {
-            self.0
+            self.device
                 .wait_for_fences(&[fence], true, u64::MAX)
                 .map_err(VulkanError::Fence)?;
-            self.0
+            self.device
                 .reset_fences(&[fence])
                 .map_err(VulkanError::FenceReset)?;
         }
@@ -794,9 +821,10 @@ impl<'a> DeviceWrap<'a> {
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
         };
-        let texture_image = unsafe { self.0.create_image(&texture_create_info, None) }
+        let texture_image = unsafe { self.device.create_image(&texture_create_info, None) }
             .map_err(VulkanError::VkResultToDo)?;
-        let texture_memory_req = unsafe { self.0.get_image_memory_requirements(texture_image) };
+        let texture_memory_req =
+            unsafe { self.device.get_image_memory_requirements(texture_image) };
         let texture_memory_index = VulkanBase::find_memorytype_index(
             &texture_memory_req,
             &memory_properties,
@@ -810,17 +838,20 @@ impl<'a> DeviceWrap<'a> {
             ..Default::default()
         };
 
-        let texture_memory = unsafe { self.0.allocate_memory(&texture_allocate_info, None) }
+        let texture_memory = unsafe { self.device.allocate_memory(&texture_allocate_info, None) }
             .map_err(VulkanError::VkResultToDo)?;
 
-        unsafe { self.0.bind_image_memory(texture_image, texture_memory, 0) }
-            .map_err(VulkanError::VkResultToDo)?;
+        unsafe {
+            self.device
+                .bind_image_memory(texture_image, texture_memory, 0)
+        }
+        .map_err(VulkanError::VkResultToDo)?;
 
         Texture::create(
             texture_create_info.format,
             texture_image,
             texture_memory,
-            self.0,
+            self.device,
         )
     }
 
@@ -834,7 +865,7 @@ impl<'a> DeviceWrap<'a> {
         T: Copy,
     {
         let ptr = unsafe {
-            self.0.map_memory(
+            self.device.map_memory(
                 buffer.memory,
                 0,
                 buffer.allocation_size,
@@ -844,7 +875,7 @@ impl<'a> DeviceWrap<'a> {
         .map_err(VulkanError::VkResultToDo)?;
         let mut slice = unsafe { Align::new(ptr, align_of::<T>() as u64, buffer.allocation_size) };
         slice.copy_from_slice(data);
-        unsafe { self.0.unmap_memory(buffer.memory) };
+        unsafe { self.device.unmap_memory(buffer.memory) };
         Ok(())
     }
 
@@ -866,7 +897,7 @@ impl<'a> DeviceWrap<'a> {
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
         };
-        let buffer = unsafe { self.0.create_buffer(&buffer_info, None) }
+        let buffer = unsafe { self.device.create_buffer(&buffer_info, None) }
             .map_err(VulkanError::VkResultToDo)?;
         let (allocation_size, memory_type_index) = self.memorytype_index_and_size_for_buffer(
             buffer,
@@ -878,12 +909,15 @@ impl<'a> DeviceWrap<'a> {
             memory_type_index,
             ..Default::default()
         };
-        let buffer_memory = unsafe { self.0.allocate_memory(&allocate_info, None) }
+        let buffer_memory = unsafe { self.device.allocate_memory(&allocate_info, None) }
             .map_err(VulkanError::VkResultToDo)?;
         let mut buffer = BufferAndMemory::new(buffer, buffer_memory, data.len(), allocation_size);
         self.update_buffer(&mut buffer, data)?;
-        unsafe { self.0.bind_buffer_memory(buffer.buffer, buffer.memory, 0) }
-            .map_err(VulkanError::VkResultToDo)?;
+        unsafe {
+            self.device
+                .bind_buffer_memory(buffer.buffer, buffer.memory, 0)
+        }
+        .map_err(VulkanError::VkResultToDo)?;
         Ok(buffer)
     }
 
@@ -894,7 +928,7 @@ impl<'a> DeviceWrap<'a> {
         memory_properties: vk::PhysicalDeviceMemoryProperties,
         flags: vk::MemoryPropertyFlags,
     ) -> Result<(u64, u32), VulkanError> {
-        let buffer_memory_req = unsafe { self.0.get_buffer_memory_requirements(buffer) };
+        let buffer_memory_req = unsafe { self.device.get_buffer_memory_requirements(buffer) };
         Ok((
             buffer_memory_req.size,
             VulkanBase::find_memorytype_index(&buffer_memory_req, &memory_properties, flags)
@@ -906,7 +940,8 @@ impl<'a> DeviceWrap<'a> {
     pub fn create_fence(&self) -> Result<vk::Fence, VulkanError> {
         let fence_create_info =
             vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
-        unsafe { self.0.create_fence(&fence_create_info, None) }.map_err(VulkanError::VkResultToDo)
+        unsafe { self.device.create_fence(&fence_create_info, None) }
+            .map_err(VulkanError::VkResultToDo)
     }
 
     /// Copy buffer to an image.
@@ -926,7 +961,7 @@ impl<'a> DeviceWrap<'a> {
             .image_extent(image_extent.into())];
 
         unsafe {
-            self.0.cmd_copy_buffer_to_image(
+            self.device.cmd_copy_buffer_to_image(
                 command_buffer,
                 src_image.buffer,
                 dest_texture.image,
@@ -943,13 +978,14 @@ impl<'a> DeviceWrap<'a> {
         queue: vk::Queue,
         submits: &[vk::SubmitInfo],
     ) -> Result<(), VulkanError> {
-        unsafe { self.0.queue_submit(queue, submits, fence) }
+        unsafe { self.device.queue_submit(queue, submits, fence) }
             .map_err(VulkanError::SubmitCommandBuffers)
     }
 
     /// End command buffer.
     pub fn end_command_buffer(&self, command_buffer: vk::CommandBuffer) -> Result<(), VulkanError> {
-        unsafe { self.0.end_command_buffer(command_buffer) }.map_err(VulkanError::EndCommandBuffer)
+        unsafe { self.device.end_command_buffer(command_buffer) }
+            .map_err(VulkanError::EndCommandBuffer)
     }
 
     /// Insert a barrier end.
@@ -971,7 +1007,7 @@ impl<'a> DeviceWrap<'a> {
             ..Default::default()
         };
         unsafe {
-            self.0.cmd_pipeline_barrier(
+            self.device.cmd_pipeline_barrier(
                 command_buffer,
                 vk::PipelineStageFlags::TRANSFER,
                 vk::PipelineStageFlags::FRAGMENT_SHADER,
@@ -998,7 +1034,7 @@ impl<'a> DeviceWrap<'a> {
             ..Default::default()
         };
         unsafe {
-            self.0.cmd_pipeline_barrier(
+            self.device.cmd_pipeline_barrier(
                 command_buffer,
                 vk::PipelineStageFlags::BOTTOM_OF_PIPE,
                 vk::PipelineStageFlags::TRANSFER,
@@ -1037,7 +1073,7 @@ impl<'a> DeviceWrap<'a> {
         let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         unsafe {
-            self.0
+            self.device
                 .begin_command_buffer(command_buffer, &command_buffer_begin_info)
         }
         .map_err(VulkanError::BeginCommandBuffer)
@@ -1053,7 +1089,7 @@ impl<'a> DeviceWrap<'a> {
             .command_pool(pool)
             .level(vk::CommandBufferLevel::PRIMARY);
         unsafe {
-            self.0
+            self.device
                 .allocate_command_buffers(&command_buffer_allocate_info)
         }
         .map_err(VulkanError::VkResultToDo)
@@ -1067,13 +1103,13 @@ impl<'a> DeviceWrap<'a> {
         let pool_create_info = vk::CommandPoolCreateInfo::builder()
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
             .queue_family_index(queue_family_index);
-        unsafe { self.0.create_command_pool(&pool_create_info, None) }
+        unsafe { self.device.create_command_pool(&pool_create_info, None) }
             .map_err(VulkanError::VkResultToDo)
     }
 
     /// Resets a fence.
     pub fn reset_fence(&self, fence: vk::Fence) -> Result<(), VulkanError> {
-        unsafe { self.0.reset_fences(&[fence]) }.map_err(VulkanError::FenceReset)
+        unsafe { self.device.reset_fences(&[fence]) }.map_err(VulkanError::FenceReset)
     }
 
     /// Record beginning of render pass.
@@ -1084,7 +1120,7 @@ impl<'a> DeviceWrap<'a> {
         inline: vk::SubpassContents,
     ) {
         unsafe {
-            self.0
+            self.device
                 .cmd_begin_render_pass(draw_command_buffer, render_pass_begin_info, inline);
         }
     }
@@ -1100,7 +1136,7 @@ impl<'a> DeviceWrap<'a> {
         dynamic_offsets: &[u32],
     ) {
         unsafe {
-            self.0.cmd_bind_descriptor_sets(
+            self.device.cmd_bind_descriptor_sets(
                 draw_cmd_buf,
                 graphics,
                 pipeline_layout,
@@ -1119,20 +1155,21 @@ impl<'a> DeviceWrap<'a> {
         graphics_pipelines: vk::Pipeline,
     ) {
         unsafe {
-            self.0.cmd_bind_pipeline(cmd, graphics, graphics_pipelines);
+            self.device
+                .cmd_bind_pipeline(cmd, graphics, graphics_pipelines);
         }
     }
 
     /// Records setting a viewport.
     pub fn cmd_set_viewport(&self, cmd: vk::CommandBuffer, first: u32, viewports: &[vk::Viewport]) {
         unsafe {
-            self.0.cmd_set_viewport(cmd, first, viewports);
+            self.device.cmd_set_viewport(cmd, first, viewports);
         }
     }
 
     /// Records setting scissor.
     pub fn cmd_set_scissor(&self, cmd: vk::CommandBuffer, first: u32, scissors: &[vk::Rect2D]) {
-        unsafe { self.0.cmd_set_scissor(cmd, first, scissors) }
+        unsafe { self.device.cmd_set_scissor(cmd, first, scissors) }
     }
 
     /// Records binding a vertex buffer.
@@ -1144,7 +1181,7 @@ impl<'a> DeviceWrap<'a> {
         offsets: &[vk::DeviceSize],
     ) {
         unsafe {
-            self.0
+            self.device
                 .cmd_bind_vertex_buffers(command_buffer, first_binding, buffers, offsets);
         }
     }
@@ -1158,7 +1195,7 @@ impl<'a> DeviceWrap<'a> {
         index_type: vk::IndexType,
     ) {
         unsafe {
-            self.0
+            self.device
                 .cmd_bind_index_buffer(command_buffer, buffer, offset, index_type);
         }
     }
@@ -1173,7 +1210,7 @@ impl<'a> DeviceWrap<'a> {
         constants: &[u8],
     ) {
         unsafe {
-            self.0
+            self.device
                 .cmd_push_constants(command_buffer, layout, stage_flags, offset, constants)
         }
     }
@@ -1189,7 +1226,7 @@ impl<'a> DeviceWrap<'a> {
         first_instance: u32,
     ) {
         unsafe {
-            self.0.cmd_draw_indexed(
+            self.device.cmd_draw_indexed(
                 command_buffer,
                 index_count,
                 instance_count,
@@ -1203,16 +1240,19 @@ impl<'a> DeviceWrap<'a> {
     /// Records the end of a render pass.
     pub fn cmd_end_render_pass(&self, command_buffer: vk::CommandBuffer) {
         unsafe {
-            self.0.cmd_end_render_pass(command_buffer);
+            self.device.cmd_end_render_pass(command_buffer);
         }
     }
 }
 
 // TODO cleanup pass
+
 fn upload_models(
     state: &mut RenderState,
     mut upload_queue: VecDeque<(ModelIndex, models::Model)>,
 ) -> Vec<(ModelIndex, GpuModelRef)> {
+    let logger = state.logger.sub("upload_models");
+
     if upload_queue.is_empty() {
         return vec![];
     }
@@ -1222,14 +1262,14 @@ fn upload_models(
     let queue = base.present_queue;
     let queue_family_index = base.queue_family_index;
     let device_memory_properties = base.device_memory_properties;
-    let w = DeviceWrap(&device);
+    let w = DeviceWrapper::wrap(&device, &state.logger.sub("upload_models"));
     let pool = w.create_command_pool(queue_family_index).unwrap();
     let fence = w.create_fence().unwrap();
     let mut src_images = Vec::new();
     let mut completed_uploads = Vec::new();
     for (index, model) in upload_queue.drain(..) {
-        println!("loading model at {index:?}");
-        println!("material {:?}", model.material.path);
+        debug!(logger, "loading model at {index:?}");
+        debug!(logger, "material {:?}", model.material.path);
 
         let command_buffers = w.allocate_command_buffers(pool).unwrap();
         let command_buffer = command_buffers[0];
@@ -1342,7 +1382,7 @@ fn upload_models(
 }
 
 fn maybe_cmd_upload_image(
-    w: &DeviceWrap,
+    w: &DeviceWrapper,
     map: Option<&Image>,
     device_memory_properties: vk::PhysicalDeviceMemoryProperties,
     command_buffer: vk::CommandBuffer,
@@ -1359,7 +1399,7 @@ fn maybe_cmd_upload_image(
 }
 
 fn record_upload_image(
-    w: &DeviceWrap,
+    w: &DeviceWrapper,
     image: &Image,
     device_memory_properties: vk::PhysicalDeviceMemoryProperties,
     command_buffer: vk::CommandBuffer,
@@ -1367,12 +1407,6 @@ fn record_upload_image(
     let (image_extent, src_image) = w
         .copy_image_to_transfer_src_buffer(image, device_memory_properties)
         .unwrap();
-
-    println!(
-        "image dimensions {}x{}",
-        image_extent.width, image_extent.height
-    );
-
     let dest_texture = w
         .allocate_texture_dest_buffer(device_memory_properties, image_extent)
         .unwrap();
@@ -1384,18 +1418,22 @@ fn record_upload_image(
 
 #[no_mangle]
 pub extern "C" fn load(state: &mut RenderState) {
-    println!("loaded ash_renderer_plugin...");
+    let logger = state.logger.sub("ash-renderer-load");
+    info!(logger, "loaded ash_renderer_plugin...");
+
     let mut base = VulkanBase::new(state.win_ptr, state.enable_validation_layer)
         .expect("unable to create VulkanBase");
-    println!("initialized vulkan base");
+    info!(logger, "initialized vulkan base");
+
     state.set_presenter(Box::new(
-        VulkanBaseWrapper::new(&mut base)
+        VulkanBaseWrapper::new(&mut base, &logger)
             .renderer()
             .expect("unable to setup renderer"),
     ));
-    println!("set presenter");
+    info!(logger, "set presenter");
+
     state.set_base(base);
-    println!("set base");
+    info!(logger, "set base");
 }
 
 #[no_mangle]
@@ -1403,7 +1441,8 @@ pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
     // Call render, buffers are updated etc
     state.updates += 1;
     if state.updates % 600 == 0 {
-        println!("updates: {} dt: {:?}...", state.updates, dt);
+        let logger = state.logger.sub("ash-renderer-update");
+        info!(logger, "updates: {} dt: {:?}...", state.updates, dt);
     }
 
     if state.updates % 10 == 0 {
@@ -1423,6 +1462,7 @@ pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
 
 #[no_mangle]
 pub extern "C" fn unload(state: &mut RenderState) {
+    let logger = state.logger.sub("ash-renderer-unload");
     state.cleanup_base_and_presenter();
-    println!("unloaded ash_renderer_plugin");
+    info!(logger, "unloaded ash_renderer_plugin");
 }

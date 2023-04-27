@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use logger::info;
 use world::thing::{CameraFacet, ModelFacet, PhysicalFacet, Thing};
 use world::AssetLoaderStateAndWorldLock;
 
@@ -88,7 +89,8 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     //     world.add_thing(arena_thing).unwrap();
     // }
 
-    println!(
+    info!(
+        world.logger,
         "loaded asset loader plugin (updates {}) - models {})",
         world.updates,
         world.facets.model_iter().count()
@@ -101,5 +103,8 @@ pub extern "C" fn update(_state: &mut AssetLoaderStateAndWorldLock, _dt: &Durati
 #[no_mangle]
 pub extern "C" fn unload(state: &mut AssetLoaderStateAndWorldLock) {
     state.world.clear();
-    println!("unloaded asset loader plugin ({})", state.world.updates);
+    info!(
+        state.world.logger,
+        "unloaded asset loader plugin ({})", state.world.updates
+    );
 }

@@ -4,22 +4,29 @@
 
 use std::time::Duration;
 
+use logger::info;
 use render::RenderState;
 
 #[no_mangle]
-pub extern "C" fn load(_state: &mut RenderState) {
-    println!("loaded tui_renderer");
+pub extern "C" fn load(state: &mut RenderState) {
+    info!(state.logger.sub("tui-render-load"), "loaded tui_renderer");
 }
 
 #[no_mangle]
 pub extern "C" fn update(state: &mut RenderState, dt: &Duration) {
     // Call render, buffers are updated etc
     if state.updates % 600 == 0 {
-        println!("tui state: {} dt: {:?}", state.updates, dt);
+        info!(
+            state.logger.sub("tui-render-update"),
+            "tui state: {} dt: {:?}", state.updates, dt
+        );
     }
 }
 
 #[no_mangle]
-pub extern "C" fn unload(_state: &mut RenderState) {
-    println!("unloaded tui_renderer");
+pub extern "C" fn unload(state: &mut RenderState) {
+    info!(
+        state.logger.sub("tui-render-unload"),
+        "unloaded tui_renderer"
+    );
 }

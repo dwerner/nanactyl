@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use input::{Button, DeviceEvent, EngineEvent, InputEvent};
+use logger::{info, Logger};
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 use sdl2::controller::GameController;
 use sdl2::event::Event as SdlEvent;
@@ -44,7 +45,6 @@ unsafe impl Sync for WinPtr {}
 
 unsafe impl HasRawWindowHandle for WinPtr {
     fn raw_window_handle(&self) -> RawWindowHandle {
-        println!("{:?}", self.raw_window_handle);
         self.raw_window_handle
     }
 }
@@ -62,10 +62,12 @@ pub struct PlatformContext {
     outgoing_events: Vec<EngineEvent>,
     game_controllers: HashMap<u32, GameController>,
     haptic_devices: HashMap<u32, Haptic>,
+    logger: Logger,
 }
 
 impl PlatformContext {
-    pub fn new() -> Result<Self, PlatformError> {
+    pub fn new(logger: &Logger) -> Result<Self, PlatformError> {
+        let logger = logger.sub("platform");
         let sdl_context = sdl2::init().map_err(PlatformError::Sdl)?;
         let haptic_subsystem = sdl_context.haptic().map_err(PlatformError::HapticInit)?;
         let game_controller_subsystem = sdl_context
@@ -88,6 +90,7 @@ impl PlatformContext {
             outgoing_events: Vec::with_capacity(50),
             game_controllers: HashMap::new(),
             haptic_devices: HashMap::new(),
+            logger,
         })
     }
 
@@ -122,6 +125,7 @@ impl PlatformContext {
 
     // Pump a maximum of 50 events.
     pub fn pump_events(&mut self) {
+        let logger = self.logger.sub("pump_events");
         self.outgoing_events.clear();
         const MAX_EVENTS: usize = 50;
         let mut event_ctr = 0;
@@ -135,7 +139,7 @@ impl PlatformContext {
             };
             self.outgoing_events.push(e);
             if event_ctr == MAX_EVENTS {
-                println!("max events reached");
+                info!(logger, "max events reached");
                 break 'poll_event;
             }
         }

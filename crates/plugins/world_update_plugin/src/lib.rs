@@ -9,12 +9,16 @@ use std::time::{Duration, Instant};
 use glam::{Mat4, Vec3};
 use input::wire::InputState;
 use input::Button;
+use logger::info;
 use world::thing::EULER_ROT_ORDER;
 use world::{Identity, World, WorldError};
 
 #[no_mangle]
 pub extern "C" fn load(world: &mut World) {
-    println!("loaded world update plugin ({})!", world.updates);
+    info!(
+        world.logger,
+        "loaded world update plugin ({})!", world.updates
+    );
 }
 
 #[no_mangle]
@@ -54,7 +58,10 @@ pub extern "C" fn update(world: &mut World, dt: &Duration) {
 
 #[no_mangle]
 pub extern "C" fn unload(world: &mut World) {
-    println!("unloaded world update plugin ({})", world.updates);
+    info!(
+        world.logger,
+        "unloaded world update plugin ({})", world.updates
+    );
 }
 
 fn move_camera_based_on_controller_state(

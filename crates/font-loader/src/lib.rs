@@ -7,7 +7,7 @@ use std::io;
 use std::path::PathBuf;
 
 use image::{DynamicImage, ImageFormat, Rgba};
-use log::{error, info};
+use logger::{error, info, LogLevel, Logger};
 use rusttype::{point, Font, Scale};
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::Rect;
@@ -20,6 +20,7 @@ const PRINTABLE_ASCII_CHAR_OFFSET: u8 = 0x20;
 /// Render ttf fonts to font sprite aliases.
 pub struct FontRenderer {
     fonts_path: PathBuf,
+    logger: Logger,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -36,7 +37,10 @@ pub enum Error {
 
 impl FontRenderer {
     pub fn new(fonts_path: PathBuf) -> Result<Self, Error> {
-        Ok(Self { fonts_path })
+        Ok(Self {
+            fonts_path,
+            logger: Logger::new(LogLevel::Info),
+        })
     }
 
     /// Render a font to a png file, return the width of the font.
@@ -92,7 +96,10 @@ impl FontRenderer {
 
         // Save the image to a png file
         image.save_with_format(&filename, ImageFormat::Png)?;
-        info!("Generated: {filename} width: {max_width}, height: {glyphs_height}");
+        info!(
+            self.logger,
+            "Generated: {filename} width: {max_width}, height: {glyphs_height}"
+        );
         Ok((max_width, glyphs_height))
     }
 }
@@ -114,11 +121,13 @@ where
         glyph_width: u32,
         glyph_height: u32,
         texture_creator: &'r TextureCreator<WindowContext>,
+        logger: Logger,
     ) -> Result<Self, anyhow::Error> {
         let image_data =
             image::load(io::BufReader::new(File::open(font_path)?), ImageFormat::Png)?.into_rgba8();
 
         info!(
+            logger,
             "image dimensions {}, {}",
             image_data.width(),
             image_data.height()
@@ -146,6 +155,7 @@ where
     /// Print a string to a canvas at the given location.
     pub fn print_string(
         &self,
+        logger: Logger,
         x: i32,
         y: i32,
         canvas: &mut Canvas<Window>,
@@ -156,7 +166,7 @@ where
         for (i, c) in s.as_bytes().iter().enumerate() {
             if *c == 0 || *c <= PRINTABLE_ASCII_CHAR_OFFSET || *c > b'~' {
                 if *c != b' ' {
-                    error!("Tried to print non-printable char code {}", *c);
+                    error!(logger, "Tried to print non-printable char code {}", *c);
                 }
                 continue;
             }

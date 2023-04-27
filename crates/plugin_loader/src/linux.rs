@@ -34,7 +34,7 @@ pub unsafe fn thread_atexit(func: *mut c_void, obj: *mut c_void, dso_symbol: *mu
     if let Some(system_thread_atexit) = *SYSTEM_THREAD_ATEXIT {
         // Just don't register dtors
         // TODO: Consider dbg!(stacktrace) here (optional dependency?)
-        log::warn!("thread local dtor registration is disabled.");
+        println!("thread local dtor registration is disabled.");
         if !ENABLE_DTOR_REGISTRATION_BLOCKING {
             system_thread_atexit(func, obj, dso_symbol);
         }

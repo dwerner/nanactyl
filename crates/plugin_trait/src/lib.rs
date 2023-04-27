@@ -44,7 +44,7 @@ macro_rules! impl_plugin {
     ($self_ty:ty, $assoc_type:ty) => {
         #[no_mangle]
         pub extern "C" fn load(state: &mut $assoc_type) {
-            <$self_ty as LoadablePlugin>::load(state)
+            <$self_ty as LoadablePlugin>::load(state);
         }
 
         #[no_mangle]

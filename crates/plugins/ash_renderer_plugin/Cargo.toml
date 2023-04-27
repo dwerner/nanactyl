@@ -11,6 +11,7 @@ models = { path = "../../models" }
 render = { path = "../../render" }
 world = { path = "../../world" }
 shader_objects = { path = "../../shader_objects" }
+logger = { path = "../../logger" }
 
 # workspace
 ash = { workspace = true }

@@ -16,6 +16,7 @@ use ash::extensions::ext;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry};
 use async_lock::{Mutex, MutexGuardArc};
+use logger::{LogLevel, Logger};
 use platform::WinPtr;
 use types::{Attachments, AttachmentsModifier, GpuModelRef, VulkanError};
 use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalFacet, PhysicalIndex};
@@ -64,6 +65,7 @@ pub struct RenderState {
     pub enable_validation_layer: bool,
     model_upload_queue: VecDeque<(ModelIndex, models::Model)>,
     pub scene: RenderScene,
+    pub logger: Logger,
 }
 
 impl RenderState {
@@ -79,6 +81,7 @@ impl RenderState {
                 drawables: vec![],
             },
             model_upload_queue: Default::default(),
+            logger: LogLevel::Info.logger(),
         }
     }
 

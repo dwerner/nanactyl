@@ -7,6 +7,7 @@ edition = "2021"
 platform = { path = "../platform" }
 world = { path = "../world" }
 models = { path = "../models" }
+logger = { path = "../logger" }
 
 # workspace
 ash = { workspace = true }

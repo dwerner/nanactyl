@@ -38,7 +38,7 @@ macro_rules! client {
 
 macro_rules! server {
     ($($arg:tt)*) => {
-        println!("{}", format!($($arg)*).color(colorful::Color::NavyBlue))
+        println!("{}", format!($($arg)*).color(colorful::Color::Cyan))
      };
 }
 

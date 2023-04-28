@@ -125,7 +125,9 @@ impl Renderer {
             Mat4::perspective_lh(calculate_fov(aspect_ratio), aspect_ratio, 0.01, 1000.0)
                 * viewscale;
 
+        let logger = self.logger.sub("model render");
         for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
+            info!(logger, "render model {:?}", model_index);
             // TODO: unified struct for models & pipelines
             let desc = match self.pipeline_descriptions.get_mut(model_index) {
                 Some(desc) => desc,
@@ -285,7 +287,7 @@ impl Renderer {
 
         // For now we are creating a pipeline per model.
         for (model_index, (model, _uploaded_instant)) in bw.base.tracked_models.iter() {
-            debug!(logger, "creating descriptor set for model {model_index:?}");
+            info!(logger, "creating descriptor set for model {model_index:?}");
             let uniform_buffer = {
                 let uniform_buffer = UniformBuffer::new();
                 let uniform_bytes = bytemuck::bytes_of(&uniform_buffer);
@@ -464,7 +466,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         // sets.
         //? TODO: any pool can be a thread local, but then any object must be destroyed
         //? on that thread.
-        let descriptor_pool = self.descriptor_pool(10, 10, 4)?;
+        let descriptor_pool = self.create_descriptor_pool(4, 1, 1)?;
         let mut renderer = Renderer {
             descriptor_pool,
             graphics_pipelines: HashMap::new(),
@@ -598,46 +600,49 @@ impl<'a> VulkanBaseWrapper<'a> {
     ) {
         let uniform_descriptors = [*vk::DescriptorBufferInfo::builder()
             .buffer(uniform_buffer.buffer)
-            .range(uniform_buffer.allocation_size)];
+            .range(uniform_buffer.original_len as u64)];
+        {
+            let write_desc_sets = vec![*vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&uniform_descriptors)];
 
-        let mut write_desc_sets = vec![*vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_set)
-            .dst_binding(1)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .buffer_info(&uniform_descriptors)];
+            unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
+        }
 
-        let mut tex_descriptors = vec![];
         if let Some(diffuse) = diffuse_image_view {
-            push_tex_descriptor_create_write(
+            update_write_descriptor_set_with_sampler_and_image(
+                device,
+                descriptor_set,
                 diffuse,
                 diffuse_sampler,
-                descriptor_set,
-                &mut tex_descriptors,
-                &mut write_desc_sets,
             );
+        } else {
+            unreachable!("diffuse")
         }
 
         if let Some(specular) = specular_image_view {
-            push_tex_descriptor_create_write(
+            update_write_descriptor_set_with_sampler_and_image(
+                device,
+                descriptor_set,
                 specular,
                 specular_sampler,
-                descriptor_set,
-                &mut tex_descriptors,
-                &mut write_desc_sets,
             );
+        } else {
+            unreachable!("spec")
         }
 
         if let Some(bump) = bump_image_view {
-            push_tex_descriptor_create_write(
+            update_write_descriptor_set_with_sampler_and_image(
+                device,
+                descriptor_set,
                 bump,
                 bump_sampler,
-                descriptor_set,
-                &mut tex_descriptors,
-                &mut write_desc_sets,
             );
+        } else {
+            unreachable!("bump")
         }
-
-        unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
     }
 
     /// Allocates a descriptor set.
@@ -659,6 +664,9 @@ impl<'a> VulkanBaseWrapper<'a> {
         &self,
         bindings: Vec<ShaderBindingDesc>,
     ) -> Result<vk::DescriptorSetLayout, VulkanError> {
+        let logger = self.logger.sub("create_descriptor_set_layout");
+
+        info!(logger, "Creating descriptor set layout {:#?}", bindings);
         let bindings: Vec<_> = bindings
             .into_iter()
             .map(|desc| desc.into_layout_binding())
@@ -671,11 +679,12 @@ impl<'a> VulkanBaseWrapper<'a> {
                 .create_descriptor_set_layout(&descriptor_info, None)
         }
         .map_err(VulkanError::VkResultToDo)?;
+        panic!("yup");
         Ok(layout)
     }
 
     /// Creates a descriptor pool with the provided parameters.
-    pub fn descriptor_pool(
+    pub fn create_descriptor_pool(
         &mut self,
         max_sets: u32,
         max_samplers: u32,
@@ -685,6 +694,14 @@ impl<'a> VulkanBaseWrapper<'a> {
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::UNIFORM_BUFFER,
                 descriptor_count: max_uniform_buffers,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: max_samplers,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: max_samplers,
             },
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
@@ -723,30 +740,27 @@ impl<'a> VulkanBaseWrapper<'a> {
     }
 }
 
-// TODO: clean up how descriptor sets are created
-// for now we just rely on the model and shader to tell us what to do
-// but this index-based approach is not very flexible
-fn push_tex_descriptor_create_write(
-    image: vk::ImageView,
-    sampler: vk::Sampler,
+// TODO move to DeviceWrapper
+fn update_write_descriptor_set_with_sampler_and_image(
+    device: &ash::Device,
     descriptor_set: vk::DescriptorSet,
-    tex_descriptors: &mut Vec<vk::DescriptorImageInfo>,
-    write_desc_sets: &mut Vec<vk::WriteDescriptorSet>,
+    diffuse: vk::ImageView,
+    sampler: vk::Sampler,
 ) {
-    tex_descriptors.push(
-        *vk::DescriptorImageInfo::builder()
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image_view(image)
-            .sampler(sampler),
-    );
-
-    write_desc_sets.push(
-        *vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_set)
-            .dst_binding((1 + tex_descriptors.len()) as u32)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&tex_descriptors[(tex_descriptors.len() - 1)..]),
-    );
+    let descriptor = vk::DescriptorImageInfo::builder()
+        .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        .image_view(diffuse)
+        .sampler(sampler);
+    let tex_descriptors = vec![*descriptor];
+    let binding = 1 + tex_descriptors.len();
+    let write = vk::WriteDescriptorSet::builder()
+        .dst_set(descriptor_set)
+        .dst_binding(binding as u32)
+        .dst_array_element(0)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .image_info(&tex_descriptors);
+    let write_desc_sets = vec![*write];
+    unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
 }
 
 /// Renderer struct owning the descriptor pool, pipelines and descriptions.

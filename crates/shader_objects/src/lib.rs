@@ -8,6 +8,11 @@ use glam::{Mat4, Vec4};
 pub struct UniformBuffer {
     pub proj: Mat4,
     pub lights: [Light; MAX_LIGHTS],
+    pub fog_color: Vec4,
+    pub fog_start: f32,
+    pub fog_end: f32,
+    pub _pad1: f32,
+    pub _pad2: f32,
 }
 
 pub const MAX_LIGHTS: usize = 2;
@@ -42,6 +47,11 @@ impl UniformBuffer {
                     pos: Vec4::new(-10.0, 10.0, -10.0, 1.0),
                 },
             ],
+            fog_color: Vec4::ONE,
+            fog_start: 1.0,
+            fog_end: 5.0,
+            _pad1: 0.0,
+            _pad2: 0.0,
         }
     }
 }

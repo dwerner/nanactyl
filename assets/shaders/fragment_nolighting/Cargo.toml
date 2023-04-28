@@ -8,3 +8,4 @@ crate-type = ["dylib"]
 
 [dependencies]
 spirv-std = { git = "https://github.com/EmbarkStudios/rust-gpu", features = ["glam"] }
+shader_objects = { path = "../../../crates/shader_objects" }

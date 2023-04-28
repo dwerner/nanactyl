@@ -8,7 +8,7 @@ use world::AssetLoaderStateAndWorldLock;
 pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     let world = &mut state.world;
     let ico_model = models::Model::load(
-        "assets/models/static/tank.obj",
+        "assets/models/static/cube.obj",
         "assets/shaders/vertex_rustgpu.spv",
         "assets/shaders/fragment_rustgpu.spv",
     )
@@ -22,6 +22,7 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
         "assets/shaders/fragment_rustgpu.spv",
     )
     .unwrap();
+
     let (bounding_mesh, _) = models::Mesh::load("assets/models/static/cube.obj").unwrap();
     let cube_model_facet = ModelFacet::new(cube_model);
     let cube_model_idx = world.add_model(cube_model_facet);
@@ -29,7 +30,7 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     for (x, z) in [(10.0, 10.0), (-10.0, -10.0)].into_iter() {
         let physical = PhysicalFacet::new(x, 0.0, z, 1.0, &bounding_mesh);
         let mut camera_facet = CameraFacet::new(&physical);
-        camera_facet.set_associated_model(ico_model_idx);
+        camera_facet.set_associated_model(cube_model_idx);
 
         let camera_idx = world.add_camera(camera_facet);
         let phys_idx = world.add_physical(physical);

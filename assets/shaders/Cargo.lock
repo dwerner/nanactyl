@@ -107,6 +107,7 @@ dependencies = [
 name = "fragment_nolighting"
 version = "0.1.0"
 dependencies = [
+ "shader_objects",
  "spirv-std",
 ]
 

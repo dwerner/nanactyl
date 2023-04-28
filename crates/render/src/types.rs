@@ -1,5 +1,7 @@
+use core::fmt;
 use std::collections::HashMap;
 use std::ffi::{CString, NulError};
+use std::fmt::Formatter;
 use std::io;
 use std::path::PathBuf;
 
@@ -105,6 +107,29 @@ pub struct ShaderBindingDesc {
     pub descriptor_count: u32,
     pub stage_flags: vk::ShaderStageFlags,
 }
+
+impl fmt::Debug for ShaderBindingDesc {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let vertex = self.stage_flags.contains(vk::ShaderStageFlags::VERTEX);
+        let fragment = self.stage_flags.contains(vk::ShaderStageFlags::FRAGMENT);
+        // todo: more shader stages
+
+        let mut flags = Vec::new();
+        if vertex {
+            flags.push("VERTEX");
+        }
+        if fragment {
+            flags.push("FRAGMENT");
+        }
+        f.debug_struct("ShaderBindingDesc")
+            .field("binding", &self.binding)
+            .field("descriptor_type", &self.descriptor_type)
+            .field("descriptor_count", &self.descriptor_count)
+            .field("stage_flags", &[flags.join(",")])
+            .finish()
+    }
+}
+
 impl ShaderBindingDesc {
     pub fn into_layout_binding(self) -> vk::DescriptorSetLayoutBinding {
         let Self {

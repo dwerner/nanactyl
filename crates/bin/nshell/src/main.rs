@@ -47,6 +47,9 @@ struct CliOpts {
 
     #[structopt(long, default_value = "info")]
     log_level: LogLevel,
+
+    #[structopt(long)]
+    net_disabled: bool,
 }
 
 impl CliOpts {
@@ -85,7 +88,7 @@ fn main() {
 
     // FIXME: currently the server-side must be started first, and waits for a
     // client to connect here.
-    let world = world::World::new(opts.connect_to_server, &logger);
+    let world = world::World::new(opts.connect_to_server, &logger, opts.net_disabled);
     let world = Arc::new(Mutex::new(world));
 
     let logger2 = logger.sub("main async task");
@@ -93,7 +96,11 @@ fn main() {
         let logger = logger2;
         let mut platform_context = platform::PlatformContext::new(&logger).unwrap();
 
-        let index = if opts.connect_to_server.is_some() {
+        let index = if opts.net_disabled {
+            platform_context
+                .add_vulkan_window("nshell (net disabled)", 0, 0, 640, 400)
+                .unwrap()
+        } else if opts.connect_to_server.is_some() {
             platform_context
                 .add_vulkan_window("nshell-client", 640, 0, 640, 400)
                 .unwrap()
@@ -118,12 +125,18 @@ fn main() {
                 .into_shared();
 
         // net sync
-        let net_sync_plugin = Plugin::<WorldLockAndControllerState>::open_from_target_dir(
-            &opts.plugin_dir,
-            "net_sync_plugin",
-        )
-        .unwrap()
-        .into_shared();
+        let net_sync_plugin = if !opts.net_disabled {
+            Some(
+                Plugin::<WorldLockAndControllerState>::open_from_target_dir(
+                    &opts.plugin_dir,
+                    "net_sync_plugin",
+                )
+                .unwrap()
+                .into_shared(),
+            )
+        } else {
+            None
+        };
 
         // asset loader
         let asset_loader_state = Arc::new(Mutex::new(AssetLoaderState::default()));
@@ -192,11 +205,13 @@ fn main() {
                     &logger,
                 );
 
-                check_plugin(
-                    &mut *net_sync_plugin.lock().await,
-                    &mut WorldLockAndControllerState::lock(&world, &own_controllers).await,
-                    &logger,
-                );
+                if let Some(net_sync_plugin) = &net_sync_plugin {
+                    check_plugin(
+                        &mut *net_sync_plugin.lock().await,
+                        &mut WorldLockAndControllerState::lock(&world, &own_controllers).await,
+                        &logger,
+                    );
+                }
 
                 let _check_plugins = futures_util::future::join(
                     spawners[3].spawn(check_plugin_async(
@@ -247,22 +262,34 @@ fn main() {
                 .await
                 .unwrap();
 
-            let _update_result = spawners[3]
-                .spawn({
-                    let world = Arc::clone(&world);
-                    let controller_state = Arc::clone(&own_controllers);
-                    let plugin = Arc::clone(&net_sync_plugin);
-                    Box::pin(async move {
-                        let mut state =
-                            WorldLockAndControllerState::lock(&world, &controller_state).await;
-                        plugin
-                            .lock()
-                            .await
-                            .call_update(&mut state, &last_frame_elapsed)
-                            .await
-                    })
-                })
-                .await;
+            match net_sync_plugin {
+                Some(ref net_sync_plugin) => {
+                    let _update_result = spawners[3]
+                        .spawn({
+                            let world = Arc::clone(&world);
+                            let controller_state = Arc::clone(&own_controllers);
+                            let net_sync_plugin = Arc::clone(&net_sync_plugin);
+                            Box::pin(async move {
+                                let mut state =
+                                    WorldLockAndControllerState::lock(&world, &controller_state)
+                                        .await;
+                                net_sync_plugin
+                                    .lock()
+                                    .await
+                                    .call_update(&mut state, &last_frame_elapsed)
+                                    .await
+                            })
+                        })
+                        .await;
+                }
+                // Net is not enabled, so just update the world with the controller state
+                None => {
+                    let controller_state = own_controllers.lock().await;
+                    let world = &mut *world.lock().await;
+                    world.set_server_controller_state(controller_state[0]);
+                    world.set_client_controller_state(controller_state[1]);
+                }
+            }
 
             let _join_result = futures_util::future::join(
                 spawners[1].spawn(call_plugin_update_async(

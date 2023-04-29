@@ -125,9 +125,9 @@ impl Renderer {
             Mat4::perspective_lh(calculate_fov(aspect_ratio), aspect_ratio, 0.01, 1000.0)
                 * viewscale;
 
-        let logger = self.logger.sub("model render");
+        // let logger = self.logger.sub("model render");
         for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
-            info!(logger, "render model {:?}", model_index);
+            // info!(logger, "render model {:?}", model_index);
             // TODO: unified struct for models & pipelines
             let desc = match self.pipeline_descriptions.get_mut(model_index) {
                 Some(desc) => desc,
@@ -307,8 +307,8 @@ impl Renderer {
 
             // TODO compose a struct for containing samplers and related images
             let diffuse_sampler = bw.create_sampler()?;
-            let specular_sampler = bw.create_sampler()?;
-            let bump_sampler = bw.create_sampler()?;
+            //let specular_sampler = bw.create_sampler()?;
+            //let bump_sampler = bw.create_sampler()?;
 
             let descriptor_set = descriptor_sets[0];
 
@@ -317,11 +317,11 @@ impl Renderer {
                 descriptor_set,
                 &uniform_buffer,
                 model.diffuse_map.as_ref().map(|x| x.image_view),
-                model.specular_map.as_ref().map(|x| x.image_view),
-                model.bump_map.as_ref().map(|x| x.image_view),
+                // None, // model.specular_map.as_ref().map(|x| x.image_view),
+                // None, // model.bump_map.as_ref().map(|x| x.image_view),
                 diffuse_sampler,
-                specular_sampler,
-                bump_sampler,
+                // specular_sampler,
+                // bump_sampler,
             );
 
             let mut vertex_spv_file = BufReader::new(
@@ -383,8 +383,8 @@ impl Renderer {
                     uniform_buffer,
                     descriptor_set,
                     diffuse_sampler,
-                    specular_sampler,
-                    bump_sampler,
+                    // specular_sampler,
+                    // bump_sampler,
                     pipeline_layout,
                     bw.viewports(),
                     bw.scissors(),
@@ -449,6 +449,10 @@ macro_rules! offset_of {
     }};
 }
 
+// TODO: write a frame struct here that's to hold all the resources a frame
+// needs
+pub struct Frame {}
+
 pub struct VulkanBaseWrapper<'a> {
     base: &'a mut VulkanBase,
     logger: Logger,
@@ -466,7 +470,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         // sets.
         //? TODO: any pool can be a thread local, but then any object must be destroyed
         //? on that thread.
-        let descriptor_pool = self.create_descriptor_pool(4, 1, 1)?;
+        let descriptor_pool = self.create_descriptor_pool(12, 8, 8)?;
         let mut renderer = Renderer {
             descriptor_pool,
             graphics_pipelines: HashMap::new(),
@@ -592,57 +596,80 @@ impl<'a> VulkanBaseWrapper<'a> {
         descriptor_set: vk::DescriptorSet,
         uniform_buffer: &BufferAndMemory,
         diffuse_image_view: Option<vk::ImageView>,
-        specular_image_view: Option<vk::ImageView>,
-        bump_image_view: Option<vk::ImageView>,
+        //specular_image_view: Option<vk::ImageView>,
+        //bump_image_view: Option<vk::ImageView>,
         diffuse_sampler: vk::Sampler,
-        specular_sampler: vk::Sampler,
-        bump_sampler: vk::Sampler,
+        //_specular_sampler: vk::Sampler,
+        //_bump_sampler: vk::Sampler,
     ) {
         let uniform_descriptors = [*vk::DescriptorBufferInfo::builder()
             .buffer(uniform_buffer.buffer)
             .range(uniform_buffer.original_len as u64)];
-        {
-            let write_desc_sets = vec![*vk::WriteDescriptorSet::builder()
-                .dst_set(descriptor_set)
-                .dst_binding(1)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&uniform_descriptors)];
 
-            unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
-        }
+        let mut write_desc_sets = vec![*vk::WriteDescriptorSet::builder()
+            .dst_set(descriptor_set)
+            .dst_binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .buffer_info(&uniform_descriptors)];
 
-        if let Some(diffuse) = diffuse_image_view {
-            update_write_descriptor_set_with_sampler_and_image(
-                device,
-                descriptor_set,
-                diffuse,
-                diffuse_sampler,
-            );
-        } else {
-            unreachable!("diffuse")
-        }
+        // if let Some(diffuse) = diffuse_image_view {
 
-        if let Some(specular) = specular_image_view {
-            update_write_descriptor_set_with_sampler_and_image(
-                device,
-                descriptor_set,
-                specular,
-                specular_sampler,
-            );
-        } else {
-            unreachable!("spec")
-        }
+        let diffuse = diffuse_image_view.unwrap();
+        let descriptor = vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(diffuse)
+            .sampler(diffuse_sampler);
+        let tex_descriptors = vec![*descriptor];
+        //let binding = 1 + tex_descriptors.len();
+        let write = vk::WriteDescriptorSet::builder()
+            .dst_set(descriptor_set)
+            .dst_binding(1)
+            .dst_array_element(0)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .image_info(&tex_descriptors);
+        write_desc_sets.push(*write);
+        unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
+        // } else {
+        //     unreachable!("diffuse")
+        // }
 
-        if let Some(bump) = bump_image_view {
-            update_write_descriptor_set_with_sampler_and_image(
-                device,
-                descriptor_set,
-                bump,
-                bump_sampler,
-            );
-        } else {
-            unreachable!("bump")
-        }
+        // if let Some(specular) = specular_image_view {
+        //     let descriptor = vk::DescriptorImageInfo::builder()
+        //         .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        //         .image_view(specular)
+        //         .sampler(specular_sampler);
+        //     let tex_descriptors = vec![*descriptor];
+        //     let binding = 1 + tex_descriptors.len();
+        //     let write = vk::WriteDescriptorSet::builder()
+        //         .dst_set(descriptor_set)
+        //         .dst_binding(binding as u32)
+        //         .dst_array_element(0)
+        //         .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        //         .image_info(&tex_descriptors);
+        //     let write_desc_sets = vec![*write];
+        //     unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
+        // } else {
+        //     unreachable!("spec")
+        // }
+
+        // if let Some(bump) = bump_image_view {
+        //     let descriptor = vk::DescriptorImageInfo::builder()
+        //         .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        //         .image_view(bump)
+        //         .sampler(bump_sampler);
+        //     let tex_descriptors = vec![*descriptor];
+        //     let binding = 1 + tex_descriptors.len();
+        //     let write = vk::WriteDescriptorSet::builder()
+        //         .dst_set(descriptor_set)
+        //         .dst_binding(binding as u32)
+        //         .dst_array_element(0)
+        //         .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        //         .image_info(&tex_descriptors);
+        //     let write_desc_sets = vec![*write];
+        //     unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
+        // } else {
+        //     unreachable!("bump")
+        // }
     }
 
     /// Allocates a descriptor set.
@@ -679,7 +706,6 @@ impl<'a> VulkanBaseWrapper<'a> {
                 .create_descriptor_set_layout(&descriptor_info, None)
         }
         .map_err(VulkanError::VkResultToDo)?;
-        panic!("yup");
         Ok(layout)
     }
 
@@ -699,14 +725,14 @@ impl<'a> VulkanBaseWrapper<'a> {
                 ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 descriptor_count: max_samplers,
             },
-            vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: max_samplers,
-            },
-            vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: max_samplers,
-            },
+            // vk::DescriptorPoolSize {
+            //     ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            //     descriptor_count: max_samplers,
+            // },
+            // vk::DescriptorPoolSize {
+            //     ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            //     descriptor_count: max_samplers,
+            // },
         ];
         let descriptor_pool_info = vk::DescriptorPoolCreateInfo::builder()
             .pool_sizes(&descriptor_sizes)
@@ -738,29 +764,6 @@ impl<'a> VulkanBaseWrapper<'a> {
         unsafe { self.base.device.create_sampler(&sampler_info, None) }
             .map_err(VulkanError::VkResultToDo)
     }
-}
-
-// TODO move to DeviceWrapper
-fn update_write_descriptor_set_with_sampler_and_image(
-    device: &ash::Device,
-    descriptor_set: vk::DescriptorSet,
-    diffuse: vk::ImageView,
-    sampler: vk::Sampler,
-) {
-    let descriptor = vk::DescriptorImageInfo::builder()
-        .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-        .image_view(diffuse)
-        .sampler(sampler);
-    let tex_descriptors = vec![*descriptor];
-    let binding = 1 + tex_descriptors.len();
-    let write = vk::WriteDescriptorSet::builder()
-        .dst_set(descriptor_set)
-        .dst_binding(binding as u32)
-        .dst_array_element(0)
-        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .image_info(&tex_descriptors);
-    let write_desc_sets = vec![*write];
-    unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
 }
 
 /// Renderer struct owning the descriptor pool, pipelines and descriptions.
@@ -1301,20 +1304,20 @@ fn upload_models(
             command_buffer,
             &mut src_images,
         );
-        let specular_map = maybe_cmd_upload_image(
-            &w,
-            model.material.specular_map.as_ref(),
-            device_memory_properties,
-            command_buffer,
-            &mut src_images,
-        );
-        let bump_map = maybe_cmd_upload_image(
-            &w,
-            model.material.bump_map.as_ref(),
-            device_memory_properties,
-            command_buffer,
-            &mut src_images,
-        );
+        // let specular_map = maybe_cmd_upload_image(
+        //     &w,
+        //     model.material.specular_map.as_ref(),
+        //     device_memory_properties,
+        //     command_buffer,
+        //     &mut src_images,
+        // );
+        // let bump_map = maybe_cmd_upload_image(
+        //     &w,
+        //     model.material.bump_map.as_ref(),
+        //     device_memory_properties,
+        //     command_buffer,
+        //     &mut src_images,
+        // );
 
         w.end_command_buffer(command_buffer).unwrap();
 
@@ -1337,42 +1340,24 @@ fn upload_models(
             )
             .unwrap();
 
-        let mut desc_set_layout_bindings = vec![ShaderBindingDesc {
-            binding: 1,
-            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 1,
-            // make the uniform buffer available at both vertex and fragment stages
-            stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-        }];
-        if diffuse_map.is_some() {
-            desc_set_layout_bindings.push(ShaderBindingDesc {
-                binding: 2,
+        let mut desc_set_layout_bindings = vec![
+            ShaderBindingDesc {
+                binding: 0,
+                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: 1,
+                // make the uniform buffer available at both vertex and fragment stages
+                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+            },
+            ShaderBindingDesc {
+                binding: 1,
                 descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 descriptor_count: 1,
                 stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            });
-        }
-        if specular_map.is_some() {
-            desc_set_layout_bindings.push(ShaderBindingDesc {
-                binding: 3,
-                descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: 1,
-                stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            });
-        }
-        if bump_map.is_some() {
-            desc_set_layout_bindings.push(ShaderBindingDesc {
-                binding: 4,
-                descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: 1,
-                stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            });
-        }
+            },
+        ];
 
         let uploaded_model = GpuModelRef::new(
             diffuse_map,
-            specular_map,
-            bump_map,
             vertex_buffer,
             index_buffer,
             // TODO: generate this from model/shader metadata

@@ -16,12 +16,26 @@ enum Command {
     RunServerAndClient,
     FmtLint,
     BuildShaders,
+    /// Build a single plugin, defaults to release mode, -d or --debug for debug
+    /// mode.
     BuildPlugin {
         #[structopt(short)]
         plugin_name: String,
+        #[structopt(short, long)]
+        debug: bool,
     },
-    BuildAllPlugins,
-    BuildAll,
+    /// Build all plugins, defaults to release mode, -d or --debug for debug
+    /// mode.
+    BuildAllPlugins {
+        #[structopt(short, long)]
+        debug: bool,
+    },
+    /// Build everything, defaults to release mode, -d or --debug for debug
+    /// mode.
+    BuildAll {
+        #[structopt(short, long)]
+        debug: bool,
+    },
 }
 
 #[derive(StructOpt)]
@@ -80,20 +94,20 @@ fn dispatch(cmd: Command) -> Result<(), std::io::Error> {
             fmt_and_lint()?;
             Ok(())
         }
-        Command::BuildAllPlugins => {
-            build_plugins()?;
+        Command::BuildAllPlugins { debug } => {
+            build_plugins(debug)?;
             Ok(())
         }
-        Command::BuildPlugin { plugin_name } => {
-            build_one_plugin(&plugin_name)?;
+        Command::BuildPlugin { plugin_name, debug } => {
+            build_one_plugin(&plugin_name, debug)?;
             Ok(())
         }
         Command::BuildShaders => {
             build_shaders()?;
             Ok(())
         }
-        Command::BuildAll => {
-            build_plugins()?;
+        Command::BuildAll { debug } => {
+            build_plugins(debug)?;
             Ok(())
         }
     }
@@ -107,8 +121,12 @@ fn fmt_and_lint() -> Result<(), std::io::Error> {
     Ok(())
 }
 
-fn build_plugins() -> Result<(), std::io::Error> {
-    let output = cmd!("cargo", "build", "--release").run()?;
+fn build_plugins(debug: bool) -> Result<(), std::io::Error> {
+    let output = if debug {
+        cmd!("cargo", "build").run()?
+    } else {
+        cmd!("cargo", "build", "--release").run()?
+    };
     println!(
         "xtask build everything {}",
         String::from_utf8_lossy(&output.stdout)
@@ -116,7 +134,7 @@ fn build_plugins() -> Result<(), std::io::Error> {
     Ok(())
 }
 
-fn build_one_plugin(plugin_name: &str) -> Result<(), std::io::Error> {
+fn build_one_plugin(plugin_name: &str, debug: bool) -> Result<(), std::io::Error> {
     let project_root_dir = std::env::current_dir()?;
     let mut plugin_dir = project_root_dir.clone();
     plugin_dir.push(format!("crates/plugins/{plugin_name}"));
@@ -126,7 +144,11 @@ fn build_one_plugin(plugin_name: &str) -> Result<(), std::io::Error> {
         "{plugin_dir:?} doesn't correspond to a plugin."
     );
     std::env::set_current_dir(plugin_dir)?;
-    let output = cmd!("cargo", "build", "--release").run()?;
+    let output = if debug {
+        cmd!("cargo", "build").run()?
+    } else {
+        cmd!("cargo", "build", "--release").run()?
+    };
     println!(
         "Plugin {} compiled: {}",
         plugin_name,

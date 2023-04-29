@@ -5,51 +5,54 @@
 pub mod sampler;
 
 use shader_objects::{UniformBuffer, MAX_LIGHTS};
-use spirv_std::glam::{Vec2, Vec4, Vec4Swizzles};
-use spirv_std::num_traits::Pow;
+use spirv_std::glam::{
+    Vec2,
+    Vec4,
+    //Vec4Swizzles
+};
+// use spirv_std::num_traits::Pow;
 use spirv_std::spirv;
 
 #[spirv(fragment)]
 pub fn fragment_main(
     #[spirv(frag_coord)] in_frag_coord: Vec4,
-    #[spirv(uniform, descriptor_set = 0, binding = 1)] ubo: &UniformBuffer,
-    #[spirv(descriptor_set = 0, binding = 2)] diffuse_sampler: &sampler::Sampler2d,
-    #[spirv(descriptor_set = 0, binding = 3)] specular_sampler: &sampler::Sampler2d,
-    #[spirv(descriptor_set = 0, binding = 4)] bump_sampler: &sampler::Sampler2d,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] ubo: &UniformBuffer,
+    #[spirv(descriptor_set = 0, binding = 1)] diffuse_sampler: &sampler::Sampler2d,
+    // #[spirv(descriptor_set = 0, binding = 3)] _specular_sampler: &sampler::Sampler2d,
+    // #[spirv(descriptor_set = 0, binding = 4)] _bump_sampler: &sampler::Sampler2d,
+    normal: Vec4,
     uv: Vec2,
-    _normal: Vec4,
-    _pos: Vec4,
     out_frag_color: &mut Vec4,
 ) {
     let mut fog_factor = 0.0;
     let mut diffuse_color = Vec4::ZERO;
 
     let texture: Vec4 = unsafe { diffuse_sampler.sample(uv) };
-    let bump_map: Vec4 = unsafe { bump_sampler.sample(uv) };
-    let specular_map: Vec4 = unsafe { specular_sampler.sample(uv) };
+    // let bump_map: Vec4 = unsafe { bump_sampler.sample(uv) };
+    // let specular_map: Vec4 = unsafe { specular_sampler.sample(uv) };
 
     for i in 0..MAX_LIGHTS {
         let light = ubo.lights[i];
         let light_direction = (light.pos - in_frag_coord).normalize();
 
-        // Transform the normal from the normal map to the [-1, 1] range and normalize it
-        let bumped_normal = (bump_map * 2.0 - 1.0).normalize();
+        //     // Transform the normal from the normal map to the [-1, 1] range and normalize it
+        //     let bumped_normal = (bump_map * 2.0 - 1.0).normalize();
 
         // Calculate the view direction
-        let view_direction = (-in_frag_coord.xyz()).normalize();
+        // let view_direction = (-in_frag_coord.xyz()).normalize();
 
-        // Use bumped_normal instead of normal
-        let diffuse_intensity = light_direction.dot(bumped_normal).max(0.0);
-        let reflection_direction =
-            -light_direction - 2.0 * bumped_normal.dot(-light_direction) * bumped_normal;
-        let shininess = 1.0;
-        let specular_intensity = view_direction
-            .dot(reflection_direction.xyz())
-            .max(0.0)
-            .pow(shininess);
+        //     // Use bumped_normal instead of normal
+        //     let diffuse_intensity = light_direction.dot(bumped_normal).max(0.0);
+        let diffuse_intensity = light_direction.dot(normal).max(0.0);
+        //     let reflection_direction = -light_direction - 2.0 * bumped_normal.dot(-light_direction) * bumped_normal;
+        //     let shininess = 1.0;
+        //     let specular_intensity = view_direction
+        //         .dot(reflection_direction.xyz())
+        //         .max(0.0)
+        //         .pow(shininess);
 
-        let specular_color = light.color * specular_map.x * specular_intensity;
-        diffuse_color += diffuse_intensity * light.color + specular_color;
+        //     let specular_color = light.color * specular_map.x * specular_intensity;
+        diffuse_color += diffuse_intensity * light.color; //  + specular_color;
 
         // Fog calculations
         let fog_distance = in_frag_coord.w;

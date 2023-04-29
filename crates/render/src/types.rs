@@ -160,24 +160,24 @@ pub struct GpuModelRef {
     pub vertex_buffer: BufferAndMemory,
     pub index_buffer: BufferAndMemory,
     pub diffuse_map: Option<Texture>,
-    pub specular_map: Option<Texture>,
-    pub bump_map: Option<Texture>,
+    // pub specular_map: Option<Texture>,
+    // pub bump_map: Option<Texture>,
     pub shaders: ShaderDesc,
 }
 
 impl GpuModelRef {
     pub fn new(
         diffuse_map: Option<Texture>,
-        specular_map: Option<Texture>,
-        bump_map: Option<Texture>,
+        // specular_map: Option<Texture>,
+        // bump_map: Option<Texture>,
         vertex_buffer: BufferAndMemory,
         index_buffer: BufferAndMemory,
         shaders: ShaderDesc,
     ) -> Self {
         Self {
             diffuse_map,
-            specular_map,
-            bump_map,
+            // specular_map,
+            // bump_map,
             vertex_buffer,
             index_buffer,
             shaders,
@@ -189,12 +189,12 @@ impl GpuModelRef {
         self.diffuse_map
             .as_ref()
             .map(|map| map.deallocate(&base.device));
-        self.specular_map
-            .as_ref()
-            .map(|map| map.deallocate(&base.device));
-        self.bump_map
-            .as_ref()
-            .map(|map| map.deallocate(&base.device));
+        // self.specular_map
+        //     .as_ref()
+        //     .map(|map| map.deallocate(&base.device));
+        // self.bump_map
+        //     .as_ref()
+        //     .map(|map| map.deallocate(&base.device));
     }
 }
 
@@ -365,8 +365,8 @@ pub struct PipelineDesc {
     pub uniform_buffer: BufferAndMemory,
     pub descriptor_set: vk::DescriptorSet,
     pub diffuse_sampler: vk::Sampler,
-    pub specular_sampler: vk::Sampler,
-    pub bump_sampler: vk::Sampler,
+    // pub specular_sampler: vk::Sampler,
+    // pub bump_sampler: vk::Sampler,
     pub layout: vk::PipelineLayout,
     pub viewports: Vec<vk::Viewport>,
     pub scissors: Vec<vk::Rect2D>,
@@ -382,8 +382,8 @@ impl PipelineDesc {
         uniform_buffer: BufferAndMemory,
         descriptor_set: vk::DescriptorSet,
         diffuse_sampler: vk::Sampler,
-        specular_sampler: vk::Sampler,
-        bump_sampler: vk::Sampler,
+        // specular_sampler: vk::Sampler,
+        // bump_sampler: vk::Sampler,
         layout: vk::PipelineLayout,
         viewports: Vec<vk::Viewport>,
         scissors: Vec<vk::Rect2D>,
@@ -395,8 +395,8 @@ impl PipelineDesc {
             uniform_buffer,
             descriptor_set,
             diffuse_sampler,
-            specular_sampler,
-            bump_sampler,
+            // specular_sampler,
+            // bump_sampler,
             layout,
             viewports,
             scissors,
@@ -413,8 +413,8 @@ impl PipelineDesc {
                 device.destroy_shader_module(*shader_module, None);
             }
             device.destroy_sampler(self.diffuse_sampler, None);
-            device.destroy_sampler(self.specular_sampler, None);
-            device.destroy_sampler(self.bump_sampler, None);
+            // device.destroy_sampler(self.specular_sampler, None);
+            // device.destroy_sampler(self.bump_sampler, None);
             device.destroy_descriptor_set_layout(self.desc_set_layout, None);
         }
     }

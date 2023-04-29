@@ -186,11 +186,13 @@ pub struct World {
     pub last_tick: Instant,
 
     // TODO: support more than one connection, for servers
+    // TODO: move into networking related struct
+    pub net_disabled: bool,
     pub connection: Option<Box<dyn Connection + Send + Sync + 'static>>,
     pub client_controller_state: Option<InputState>,
     pub server_controller_state: Option<InputState>,
-
     pub maybe_server_addr: Option<SocketAddr>,
+
     pub logger: Logger,
 }
 
@@ -201,8 +203,9 @@ impl World {
     /// waits for a client to connect before continuing.
     ///
     /// FIXME: make this /// independent of any connecting clients.
-    pub fn new(maybe_server_addr: Option<SocketAddr>, logger: &Logger) -> Self {
+    pub fn new(maybe_server_addr: Option<SocketAddr>, logger: &Logger, net_disabled: bool) -> Self {
         Self {
+            net_disabled,
             maybe_server_addr,
             maybe_camera: None,
             things: vec![],
@@ -275,6 +278,7 @@ impl World {
     pub fn add_thing(&mut self, thing: Thing) -> Result<Identity, WorldError> {
         let id = self.things.len();
         if id > std::u32::MAX as usize {
+            println!("too many objects, id: {}", id);
             return Err(WorldError::TooManyObjects);
         }
         self.things.push(thing);

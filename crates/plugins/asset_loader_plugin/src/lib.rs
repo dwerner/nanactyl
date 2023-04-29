@@ -7,8 +7,9 @@ use world::AssetLoaderStateAndWorldLock;
 #[no_mangle]
 pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     let world = &mut state.world;
+    let logger = &world.logger.sub("asset-loader");
     let ico_model = models::Model::load(
-        "assets/models/static/cube.obj",
+        "assets/models/static/tank.obj",
         "assets/shaders/vertex_rustgpu.spv",
         "assets/shaders/fragment_rustgpu.spv",
     )
@@ -28,6 +29,7 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     let cube_model_idx = world.add_model(cube_model_facet);
 
     for (x, z) in [(10.0, 10.0), (-10.0, -10.0)].into_iter() {
+        info!(logger, "adding object at {}, {}", x, z);
         let physical = PhysicalFacet::new(x, 0.0, z, 1.0, &bounding_mesh);
         let mut camera_facet = CameraFacet::new(&physical);
         camera_facet.set_associated_model(cube_model_idx);
@@ -36,9 +38,10 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
         let phys_idx = world.add_physical(physical);
         let camera = Thing::camera(phys_idx, camera_idx);
 
-        let _camera_thing_id = world
+        let camera_thing_id = world
             .add_thing(camera)
             .expect("unable to add thing to world");
+        info!(logger, "added camera thing: {:?}", camera_thing_id)
     }
 
     // initialize some state, lots of model_object entities
@@ -48,6 +51,7 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
                 cube_model_idx
             } else {
                 ico_model_idx
+                //cube_model_idx
             };
             let (x, z) = (i as f32, j as f32);
             let mut physical = PhysicalFacet::new(x * 4.0, 2.0, z * 10.0, 1.0, &bounding_mesh);

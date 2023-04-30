@@ -400,6 +400,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "skybox_fragment"
+version = "0.1.0"
+dependencies = [
+ "shader_objects",
+ "spirv-std",
+]
+
+[[package]]
+name = "skybox_vertex"
+version = "0.1.0"
+dependencies = [
+ "shader_objects",
+ "spirv-std",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

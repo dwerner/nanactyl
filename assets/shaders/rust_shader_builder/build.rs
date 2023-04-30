@@ -28,7 +28,17 @@ fn main() {
     // vec![sky_shader]
     //}
     println!("cargo:rerun-if-changed=./rust_shader_builder");
-    for shader in ["vertex_rustgpu", "fragment_rustgpu", "fragment_nolighting"].iter() {
+
+    // TODO: just use WalkDir or parse Cargo.toml maybe?
+    for shader in [
+        "skybox_vertex",
+        "skybox_fragment",
+        "vertex_rustgpu",
+        "fragment_rustgpu",
+        "fragment_nolighting",
+    ]
+    .iter()
+    {
         println!("cargo:rerun-if-changed=./{}", shader);
         let module_path = SpirvBuilder::new(
             format!("{}/../{}", env!("CARGO_MANIFEST_DIR"), shader),

@@ -4,6 +4,8 @@ members = [
     "vertex_rustgpu",
     "fragment_rustgpu",
     "fragment_nolighting",
+    "skybox_vertex",
+    "skybox_fragment",
 ]
 # Compile build-dependencies in release mode with
 # the same settings as regular dependencies.

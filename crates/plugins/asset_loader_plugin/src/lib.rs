@@ -67,11 +67,11 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     {
         let sky_model = models::Model::load(
             "assets/models/static/skybox.obj",
-            "assets/shaders/vertex_rustgpu.spv",
-            "assets/shaders/fragment_nolighting.spv",
+            "assets/shaders/skybox_vertex.spv",
+            "assets/shaders/skybox_fragment.spv",
         )
         .unwrap();
-        let sky_phys = PhysicalFacet::new(0.0, 0.0, 0.0, 100.0, &sky_model.mesh);
+        let sky_phys = PhysicalFacet::new(0.0, 0.0, 0.0, 200.0, &sky_model.mesh);
         let model_facet = ModelFacet::new(sky_model);
         let sky_model_idx = world.add_model(model_facet);
         let sky_phys_idx = world.add_physical(sky_phys);

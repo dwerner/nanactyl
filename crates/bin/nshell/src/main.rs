@@ -56,11 +56,13 @@ impl CliOpts {
     fn load_with_overrides(logger: &Logger) -> CliOpts {
         let config_file = Path::new("nshell.yaml");
         let opts = if config_file.exists() {
+            info!(logger, "Loading config from {:?}", config_file);
             let mut reader = BufReader::new(File::open(config_file).unwrap());
             let mut yaml_buf = String::new();
             reader.read_to_string(&mut yaml_buf).unwrap();
             CliOpts::from_args_with_yaml(&yaml_buf).unwrap()
         } else {
+            info!(logger, "Loading config from CLI args");
             CliOpts::from_args()
         };
 

@@ -6,5 +6,4 @@ callgrind.*
 # temp files
 */**/*~
 */**/*-autosave.kra
-
 */**.blend\d

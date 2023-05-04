@@ -10,7 +10,7 @@ members = [
     "crates/obj-parser",
     "crates/platform",
     "crates/plugin_loader",
-    "crates/plugin_trait",
+    "crates/plugin_self",
     "crates/render",
     "crates/world",
     "crates/shader_objects",
@@ -67,7 +67,6 @@ histogram = "0.6.9" # lock in 0.6.9 for now
 image = "0.24.3"
 libloading = "0.7"
 num-traits = { version = "0.2.14", default-features = false, features = ["libm"] }
-parry3d = "0.13.0"
 raw-window-handle = "0.4.2" # lock on 0.4.2 for now
 serde = { version = "1", features = ["derive"]}
 serde_yaml = "0.9"

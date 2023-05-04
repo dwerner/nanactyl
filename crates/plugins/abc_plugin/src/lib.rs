@@ -1,25 +1,48 @@
-use logger::{info, LogLevel};
-use plugin_trait::{impl_plugin, LoadablePlugin};
+use logger::{info, LogLevel, Logger};
+use plugin_self::{impl_plugin, StatefulPlugin};
+use world::World;
 
-struct AbcPlugin;
+struct AbcPlugin {
+    plugin_state: u32,
+    logger: Logger,
+}
 
-impl LoadablePlugin for AbcPlugin {
-    const NAME: &'static str = "abc_plugin";
-    const VERSION: u64 = 1;
+const NAME: &str = "abc-plugin";
+const VERSION: u64 = 0;
 
-    type State = ();
+impl StatefulPlugin for AbcPlugin {
+    type State = World;
 
-    fn load(_state: &mut Self::State) {
-        info!(LogLevel::Info.logger(), "{} loaded", Self::NAME);
+    fn new() -> Box<Self>
+    where
+        Self: Sized,
+    {
+        Box::new(AbcPlugin {
+            plugin_state: 42,
+            logger: LogLevel::Info.logger().sub("abc-plugin"),
+        })
     }
 
-    fn update(_state: &mut Self::State, _delta_time: &std::time::Duration) {
-        info!(LogLevel::Info.logger(), "{} updated", Self::NAME);
+    fn load(&mut self, _state: &mut Self::State) {
+        info!(
+            self.logger.sub("load"),
+            "{} loaded state {}", NAME, self.plugin_state
+        );
     }
 
-    fn unload(_state: &mut Self::State) {
-        info!(LogLevel::Info.logger(), "{} unloaded", Self::NAME);
+    fn update(&mut self, _state: &mut Self::State, _delta_time: &std::time::Duration) {
+        info!(
+            self.logger.sub("update"),
+            "{} updated state {}", NAME, self.plugin_state
+        );
+    }
+
+    fn unload(&mut self, _state: &mut Self::State) {
+        info!(
+            self.logger.sub("unload"),
+            "{} unloaded {}", NAME, self.plugin_state
+        );
     }
 }
 
-impl_plugin!(AbcPlugin, ());
+impl_plugin!(AbcPlugin, World => update_plugin_state);

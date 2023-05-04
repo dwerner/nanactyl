@@ -7,7 +7,9 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
+plugin_self = { path = "../../plugin_self" }
 input = { path = "../../input" }
 world = { path = "../../world" }
 logger = { path = "../../logger" }
 glam = { workspace = true }
+

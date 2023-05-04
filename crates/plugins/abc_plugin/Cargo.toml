@@ -10,8 +10,9 @@ name = "plugin_tests"
 crate-type = ["cdylib"]
 
 [dependencies]
-plugin_trait = { path = "../../plugin_trait" }
+plugin_self = { path = "../../plugin_self" }
 logger = { path = "../../logger" }
+world = { path = "../../world" }
 
 
 [dev-dependencies]

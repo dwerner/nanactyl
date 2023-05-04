@@ -9,60 +9,76 @@ use std::time::{Duration, Instant};
 use glam::{Mat4, Vec3};
 use input::wire::InputState;
 use input::Button;
-use logger::info;
+use logger::{info, LogLevel, Logger};
+use plugin_self::{impl_plugin, StatefulPlugin};
 use world::thing::EULER_ROT_ORDER;
 use world::{Identity, World, WorldError};
 
-#[no_mangle]
-pub extern "C" fn load(world: &mut World) {
-    info!(
-        world.logger,
-        "loaded world update plugin ({})!", world.updates
-    );
+struct WorldUpdatePlugin {
+    logger: Logger,
 }
 
-#[no_mangle]
-pub extern "C" fn update(world: &mut World, dt: &Duration) {
-    world.run_life += *dt;
-    world.updates += 1;
+impl StatefulPlugin for WorldUpdatePlugin {
+    type State = World;
 
-    if world.is_server() {
-        let now = Instant::now();
-        let since_last_tick = now.duration_since(world.last_tick);
-        let action_scale = since_last_tick.as_micros() as f32 / 1000.0 / 1000.0;
-        if since_last_tick > World::SIM_TICK_DELAY {
-            {
-                if let Some(server_controller) = world.server_controller_state {
-                    move_camera_based_on_controller_state(world, &server_controller, 0u32.into())
-                        .unwrap();
-                }
-                if let Some(client_controller) = world.client_controller_state {
-                    move_camera_based_on_controller_state(world, &client_controller, 1u32.into())
-                        .unwrap();
-                }
-            }
-            for physical in world.facets.physical.iter_mut() {
-                let linear = physical.linear_velocity * action_scale;
-                physical.position += linear;
+    fn new() -> Box<Self>
+    where
+        Self: Sized,
+    {
+        Box::new(WorldUpdatePlugin {
+            logger: LogLevel::Info.logger().sub("world-update-plugin"),
+        })
+    }
 
-                let angular = physical.angular_velocity * action_scale;
-                physical.angles += angular;
+    fn load(&mut self, world: &mut Self::State) {
+        info!(world.logger, "loaded world update plugin");
+    }
+
+    fn update(&mut self, world: &mut Self::State, dt: &Duration) {
+        world.run_life += *dt;
+        world.updates += 1;
+
+        if world.is_server() {
+            let now = Instant::now();
+            let since_last_tick = now.duration_since(world.last_tick);
+            let action_scale = since_last_tick.as_micros() as f32 / 1000.0 / 1000.0;
+            if since_last_tick > World::SIM_TICK_DELAY {
+                {
+                    if let Some(server_controller) = world.server_controller_state {
+                        move_camera_based_on_controller_state(
+                            world,
+                            &server_controller,
+                            0u32.into(),
+                        )
+                        .unwrap();
+                    }
+                    if let Some(client_controller) = world.client_controller_state {
+                        move_camera_based_on_controller_state(
+                            world,
+                            &client_controller,
+                            1u32.into(),
+                        )
+                        .unwrap();
+                    }
+                }
+                for physical in world.facets.physical.iter_mut() {
+                    let linear = physical.linear_velocity * action_scale;
+                    physical.position += linear;
+
+                    let angular = physical.angular_velocity * action_scale;
+                    physical.angles += angular;
+                }
+                world.last_tick = now;
             }
-            world.last_tick = Instant::now();
         }
-    } else {
-        // try to predict, but dont be suprised if an update corrects it
-        // (rubber-banding tho)
+    }
+
+    fn unload(&mut self, world: &mut Self::State) {
+        info!(self.logger, "unloaded world update plugin");
     }
 }
 
-#[no_mangle]
-pub extern "C" fn unload(world: &mut World) {
-    info!(
-        world.logger,
-        "unloaded world update plugin ({})", world.updates
-    );
-}
+impl_plugin!(WorldUpdatePlugin, World => update_plugin_state);
 
 fn move_camera_based_on_controller_state(
     world: &mut World,

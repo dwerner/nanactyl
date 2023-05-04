@@ -280,8 +280,13 @@ where
         Ok(())
     }
 
-    /// Trigger the unload lifecycle event
-    fn call_unload(&mut self, state: &mut T) -> Result<(), PluginError> {
+    /// Trigger the "unload" lifecycle event.
+    ///
+    /// Safety: If calling code drops a plugin without calling "unload",
+    /// destructors for those objects will attempt to run at the wrong time, and
+    /// this will cause a segfault. Normally this is called automatically when a
+    /// new version of a plugin is loaded.
+    pub fn call_unload(&mut self, state: &mut T) -> Result<(), PluginError> {
         if let Some(cache) = self.libcache.as_ref() {
             unsafe {
                 (cache.unload)(state);

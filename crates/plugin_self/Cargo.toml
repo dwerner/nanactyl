@@ -1,5 +1,5 @@
 [package]
-name = "plugin_trait"
+name = "plugin_self"
 version = "0.1.0"
 edition = "2021"
 

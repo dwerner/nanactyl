@@ -11,6 +11,7 @@ use input::wire::InputState;
 use logger::{LogLevel, Logger};
 use models::Model;
 use network::{Connection, RpcError};
+use plugin_self::StatefulPlugin;
 use scene::Scene;
 use thing::{
     CameraFacet, CameraIndex, HealthFacet, HealthIndex, ModelFacet, ModelIndex, PhysicalFacet,
@@ -193,6 +194,8 @@ pub struct World {
     pub server_controller_state: Option<InputState>,
     pub maybe_server_addr: Option<SocketAddr>,
 
+    pub update_plugin_state: Option<Box<dyn StatefulPlugin<State = Self> + Send + Sync + 'static>>,
+
     pub logger: Logger,
 }
 
@@ -218,6 +221,7 @@ impl World {
             client_controller_state: None,
             server_controller_state: None,
             logger: logger.sub("world"),
+            update_plugin_state: None,
         }
     }
 

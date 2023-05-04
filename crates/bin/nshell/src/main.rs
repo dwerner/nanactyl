@@ -270,7 +270,7 @@ fn main() {
                         .spawn({
                             let world = Arc::clone(&world);
                             let controller_state = Arc::clone(&own_controllers);
-                            let net_sync_plugin = Arc::clone(&net_sync_plugin);
+                            let net_sync_plugin = Arc::clone(net_sync_plugin);
                             Box::pin(async move {
                                 let mut state =
                                     WorldLockAndControllerState::lock(&world, &controller_state)

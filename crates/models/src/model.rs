@@ -116,7 +116,7 @@ impl Model {
     }
 }
 
-fn load_image(stem: &str, base_path: &PathBuf) -> Result<Image, LoadError> {
+fn load_image(stem: &str, base_path: &Path) -> Result<Image, LoadError> {
     let image_path = base_path.join(stem);
     let image_data = image::open(&image_path).map_err(|err| LoadError::UnableToLoadImage {
         err,

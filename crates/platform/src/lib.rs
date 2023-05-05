@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::path::Path;
 
+use image::GenericImageView;
 use input::{Button, DeviceEvent, EngineEvent, InputEvent};
 use logger::{info, Logger};
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
@@ -8,6 +10,10 @@ use sdl2::controller::GameController;
 use sdl2::event::Event as SdlEvent;
 use sdl2::haptic::Haptic;
 use sdl2::keyboard::Keycode;
+use sdl2::pixels::PixelFormatEnum;
+use sdl2::render::{Texture, TextureCreator};
+use sdl2::surface::Surface;
+use sdl2::video::Window;
 
 #[derive(thiserror::Error, Debug)]
 pub enum PlatformError {
@@ -103,17 +109,40 @@ impl PlatformContext {
         height: u32,
     ) -> Result<usize, PlatformError> {
         let idx = self.windows.len();
-        self.windows.push(
-            self.video_subsystem
-                .window(title, width, height)
-                .position(x, y)
-                .resizable()
-                .allow_highdpi()
-                .vulkan()
-                .build()
-                .map_err(PlatformError::AddWindow)?,
-        );
+        let mut window = self
+            .video_subsystem
+            .window(title, width, height)
+            .position(x, y)
+            .resizable()
+            .allow_highdpi()
+            .vulkan()
+            .build()
+            .map_err(PlatformError::AddWindow)?;
+
+        let icon = Self::load_png_image_as_surface("assets/icon.png").unwrap();
+        window.set_icon(&icon);
+        self.windows.push(window);
         Ok(idx)
+    }
+
+    fn load_png_image_as_surface<'a, P: AsRef<Path>>(path: P) -> Result<Surface<'a>, String> {
+        let img = image::open(path).map_err(|e| e.to_string())?;
+        let (width, height) = img.dimensions();
+        let mut img_data = img.to_rgba8().into_raw();
+        let temp_surface = Surface::from_data(
+            &mut img_data,
+            width,
+            height,
+            (width * 4) as u32, // 4 bytes per pixel
+            PixelFormatEnum::RGBA32,
+        )
+        .map_err(|e| e.to_string())?;
+
+        let mut surface =
+            Surface::new(width, height, PixelFormatEnum::RGBA32).map_err(|e| e.to_string())?;
+        temp_surface.blit(None, &mut surface, None)?;
+
+        Ok(surface)
     }
 
     pub fn get_raw_window_handle(&self, index: usize) -> Option<WinPtr> {

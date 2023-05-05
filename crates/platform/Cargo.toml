@@ -9,5 +9,6 @@ logger = { path = "../logger" }
 
 # workspace
 sdl2 = { workspace = true }
+image = { workspace = true }
 raw-window-handle = { workspace = true }
 thiserror= { workspace = true }

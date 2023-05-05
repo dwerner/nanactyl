@@ -80,7 +80,7 @@ impl CliOpts {
 }
 
 fn main() {
-    let logger = LogLevel::Info.logger();
+    let logger = LogLevel::Info.logger().sub("nshell");
     plugin_loader::register_tls_dtor_hook!();
 
     let opts = CliOpts::load_with_overrides(&logger);
@@ -93,7 +93,7 @@ fn main() {
     let world = world::World::new(opts.connect_to_server, &logger, opts.net_disabled);
     let world = Arc::new(Mutex::new(world));
 
-    let logger2 = logger.sub("main async task");
+    let logger2 = logger.sub("main");
     future::block_on(async move {
         let logger = logger2;
         let mut platform_context = platform::PlatformContext::new(&logger).unwrap();
@@ -313,9 +313,17 @@ fn main() {
             smol::Timer::after(delay).await;
 
             frame += 1;
-        }
+        } // 'frame_loop
+
+        // Unload stateful plugins
+        world_update_plugin
+            .lock()
+            .await
+            .call_unload(&mut *world.lock().await)
+            .unwrap();
     });
-    info!(logger, "nshell closed");
+
+    info!(logger, "quitting.");
 }
 
 fn call_plugin_update_async<T>(

@@ -12,6 +12,9 @@ harness = false
 
 [dependencies]
 # csv = "1.2.1"
+
+wat-cpu = { path = "../wat-cpu" }
+
 thiserror = "1.0.33"
 async-executor = "1.4.1"
 async-channel = "1.7.1"

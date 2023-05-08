@@ -757,6 +757,7 @@ dependencies = [
  "smol",
  "smol-potat",
  "thiserror",
+ "wat-cpu",
 ]
 
 [[package]]
@@ -2742,6 +2743,14 @@ name = "wasm-bindgen-shared"
 version = "0.2.84"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0046fef7e28c3804e5e38bfa31ea2a0f73905319b677e57ebe37e49358989b5d"
+
+[[package]]
+name = "wat-cpu"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "winapi",
+]
 
 [[package]]
 name = "web-sys"

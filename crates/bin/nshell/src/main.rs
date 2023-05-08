@@ -85,8 +85,7 @@ fn main() {
 
     let opts = CliOpts::load_with_overrides(&logger);
 
-    let executor = ThreadPoolExecutor::new(8);
-    let mut spawners = executor.spawners();
+    let mut executor = ThreadPoolExecutor::new(8);
 
     // FIXME: currently the server-side must be started first, and waits for a
     // client to connect here.
@@ -216,20 +215,22 @@ fn main() {
                 }
 
                 let _check_plugins = futures_util::future::join(
-                    spawners[3].spawn(check_plugin_async(
-                        &ash_renderer_plugin,
-                        &render_state,
-                        &logger,
-                    )),
-                    spawners[5].spawn(check_plugin_async(&world_update_plugin, &world, &logger)),
+                    executor.spawn_on_core(
+                        3,
+                        check_plugin_async(&ash_renderer_plugin, &render_state, &logger),
+                    ),
+                    executor.spawn_on_core(
+                        5,
+                        check_plugin_async(&world_update_plugin, &world, &logger),
+                    ),
                 )
                 .await;
             }
 
             let last_frame_elapsed = last_frame_complete.elapsed();
 
-            let _asset_loader_duration = spawners[1]
-                .spawn({
+            let _asset_loader_duration = executor
+                .spawn_on_core(1, {
                     let plugin = Arc::clone(&asset_loader_plugin);
                     let asset_loader_state = Arc::clone(&asset_loader_state);
                     let world = Arc::clone(&world);
@@ -246,8 +247,8 @@ fn main() {
                 .await
                 .unwrap();
 
-            let _duration = spawners[2]
-                .spawn({
+            let _duration = executor
+                .spawn_on_core(2, {
                     let render_state = Arc::clone(&render_state);
                     let world = Arc::clone(&world);
                     let plugin = Arc::clone(&world_render_update_plugin);
@@ -266,8 +267,8 @@ fn main() {
 
             match net_sync_plugin {
                 Some(ref net_sync_plugin) => {
-                    let _update_result = spawners[3]
-                        .spawn({
+                    let _update_result = executor
+                        .spawn_on_core(3, {
                             let world = Arc::clone(&world);
                             let controller_state = Arc::clone(&own_controllers);
                             let net_sync_plugin = Arc::clone(net_sync_plugin);
@@ -294,16 +295,18 @@ fn main() {
             }
 
             let _join_result = futures_util::future::join(
-                spawners[1].spawn(call_plugin_update_async(
-                    &ash_renderer_plugin,
-                    &render_state,
-                    &last_frame_elapsed,
-                )),
-                spawners[3].spawn(call_plugin_update_async(
-                    &world_update_plugin,
-                    &world,
-                    &last_frame_elapsed,
-                )),
+                executor.spawn_on_core(
+                    1,
+                    call_plugin_update_async(
+                        &ash_renderer_plugin,
+                        &render_state,
+                        &last_frame_elapsed,
+                    ),
+                ),
+                executor.spawn_on_core(
+                    3,
+                    call_plugin_update_async(&world_update_plugin, &world, &last_frame_elapsed),
+                ),
             )
             .await;
 

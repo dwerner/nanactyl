@@ -34,7 +34,7 @@ async fn workload_task<const PADDING: usize>(iterations: u64) {
 }
 
 async fn run_workload<const PADDING: usize>(executor: &mut ThreadPoolExecutor, iterations: u64) {
-    let (_core, future) = executor.spawn_on_any(workload_task::<PADDING>(iterations));
+    let future = executor.spawn_on_any(workload_task::<PADDING>(iterations));
     future.await.unwrap();
 }
 

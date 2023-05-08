@@ -331,8 +331,8 @@ mod tests {
             .await
         };
 
-        executor.spawn_on_any(send_task).1.await.unwrap();
-        let recv_handle = executor.spawn_on_any(recv_task).1;
+        executor.spawn_on_any(send_task).await.unwrap();
+        let recv_handle = executor.spawn_on_any(recv_task);
 
         let received = recv_handle.await.unwrap();
 
@@ -348,10 +348,10 @@ mod tests {
 
         let recv_task = async move { receiver.recv().await.unwrap() };
 
-        let (_core, send_handle) = executor.spawn_on_any(send_task);
+        let send_handle = executor.spawn_on_any(send_task);
 
         send_handle.await.unwrap();
-        let (_core, received) = executor.spawn_on_any(recv_task);
+        let received = executor.spawn_on_any(recv_task);
 
         assert_eq!(received.await.unwrap(), "Hello, world!");
     }
@@ -370,7 +370,7 @@ mod tests {
             "Task finished"
         };
 
-        let (_core_id, task_handle) = executor.spawn_on_any(task);
+        let task_handle = executor.spawn_on_any(task);
 
         // Allow the task to run for a while before shutting it down
         // Initiate the shutdown process

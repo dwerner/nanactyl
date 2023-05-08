@@ -10,9 +10,11 @@ use std::thread::JoinHandle;
 use async_channel::Sender;
 use async_executor::LocalExecutor;
 use async_oneshot::Closed;
+use enrich::CoreFuture;
 use futures_lite::{future, FutureExt, StreamExt};
 
 pub mod channel;
+mod enrich;
 
 /// ThreadPoolExecutor is a high-level struct that manages a set of
 /// ThreadAffineExecutors, one per core. It enables spawning tasks on specific
@@ -141,6 +143,7 @@ impl Clone for ThreadAffineSpawner {
 }
 
 impl ThreadPoolExecutor {
+    /// Create a new ThreadPoolExecutor with the specified number of cores.
     pub fn new(cores: usize) -> Self {
         let thread_executors = (0..cores)
             .map(ThreadAffineExecutor::new)
@@ -151,25 +154,24 @@ impl ThreadPoolExecutor {
         }
     }
 
-    pub fn spawners(&self) -> Vec<ThreadAffineSpawner> {
-        self.thread_executors
-            .iter()
-            .map(|ThreadAffineExecutor { spawner, .. }| spawner.clone())
-            .collect()
-    }
-
-    pub fn spawner_for_core(&self, id: usize) -> Option<ThreadAffineSpawner> {
-        self.thread_executors
-            .iter()
-            .map(|ThreadAffineExecutor { spawner, .. }| spawner)
-            .find(|ThreadAffineSpawner { core_id, .. }| *core_id == id)
-            .cloned()
+    pub fn spawn_on_core<F>(
+        &mut self,
+        core_id: usize,
+        task: F,
+    ) -> CoreFuture<impl Future<Output = Result<F::Output, Closed>>>
+    where
+        F: Future + Send + 'static,
+        F::Output: std::fmt::Debug + Send + Sync + 'static,
+    {
+        let spawner = &mut self.thread_executors[core_id].spawner;
+        let future = spawner.spawn(task);
+        CoreFuture::new(core_id, future)
     }
 
     pub fn spawn_on_any<F>(
         &mut self,
         task: F,
-    ) -> (usize, impl Future<Output = Result<F::Output, Closed>>)
+    ) -> CoreFuture<impl Future<Output = Result<F::Output, Closed>>>
     where
         F: Future + Send + 'static,
         F::Output: std::fmt::Debug + Send + Sync + 'static,
@@ -178,13 +180,7 @@ impl ThreadPoolExecutor {
             self.next_thread.fetch_add(1, Ordering::Relaxed) % self.thread_executors.len();
         let spawner = &mut self.thread_executors[thread_index].spawner;
         let future = spawner.spawn(task);
-        (spawner.core_id, future)
-    }
-
-    pub fn fire_on_any(&mut self, task: impl Future<Output = ()> + Send + 'static) {
-        let thread_index =
-            self.next_thread.fetch_add(1, Ordering::Relaxed) % self.thread_executors.len();
-        self.thread_executors[thread_index].spawner.fire(task);
+        CoreFuture::new(spawner.core_id, future)
     }
 }
 
@@ -295,17 +291,14 @@ mod tests {
 
     #[test]
     fn test_bichannel() {
-        let exec = ThreadPoolExecutor::new(2);
-        let left_spawner = &mut exec.spawners()[0];
-        let right_spawner = &mut exec.spawners()[1];
-
+        let mut exec = ThreadPoolExecutor::new(2);
         let (left, right): (Bichannel<(), i16>, Bichannel<i16, ()>) = Bichannel::bounded(1);
 
-        let left_task = left_spawner.spawn(async move {
+        let left_task = exec.spawn_on_core(0, async move {
             left.send(()).await.unwrap();
             left.recv().await.unwrap()
         });
-        let right_task = right_spawner.spawn(async move {
+        let right_task = exec.spawn_on_core(1, async move {
             right.recv().await.unwrap();
             right.send(42).await.unwrap()
         });
@@ -317,9 +310,8 @@ mod tests {
 
     #[test]
     fn test_core_executor() {
-        let exec = ThreadPoolExecutor::new(2);
-        let spawner = &mut exec.spawners()[0];
-        let answer_rx = spawner.spawn(Box::pin(async { 42 }));
+        let mut exec = ThreadPoolExecutor::new(2);
+        let answer_rx = exec.spawn_on_any(Box::pin(async { 42 }));
         let answer_value = future::block_on(answer_rx);
         assert_eq!(answer_value, Ok(42));
     }
@@ -386,18 +378,14 @@ mod tests {
     #[test]
     fn test_core_executor_spawn_specific_core() {
         let cores = 4;
-        let executor = ThreadPoolExecutor::new(cores);
+        let mut executor = ThreadPoolExecutor::new(cores);
         let executed_tasks = Arc::new(AtomicUsize::new(0));
         let mut task_handles = Vec::new();
 
         for core_id in 0..cores {
-            let mut spawner = executor
-                .spawner_for_core(core_id)
-                .expect("Spawner not found");
-
             for _ in 0..10 {
                 let executed_tasks = Arc::clone(&executed_tasks);
-                let handle = spawner.spawn(async move {
+                let handle = executor.spawn_on_core(core_id, async move {
                     Timer::after(Duration::from_millis(100)).await;
                     executed_tasks.fetch_add(1, Ordering::Relaxed);
                 });
@@ -422,12 +410,12 @@ mod tests {
 
         for _ in 0..(cores * 10) {
             let executed_tasks = Arc::clone(&executed_tasks);
-            let (_core, handle) = executor.spawn_on_any(async move {
+            let core_future = executor.spawn_on_any(async move {
                 Timer::after(Duration::from_millis(100)).await;
                 executed_tasks.fetch_add(1, Ordering::Relaxed);
             });
 
-            task_handles.push(handle);
+            task_handles.push(core_future);
         }
 
         // Join on all the tasks

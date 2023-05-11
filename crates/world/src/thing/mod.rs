@@ -130,29 +130,59 @@ impl HealthFacet {
 
 #[derive(Debug, Clone)]
 pub enum Shape {
-    Box { width: f32, height: f32, depth: f32 },
-    Cone { radius: f32, height: f32 },
+    Cuboid { width: f32, height: f32, depth: f32 },
     Cylinder { radius: f32, height: f32 },
+    Capsule { radius: f32, height: f32 },
     Sphere { radius: f32 },
 }
 
 #[derive(Clone)]
 pub struct PhysicalFacet {
+    /// Absolute position.
     pub position: Vec3,
+
+    /// Absolute actual angles of the object. Used for updates and rendering.
     pub angles: Vec3,
+
+    /// Absolute scale.
     pub scale: f32,
-    pub linear_velocity: Vec3,
-    pub angular_velocity: Vec3,
+
+    /// Intended linear velocity. Updated from input.
+    pub linear_velocity_intention: Vec3,
+
+    /// Intended angular velocity. Updated from input.
+    pub angular_velocity_intention: Vec3,
+
+    /// Basic shape and params for colliders to be built from.
+    pub shape: Shape,
 }
 
 impl PhysicalFacet {
-    pub fn new(x: f32, y: f32, z: f32, scale: f32, _TODO_bounding_mesh: &models::Mesh) -> Self {
+    /// Create a new physical facet.
+    pub fn new(x: f32, y: f32, z: f32, scale: f32, shape: Shape) -> Self {
         Self {
             position: Vec3::new(x, y, z),
             angles: Vec3::ZERO,
+            linear_velocity_intention: Vec3::ZERO,
+            angular_velocity_intention: Vec3::ZERO,
             scale,
-            linear_velocity: Vec3::new(0.0, 0.0, 0.0),
-            angular_velocity: Vec3::new(0.0, 0.0, 0.0),
+            shape,
+        }
+    }
+
+    /// Create a new physical facet with a cuboid shape.
+    pub fn new_cuboid(x: f32, y: f32, z: f32, scale: f32) -> Self {
+        Self {
+            position: Vec3::new(x, y, z),
+            angles: Vec3::ZERO,
+            linear_velocity_intention: Vec3::ZERO,
+            angular_velocity_intention: Vec3::ZERO,
+            scale,
+            shape: Shape::Cuboid {
+                width: scale,
+                height: scale,
+                depth: scale,
+            },
         }
     }
 }
@@ -163,8 +193,8 @@ impl std::fmt::Debug for PhysicalFacet {
             .field("position", &self.position)
             .field("scale", &self.scale)
             .field("angles", &self.angles)
-            .field("linear_velocity", &self.linear_velocity)
-            .field("angular_velocity", &self.angular_velocity)
+            .field("linear_velocity", &self.linear_velocity_intention)
+            .field("angular_velocity", &self.angular_velocity_intention)
             .finish()
     }
 }
@@ -237,15 +267,15 @@ impl CameraFacet {
 
     pub fn update(&mut self, dt: &Duration, phys: &mut PhysicalFacet) {
         let amount = (dt.as_millis() as f64 / 100.0) as f32;
-        phys.position += phys.linear_velocity * amount;
+        phys.position += phys.linear_velocity_intention * amount;
         self.update_view_matrix(phys);
     }
 
     pub fn update_view_matrix(&mut self, phys: &PhysicalFacet) {
         let rot = Mat4::from_euler(
             EULER_ROT_ORDER,
-            phys.angular_velocity.x,
-            phys.angular_velocity.y,
+            phys.angular_velocity_intention.x,
+            phys.angular_velocity_intention.y,
             0.0,
         );
         let trans = Mat4::from_translation(phys.position);

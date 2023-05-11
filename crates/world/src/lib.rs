@@ -142,6 +142,15 @@ impl WorldFacets {
         self.physical.get_mut(index.0 as usize)
     }
 
+    pub fn iter_physical_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (PhysicalIndex, &mut PhysicalFacet)> {
+        self.physical
+            .iter_mut()
+            .enumerate()
+            .map(|(index, facet)| (index.into(), facet))
+    }
+
     pub fn health(&self, index: HealthIndex) -> Option<&HealthFacet> {
         self.health.get(index.0 as usize)
     }

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_lock::{Mutex, MutexGuardArc};
-use logger::{info, warn, LogLevel, Logger};
+use logger::{LogLevel, Logger};
 use platform::WinPtr;
 use plugin_self::StatefulPlugin;
 use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalFacet, PhysicalIndex};

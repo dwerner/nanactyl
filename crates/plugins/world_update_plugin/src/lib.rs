@@ -15,8 +15,7 @@ use plugin_self::{impl_plugin, StatefulPlugin};
 use rapier3d::control::{DynamicRayCastVehicleController, WheelTuning};
 use rapier3d::na::{self as nalgebra, point, vector, Vector};
 use rapier3d::prelude::{
-    ColliderBuilder, ColliderHandle, ColliderSet, DMatrix, ImpulseJointSet, MultibodyJointSet,
-    RigidBodyBuilder, RigidBodySet,
+    ColliderBuilder, ColliderHandle, ColliderSet, RigidBodyBuilder, RigidBodySet,
 };
 use world::thing::{PhysicalIndex, EULER_ROT_ORDER};
 use world::{Identity, World, WorldError};
@@ -25,8 +24,6 @@ struct WorldUpdatePlugin {
     logger: Logger,
     rigid_bodies: RigidBodySet,
     colliders: ColliderSet,
-    impulse_joints: ImpulseJointSet,
-    multibody_joints: MultibodyJointSet,
     vehicle_controller: Option<DynamicRayCastVehicleController>,
     collider_handles: HashMap<PhysicalIndex, ColliderHandle>,
 }
@@ -47,8 +44,8 @@ impl StatefulPlugin for WorldUpdatePlugin {
             logger: LogLevel::Info.logger().sub("world-update"),
             rigid_bodies: RigidBodySet::new(),
             colliders: ColliderSet::new(),
-            impulse_joints: ImpulseJointSet::new(),
-            multibody_joints: MultibodyJointSet::new(),
+            // impulse_joints: ImpulseJointSet::new(),
+            // multibody_joints: MultibodyJointSet::new(),
             vehicle_controller: None,
             collider_handles: HashMap::new(),
         })

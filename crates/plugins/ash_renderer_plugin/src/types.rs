@@ -1,5 +1,4 @@
 use core::fmt;
-use std::collections::HashMap;
 use std::ffi::{CString, NulError};
 use std::fmt::Formatter;
 use std::io;
@@ -29,14 +28,8 @@ pub enum VulkanError {
     #[error("failed to create pipeline {1:?}")]
     FailedToCreatePipeline(Vec<vk::Pipeline>, vk::Result),
 
-    #[error("image error {0:?}")]
-    Image(image::ImageError),
-
     #[error("swapchain acquire next image error {0:?}")]
     SwapchainAcquireNextImage(vk::Result),
-
-    #[error("no scene to present")]
-    NoSceneToPresent,
 
     // Fences
     #[error("fence error {0:?}")]
@@ -387,11 +380,6 @@ where
     let shader_create_info = vk::ShaderModuleCreateInfo::builder().code(&shader_code);
     unsafe { device.create_shader_module(&shader_create_info, None) }
         .map_err(VulkanError::VkResultToDo)
-}
-
-/// TODO: further implementaion of shader caching.
-pub struct ShaderModuleCache {
-    _shaders: HashMap<String, ShaderStages>,
 }
 
 /// Tracks modules and definitions used to initialize shaders.

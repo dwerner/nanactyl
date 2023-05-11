@@ -12,8 +12,13 @@ render = { path = "../../render" }
 world = { path = "../../world" }
 shader_objects = { path = "../../shader_objects" }
 logger = { path = "../../logger" }
+plugin_self = { path = "../../plugin_self" }
+platform = { path = "../../platform" }
 
 # workspace
 ash = { workspace = true }
+ash-window = { workspace = true } 
 bytemuck = { workspace = true }
 glam = { workspace = true }
+thiserror = { workspace = true }
+image = { workspace = true }

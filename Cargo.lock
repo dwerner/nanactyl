@@ -91,12 +91,17 @@ name = "ash_renderer_plugin"
 version = "0.1.0"
 dependencies = [
  "ash",
+ "ash-window",
  "bytemuck",
  "glam",
+ "image",
  "logger",
  "models",
+ "platform",
+ "plugin_self",
  "render",
  "shader_objects",
+ "thiserror",
  "world",
 ]
 
@@ -2109,13 +2114,12 @@ dependencies = [
 name = "render"
 version = "0.1.0"
 dependencies = [
- "ash",
- "ash-window",
  "async-lock",
  "image",
  "logger",
  "models",
  "platform",
+ "plugin_self",
  "thiserror",
  "world",
 ]

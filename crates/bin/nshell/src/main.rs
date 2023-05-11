@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use async_lock::Mutex;
 use core_executor::ThreadPoolExecutor;
 use futures_lite::future;
+use histogram::Histogram;
 use input::wire::InputState;
 use input::{DeviceEvent, EngineEvent};
 use logger::{error, info, LogLevel, Logger};
@@ -22,7 +23,7 @@ use structopt::StructOpt;
 use structopt_yaml::StructOptYaml;
 use world::{AssetLoaderState, AssetLoaderStateAndWorldLock, World, WorldLockAndControllerState};
 
-const FRAME_LENGTH_MS: u64 = 16;
+const FRAME_LENGTH_MS: u64 = 8;
 
 #[derive(StructOpt, Debug, StructOptYaml, Deserialize)]
 #[serde(default)]
@@ -95,6 +96,7 @@ fn main() {
     let logger2 = logger.sub("main");
     future::block_on(async move {
         let logger = logger2;
+        let mut frame_histogram = Histogram::new();
         let mut platform_context = platform::PlatformContext::new(&logger).unwrap();
 
         let index = if opts.net_disabled {
@@ -311,8 +313,31 @@ fn main() {
             .await;
 
             let elapsed = frame_start.elapsed();
+            let last_frame_elapsed_micros = elapsed.as_micros();
+
+            frame_histogram
+                .increment(last_frame_elapsed_micros as u64)
+                .unwrap();
+
+            if frame % 1000 == 0 {
+                info!(
+                    logger,
+                    "Frame time (us): Min: {} Avg: {} Max: {} StdDev: {} 50%: {}, 90%: {}, 99%: {}, 99.9%:{}",
+                    frame_histogram.minimum().unwrap(),
+                    frame_histogram.mean().unwrap(),
+                    frame_histogram.maximum().unwrap(),
+                    frame_histogram.stddev().unwrap(),
+                    frame_histogram.percentile(50.0).unwrap(),
+                    frame_histogram.percentile(90.0).unwrap(),
+                    frame_histogram.percentile(99.0).unwrap(),
+                    frame_histogram.percentile(99.9).unwrap(),
+                );
+                frame_histogram.clear();
+            }
+
             let delay = Duration::from_millis(FRAME_LENGTH_MS).saturating_sub(elapsed);
             last_frame_complete = Instant::now();
+
             smol::Timer::after(delay).await;
 
             frame += 1;

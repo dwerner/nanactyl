@@ -74,6 +74,7 @@ impl Logger {
         }
     }
 
+    /// Create a new logger with the given name as a sub-logger of this one.
     pub fn sub(&self, name: &str) -> Self {
         let mut path = self.path.clone();
         path.push(name.to_string());

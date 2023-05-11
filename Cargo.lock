@@ -1723,6 +1723,7 @@ dependencies = [
  "core_executor",
  "futures-lite",
  "futures-util",
+ "histogram",
  "input",
  "logger",
  "platform",

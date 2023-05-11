@@ -98,8 +98,10 @@ macro_rules! impl_plugin {
 
         #[no_mangle]
         pub extern "C" fn unload(state: &mut $assoc_type) {
+            println!("unloading plugin");
             let mut this = state.$field.take();
             if let Some(mut this) = this {
+                println!("unloading plugin 2");
                 this.unload(state);
             }
         }

@@ -786,7 +786,7 @@ impl<'a> DeviceWrapper<'a> {
     pub fn wrap(device: &'a ash::Device, logger: &Logger) -> Self {
         Self {
             device,
-            logger: logger.sub("device wrapper"),
+            logger: logger.sub("device-wrapper"),
         }
     }
     /// Create a pipeline layout. Note `push_constants_len` must be len in bytes

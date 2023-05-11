@@ -159,6 +159,8 @@ impl Renderer {
             Mat4::perspective_lh(calculate_fov(aspect_ratio), aspect_ratio, 0.01, 1000.0)
                 * viewscale;
 
+        // TODO more than just models, meshes in general.
+
         // let logger = self.logger.sub("model render");
         for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
             // TODO: unified struct for models & pipelines
@@ -385,14 +387,14 @@ impl Renderer {
                 offset_of!(Vertex, pos) as u32,
             );
             vertex_input_assembly.add_attribute_description(
-                1,
                 0,
+                1,
                 vk::Format::R32G32_SFLOAT,
                 offset_of!(Vertex, uv) as u32,
             );
             vertex_input_assembly.add_attribute_description(
-                2,
                 0,
+                2,
                 vk::Format::R32G32B32_SFLOAT,
                 offset_of!(Vertex, normal) as u32,
             );

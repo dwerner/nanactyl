@@ -233,8 +233,8 @@ impl VertexInputAssembly {
     }
     pub fn add_attribute_description(
         &mut self,
-        location: u32,
         binding: u32,
+        location: u32,
         format: vk::Format,
         offset: u32,
     ) {

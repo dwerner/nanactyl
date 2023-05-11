@@ -55,7 +55,7 @@ pub struct RenderState {
     pub win_ptr: WinPtr,
     pub render_plugin: Option<Box<dyn RenderPlugin<State = RenderState> + Send + Sync>>,
     pub enable_validation_layer: bool,
-    model_upload_queue: VecDeque<(ModelIndex, models::Model)>,
+    pub model_upload_queue: VecDeque<(ModelIndex, models::Model)>,
     pub scene: RenderScene,
     pub logger: Logger,
 }

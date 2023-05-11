@@ -5,36 +5,33 @@
 //! As parts of this are solidified, they can be moved into the crates/render
 //! crate, and only expose the plugin for truly dynamic things that are
 //! desireable to change at runtime.
-use std::borrow::Cow;
+
+mod debug_callback;
+mod types;
+
 use std::collections::{HashMap, VecDeque};
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::fs::File;
 use std::io::BufReader;
 use std::mem::{self, align_of};
-use std::os::raw::c_void;
-use std::ptr;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ash::extensions::ext;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::util::Align;
 use ash::{vk, Device, Entry};
 use glam::{Mat4, Vec3};
-use logger::{debug, info, warn, Logger};
+use logger::{debug, info, Logger};
 use models::{Image, Vertex};
 use platform::WinPtr;
 use plugin_self::{impl_plugin, StatefulPlugin};
 use render::{Presenter, RenderPlugin, RenderScene, RenderState};
 use shader_objects::{PushConstants, UniformBuffer};
-use world::thing::{ModelIndex, EULER_ROT_ORDER};
-
-mod types;
-
 use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, PipelineDesc, ShaderBindingDesc, ShaderDesc,
     ShaderStage, ShaderStages, Texture, VertexInputAssembly, VulkanError,
 };
+use world::thing::{ModelIndex, EULER_ROT_ORDER};
 
 /// Renderer struct owning the descriptor pool, pipelines and descriptions.
 struct Renderer {
@@ -45,14 +42,14 @@ struct Renderer {
 }
 
 #[repr(C)]
-struct DebugStruct {
+struct VulkanDebug {
     placeholder: u32,
     logger: Logger,
 }
 
-impl DebugStruct {
+impl VulkanDebug {
     fn new(logger: Logger) -> Arc<Self> {
-        let s = DebugStruct {
+        let s = VulkanDebug {
             placeholder: 42,
             logger,
         };
@@ -114,10 +111,8 @@ impl Renderer {
             },
         ];
 
-        let (scissors, viewports) = {
-            let bw = VulkanBaseWrapper::new(base, &self.logger.sub("scissors+viewports"));
-            (bw.scissors(), bw.viewports())
-        };
+        let scissors = base.scissors();
+        let viewports = base.viewports();
 
         let w = DeviceWrapper::wrap(&base.device, &self.logger);
 
@@ -309,8 +304,6 @@ impl Renderer {
             }
         }
 
-        let mut bw = VulkanBaseWrapper::new(base, &logger);
-
         // TODO: shaders that apply only to certain models need different descriptor
         // sets.
         // TODO: any pool can be a thread local, but then any object must be destroyed
@@ -318,34 +311,34 @@ impl Renderer {
         let mut pipeline_descriptions = HashMap::new();
 
         // For now we are creating a pipeline per model.
-        for (model_index, (model, _uploaded_instant)) in bw.base.tracked_models.iter() {
+        for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
             info!(logger, "creating descriptor set for model {model_index:?}");
             let uniform_buffer = {
                 let uniform_buffer = UniformBuffer::new();
                 let uniform_bytes = bytemuck::bytes_of(&uniform_buffer);
-                let device = DeviceWrapper::wrap(&bw.base.device, &logger);
+                let device = DeviceWrapper::wrap(&base.device, &logger);
                 device.allocate_and_init_buffer(
                     vk::BufferUsageFlags::UNIFORM_BUFFER,
-                    bw.base.device_memory_properties,
+                    base.device_memory_properties,
                     uniform_bytes,
                 )?
             };
 
             let desc_set_layout =
-                bw.create_descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?;
+                base.create_descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?;
 
             let descriptor_sets =
-                bw.allocate_descriptor_sets(self.descriptor_pool, &[desc_set_layout])?;
+                base.allocate_descriptor_sets(self.descriptor_pool, &[desc_set_layout])?;
 
             // TODO compose a struct for containing samplers and related images
-            let diffuse_sampler = bw.create_sampler()?;
+            let diffuse_sampler = base.create_sampler()?;
             //let specular_sampler = bw.create_sampler()?;
             //let bump_sampler = bw.create_sampler()?;
 
             let descriptor_set = descriptor_sets[0];
 
-            VulkanBaseWrapper::update_descriptor_set(
-                &bw.base.device,
+            VulkanBase::update_descriptor_set(
+                &base.device,
                 descriptor_set,
                 &uniform_buffer,
                 model.diffuse_map.as_ref().map(|x| x.image_view),
@@ -365,14 +358,14 @@ impl Renderer {
 
             let mut shader_stages = ShaderStages::new();
             shader_stages.add_shader(
-                &bw.base.device,
+                &base.device,
                 &mut vertex_spv_file,
                 "vertex_main",
                 vk::ShaderStageFlags::VERTEX,
                 vk::PipelineShaderStageCreateFlags::empty(),
             )?;
             shader_stages.add_shader(
-                &bw.base.device,
+                &base.device,
                 &mut frag_spv_file,
                 "fragment_main",
                 vk::ShaderStageFlags::FRAGMENT,
@@ -401,7 +394,7 @@ impl Renderer {
                 offset_of!(Vertex, normal) as u32,
             );
 
-            let w = DeviceWrapper::wrap(&bw.base.device, &logger);
+            let w = DeviceWrapper::wrap(&base.device, &logger);
 
             let pipeline_layout = w.pipeline_layout(
                 std::mem::size_of::<PushConstants>() as u32,
@@ -418,8 +411,8 @@ impl Renderer {
                     // specular_sampler,
                     // bump_sampler,
                     pipeline_layout,
-                    bw.viewports(),
-                    bw.scissors(),
+                    base.viewports(),
+                    base.scissors(),
                     shader_stages,
                     vertex_input_assembly,
                 ),
@@ -427,7 +420,7 @@ impl Renderer {
         }
 
         let graphics_pipelines =
-            bw.create_graphics_pipelines(&pipeline_descriptions, bw.base.render_pass)?;
+            base.create_graphics_pipelines(&pipeline_descriptions, base.render_pass)?;
 
         debug!(logger, "rebuilt {} pipelines", graphics_pipelines.len());
         self.graphics_pipelines = graphics_pipelines;
@@ -534,15 +527,175 @@ fn surface_loader_physical_device<'a>(
 // needs
 struct Frame {}
 
-struct VulkanBaseWrapper<'a> {
-    base: &'a mut VulkanBase,
-    logger: Logger,
-}
+/// VulkanBase - base functionality for the Vulkan plugin. The
+/// idea here is to keep the facilities as generic as is reasonable and provide
+/// them to `ash_renderer_plugin`. In essence, what doesn't change much stays
+/// here, while rapidly moving/changing code should live in the plugin until it
+/// stabilizes into generic functionality.
+struct VulkanBase {
+    win_ptr: platform::WinPtr,
+    entry: ash::Entry,
+    instance: ash::Instance,
+    device: Device,
+    surface_loader: Surface,
+    swapchain_loader: Swapchain,
 
-impl<'a> VulkanBaseWrapper<'a> {
-    fn new(base: &'a mut VulkanBase, logger: &Logger) -> Self {
-        let logger = logger.sub("vulkan_base_wrapper");
-        Self { base, logger }
+    physical_device: vk::PhysicalDevice,
+    device_memory_properties: vk::PhysicalDeviceMemoryProperties,
+    queue_family_index: u32,
+    present_queue: vk::Queue,
+
+    surface: vk::SurfaceKHR,
+    surface_format: vk::SurfaceFormatKHR,
+    surface_resolution: vk::Extent2D,
+
+    swapchain: vk::SwapchainKHR,
+    present_images: Vec<vk::Image>,
+    present_image_views: Vec<vk::ImageView>,
+
+    pool: vk::CommandPool,
+    draw_cmd_buf: vk::CommandBuffer,
+    setup_command_buffer: vk::CommandBuffer,
+
+    depth_image: vk::Image,
+    depth_image_view: vk::ImageView,
+    depth_image_memory: vk::DeviceMemory,
+
+    present_complete_semaphore: vk::Semaphore,
+    rendering_complete_semaphore: vk::Semaphore,
+
+    draw_commands_reuse_fence: vk::Fence,
+    setup_commands_reuse_fence: vk::Fence,
+
+    maybe_debug_utils_loader: Option<ash::extensions::ext::DebugUtils>,
+    maybe_debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
+
+    tracked_models: HashMap<ModelIndex, (GpuModelRef, Instant)>,
+
+    framebuffers: Vec<vk::Framebuffer>,
+    render_pass: vk::RenderPass,
+
+    flag_recreate_swapchain: bool,
+
+    logger: Logger,
+
+    _debug_struct: Arc<VulkanDebug>,
+}
+impl VulkanBase {
+    fn upload_models(
+        &mut self,
+        mut upload_queue: VecDeque<(ModelIndex, models::Model)>,
+        logger: Logger,
+    ) -> Vec<(ModelIndex, GpuModelRef)> {
+        let logger = logger.sub("upload_models");
+
+        if upload_queue.is_empty() {
+            return vec![];
+        }
+
+        let device = self.device.clone();
+        let queue = self.present_queue;
+        let queue_family_index = self.queue_family_index;
+        let device_memory_properties = self.device_memory_properties;
+        let w = DeviceWrapper::wrap(&device, &logger.sub("upload_models"));
+        let pool = w.create_command_pool(queue_family_index).unwrap();
+        let fence = w.create_fence().unwrap();
+        let mut src_images = Vec::new();
+        let mut completed_uploads = Vec::new();
+        for (index, model) in upload_queue.drain(..) {
+            debug!(logger, "loading model at {index:?}");
+            debug!(logger, "material {:?}", model.material.path);
+
+            let command_buffers = w.allocate_command_buffers(pool).unwrap();
+            let command_buffer = command_buffers[0];
+
+            w.wait_for_fence(fence).unwrap();
+            w.begin_command_buffer(command_buffer).unwrap();
+
+            let diffuse_map = maybe_cmd_upload_image(
+                &w,
+                model.material.diffuse_map.as_ref(),
+                device_memory_properties,
+                command_buffer,
+                &mut src_images,
+            );
+            // let specular_map = maybe_cmd_upload_image(
+            //     &w,
+            //     model.material.specular_map.as_ref(),
+            //     device_memory_properties,
+            //     command_buffer,
+            //     &mut src_images,
+            // );
+            // let bump_map = maybe_cmd_upload_image(
+            //     &w,
+            //     model.material.bump_map.as_ref(),
+            //     device_memory_properties,
+            //     command_buffer,
+            //     &mut src_images,
+            // );
+
+            w.end_command_buffer(command_buffer).unwrap();
+
+            let submit_infos = [*vk::SubmitInfo::builder().command_buffers(&command_buffers)];
+            w.queue_submit(fence, queue, &submit_infos).unwrap();
+
+            let vertex_buffer = w
+                .allocate_and_init_buffer(
+                    vk::BufferUsageFlags::VERTEX_BUFFER,
+                    device_memory_properties,
+                    &model.mesh.vertices,
+                )
+                .unwrap();
+
+            let index_buffer = w
+                .allocate_and_init_buffer(
+                    vk::BufferUsageFlags::INDEX_BUFFER,
+                    device_memory_properties,
+                    &model.mesh.indices,
+                )
+                .unwrap();
+
+            let desc_set_layout_bindings = vec![
+                ShaderBindingDesc {
+                    binding: 0,
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: 1,
+                    // make the uniform buffer available at both vertex and fragment stages
+                    stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                },
+                ShaderBindingDesc {
+                    binding: 1,
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                },
+            ];
+
+            let uploaded_model = GpuModelRef::new(
+                diffuse_map,
+                vertex_buffer,
+                index_buffer,
+                // TODO: generate this from model/shader metadata
+                // hardcoding this for now to move forward with model rendering
+                ShaderDesc {
+                    desc_set_layout_bindings,
+                    vertex_shader: model.vertex_shader.clone(),
+                    fragment_shader: model.fragment_shader.clone(),
+                },
+            );
+            completed_uploads.push((index, uploaded_model));
+        }
+        unsafe {
+            device.device_wait_idle().unwrap();
+        }
+        for image in src_images {
+            image.deallocate(&device);
+        }
+        unsafe {
+            device.destroy_fence(fence, None);
+            device.destroy_command_pool(pool, None);
+        }
+        completed_uploads
     }
 
     fn renderer(&mut self) -> Result<Renderer, VulkanError> {
@@ -558,20 +711,20 @@ impl<'a> VulkanBaseWrapper<'a> {
             pipeline_descriptions: HashMap::new(),
             logger,
         };
-        renderer.rebuild_pipelines_with_base(self.base)?;
+        renderer.rebuild_pipelines_with_base(self)?;
         Ok(renderer)
     }
 
     pub fn scissors(&self) -> Vec<vk::Rect2D> {
-        vec![self.base.surface_resolution.into()]
+        vec![self.surface_resolution.into()]
     }
 
     pub fn viewports(&self) -> Vec<vk::Viewport> {
         vec![vk::Viewport {
             x: 0.0,
             y: 0.0,
-            width: self.base.surface_resolution.width as f32,
-            height: self.base.surface_resolution.height as f32,
+            width: self.surface_resolution.width as f32,
+            height: self.surface_resolution.height as f32,
             min_depth: 0.0,
             max_depth: 1.0,
         }]
@@ -657,7 +810,7 @@ impl<'a> VulkanBaseWrapper<'a> {
                 .render_pass(render_pass);
 
             let pipeline = unsafe {
-                self.base.device.create_graphics_pipelines(
+                self.device.create_graphics_pipelines(
                     vk::PipelineCache::null(),
                     &[*graphics_pipeline_info],
                     None,
@@ -762,7 +915,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         let desc_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(pool)
             .set_layouts(layouts);
-        unsafe { self.base.device.allocate_descriptor_sets(&desc_alloc_info) }
+        unsafe { self.device.allocate_descriptor_sets(&desc_alloc_info) }
             .map_err(VulkanError::VkResultToDo)
     }
 
@@ -782,8 +935,7 @@ impl<'a> VulkanBaseWrapper<'a> {
 
         let descriptor_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         let layout = unsafe {
-            self.base
-                .device
+            self.device
                 .create_descriptor_set_layout(&descriptor_info, None)
         }
         .map_err(VulkanError::VkResultToDo)?;
@@ -819,8 +971,7 @@ impl<'a> VulkanBaseWrapper<'a> {
             .pool_sizes(&descriptor_sizes)
             .max_sets(max_sets);
         unsafe {
-            self.base
-                .device
+            self.device
                 .create_descriptor_pool(&descriptor_pool_info, None)
         }
         .map_err(VulkanError::VkResultToDo)
@@ -842,66 +993,9 @@ impl<'a> VulkanBaseWrapper<'a> {
             ..Default::default()
         };
 
-        unsafe { self.base.device.create_sampler(&sampler_info, None) }
+        unsafe { self.device.create_sampler(&sampler_info, None) }
             .map_err(VulkanError::VkResultToDo)
     }
-}
-
-/// VulkanBase - ahead-of-runtime base functionality for the Vulkan plugin. The
-/// idea here is to keep the facilities as generic as is reasonable and provide
-/// them to `ash_renderer_plugin`. In essence, what doesn't change much stays
-/// here, while rapidly moving/changing code should live in the plugin until it
-/// stabilizes into generic functionality.
-struct VulkanBase {
-    win_ptr: platform::WinPtr,
-    entry: ash::Entry,
-    instance: ash::Instance,
-    device: Device,
-    surface_loader: Surface,
-    swapchain_loader: Swapchain,
-
-    physical_device: vk::PhysicalDevice,
-    device_memory_properties: vk::PhysicalDeviceMemoryProperties,
-    queue_family_index: u32,
-    present_queue: vk::Queue,
-
-    surface: vk::SurfaceKHR,
-    surface_format: vk::SurfaceFormatKHR,
-    surface_resolution: vk::Extent2D,
-
-    swapchain: vk::SwapchainKHR,
-    present_images: Vec<vk::Image>,
-    present_image_views: Vec<vk::ImageView>,
-
-    pool: vk::CommandPool,
-    draw_cmd_buf: vk::CommandBuffer,
-    setup_command_buffer: vk::CommandBuffer,
-
-    depth_image: vk::Image,
-    depth_image_view: vk::ImageView,
-    depth_image_memory: vk::DeviceMemory,
-
-    present_complete_semaphore: vk::Semaphore,
-    rendering_complete_semaphore: vk::Semaphore,
-
-    draw_commands_reuse_fence: vk::Fence,
-    setup_commands_reuse_fence: vk::Fence,
-
-    maybe_debug_utils_loader: Option<ash::extensions::ext::DebugUtils>,
-    maybe_debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
-
-    tracked_models: HashMap<ModelIndex, (GpuModelRef, Instant)>,
-
-    framebuffers: Vec<vk::Framebuffer>,
-    render_pass: vk::RenderPass,
-
-    flag_recreate_swapchain: bool,
-
-    logger: Logger,
-
-    _debug_struct: Arc<DebugStruct>,
-}
-impl VulkanBase {
     /// Create attachments for renderpass construction
     pub fn create_attachments(
         format: vk::Format,
@@ -1000,12 +1094,6 @@ impl VulkanBase {
         }
     }
 
-    /// Get a handle to the GPU-tracked data for a given model. Returns `None`
-    /// if not tracked yet, and must be uploaded with `track_uploaded_model`
-    /// first.
-    fn get_tracked_model(&self, index: impl Into<ModelIndex>) -> Option<&GpuModelRef> {
-        self.tracked_models.get(&index.into()).map(|(gpu, _)| gpu)
-    }
     /// Create a new instance of VulkanBase, takes a platform::WinPtr and some
     /// flags. This allows each window created by a process to be injected
     /// into the renderer intended to bind it. Returns an error when the
@@ -1046,11 +1134,11 @@ impl VulkanBase {
 
         let instance = unsafe { entry.create_instance(&create_info, None) }.unwrap();
 
-        let debug = DebugStruct::new(logger.sub("vk-callback"));
+        let debug = VulkanDebug::new(logger.sub("vk-callback"));
         let (maybe_debug_utils_loader, maybe_debug_call_back) = {
             if enable_validation_layer {
                 let (debug_utils_loader, debug_call_back) =
-                    create_debug_callback(&entry, &instance, &debug);
+                    debug_callback::create_debug_callback(&entry, &instance, &debug);
                 (Some(debug_utils_loader), Some(debug_call_back))
             } else {
                 (None, None)
@@ -2208,122 +2296,6 @@ impl GpuModelRef {
 }
 // TODO cleanup pass
 
-fn upload_models(
-    state: &mut RenderState,
-    base: &mut VulkanBase,
-    mut upload_queue: VecDeque<(ModelIndex, models::Model)>,
-) -> Vec<(ModelIndex, GpuModelRef)> {
-    let logger = state.logger.sub("upload_models");
-
-    if upload_queue.is_empty() {
-        return vec![];
-    }
-
-    let device = base.device.clone();
-    let queue = base.present_queue;
-    let queue_family_index = base.queue_family_index;
-    let device_memory_properties = base.device_memory_properties;
-    let w = DeviceWrapper::wrap(&device, &state.logger.sub("upload_models"));
-    let pool = w.create_command_pool(queue_family_index).unwrap();
-    let fence = w.create_fence().unwrap();
-    let mut src_images = Vec::new();
-    let mut completed_uploads = Vec::new();
-    for (index, model) in upload_queue.drain(..) {
-        debug!(logger, "loading model at {index:?}");
-        debug!(logger, "material {:?}", model.material.path);
-
-        let command_buffers = w.allocate_command_buffers(pool).unwrap();
-        let command_buffer = command_buffers[0];
-
-        w.wait_for_fence(fence).unwrap();
-        w.begin_command_buffer(command_buffer).unwrap();
-
-        let diffuse_map = maybe_cmd_upload_image(
-            &w,
-            model.material.diffuse_map.as_ref(),
-            device_memory_properties,
-            command_buffer,
-            &mut src_images,
-        );
-        // let specular_map = maybe_cmd_upload_image(
-        //     &w,
-        //     model.material.specular_map.as_ref(),
-        //     device_memory_properties,
-        //     command_buffer,
-        //     &mut src_images,
-        // );
-        // let bump_map = maybe_cmd_upload_image(
-        //     &w,
-        //     model.material.bump_map.as_ref(),
-        //     device_memory_properties,
-        //     command_buffer,
-        //     &mut src_images,
-        // );
-
-        w.end_command_buffer(command_buffer).unwrap();
-
-        let submit_infos = [*vk::SubmitInfo::builder().command_buffers(&command_buffers)];
-        w.queue_submit(fence, queue, &submit_infos).unwrap();
-
-        let vertex_buffer = w
-            .allocate_and_init_buffer(
-                vk::BufferUsageFlags::VERTEX_BUFFER,
-                device_memory_properties,
-                &model.mesh.vertices,
-            )
-            .unwrap();
-
-        let index_buffer = w
-            .allocate_and_init_buffer(
-                vk::BufferUsageFlags::INDEX_BUFFER,
-                device_memory_properties,
-                &model.mesh.indices,
-            )
-            .unwrap();
-
-        let desc_set_layout_bindings = vec![
-            ShaderBindingDesc {
-                binding: 0,
-                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                descriptor_count: 1,
-                // make the uniform buffer available at both vertex and fragment stages
-                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-            },
-            ShaderBindingDesc {
-                binding: 1,
-                descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: 1,
-                stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            },
-        ];
-
-        let uploaded_model = GpuModelRef::new(
-            diffuse_map,
-            vertex_buffer,
-            index_buffer,
-            // TODO: generate this from model/shader metadata
-            // hardcoding this for now to move forward with model rendering
-            ShaderDesc {
-                desc_set_layout_bindings,
-                vertex_shader: model.vertex_shader.clone(),
-                fragment_shader: model.fragment_shader.clone(),
-            },
-        );
-        completed_uploads.push((index, uploaded_model));
-    }
-    unsafe {
-        device.device_wait_idle().unwrap();
-    }
-    for image in src_images {
-        image.deallocate(&device);
-    }
-    unsafe {
-        device.destroy_fence(fence, None);
-        device.destroy_command_pool(pool, None);
-    }
-    completed_uploads
-}
-
 fn maybe_cmd_upload_image(
     w: &DeviceWrapper,
     map: Option<&Image>,
@@ -2379,8 +2351,7 @@ impl StatefulPlugin for VulkanRenderPlugin {
 
         info!(logger, "initialized vulkan base");
 
-        let mut wrapper = VulkanBaseWrapper::new(&mut base, &logger);
-        self.renderer = Some(wrapper.renderer().expect("unable to setup renderer"));
+        self.renderer = Some(base.renderer().expect("unable to setup renderer"));
         info!(logger, "set presenter");
 
         self.base = Some(base);
@@ -2400,8 +2371,11 @@ impl StatefulPlugin for VulkanRenderPlugin {
             if state.updates % 10 == 0 {
                 let upload_queue = state.drain_upload_queue();
                 let rebuild_resources = !upload_queue.is_empty();
-                for (index, uploaded_model) in
-                    upload_models(state, self.base.as_mut().unwrap(), upload_queue)
+                for (index, uploaded_model) in self
+                    .base
+                    .as_mut()
+                    .unwrap()
+                    .upload_models(upload_queue, self.logger.sub("upload-models"))
                 {
                     self.base
                         .as_mut()
@@ -2434,95 +2408,3 @@ impl StatefulPlugin for VulkanRenderPlugin {
 impl RenderPlugin for VulkanRenderPlugin {}
 
 impl_plugin!(VulkanRenderPlugin, RenderState => render_plugin);
-
-/// Vulkan's debug callback.
-unsafe extern "system" fn vulkan_debug_callback(
-    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    message_type: vk::DebugUtilsMessageTypeFlagsEXT,
-    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
-    user_data: *mut std::os::raw::c_void,
-) -> vk::Bool32 {
-    let callback_data = *p_callback_data;
-    let message_id_number = callback_data.message_id_number;
-
-    let message_id_name = if callback_data.p_message_id_name.is_null() {
-        Cow::from("")
-    } else {
-        CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
-    };
-
-    let message = if callback_data.p_message.is_null() {
-        Cow::from("")
-    } else {
-        CStr::from_ptr(callback_data.p_message).to_string_lossy()
-    };
-
-    if ptr::null() != user_data {
-        let debug_struct = Weak::from_raw(user_data as *const DebugStruct);
-        if let Some(debug_struct) = debug_struct.upgrade() {
-            warn!(
-                debug_struct.logger,
-                "VK({}) {:?}: {:?} [{} ({})] : {}",
-                debug_struct.placeholder,
-                message_severity,
-                message_type,
-                message_id_name,
-                &message_id_number.to_string(),
-                message.trim(),
-            );
-        }
-        // We're done with this call, but Weak::from_raw takes ownership, and we don't
-        // want to drop this pointer. We will be called many times with this pointer.
-        mem::forget(debug_struct);
-        return vk::FALSE;
-    }
-
-    println!(
-        "VK {:?}: {:?} [{} ({})] : {}",
-        message_severity,
-        message_type,
-        message_id_name,
-        &message_id_number.to_string(),
-        message.trim(),
-    );
-
-    vk::FALSE
-}
-
-fn create_debug_callback(
-    entry: &Entry,
-    instance: &ash::Instance,
-    debug: &Arc<DebugStruct>,
-) -> (ext::DebugUtils, vk::DebugUtilsMessengerEXT) {
-    let debug_utils_loader = ext::DebugUtils::new(entry, instance);
-
-    // Just attach a placeholder userdata object for context to be passed into
-    // callbacks. VulkanBase owns the Arc.
-    let weak = Arc::downgrade(debug);
-
-    // Yee haw.
-    let user_data = Weak::into_raw(weak) as *mut c_void;
-
-    let debug_call_back = {
-        let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
-            .message_severity(
-                vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
-                    | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
-                    | vk::DebugUtilsMessageSeverityFlagsEXT::INFO,
-            )
-            .message_type(
-                vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
-                    | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
-                    | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
-            )
-            .user_data(user_data)
-            .pfn_user_callback(Some(vulkan_debug_callback));
-
-        unsafe {
-            debug_utils_loader
-                .create_debug_utils_messenger(&debug_info, None)
-                .unwrap()
-        }
-    };
-    (debug_utils_loader, debug_call_back)
-}

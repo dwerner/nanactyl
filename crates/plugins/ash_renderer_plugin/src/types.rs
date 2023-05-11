@@ -7,8 +7,6 @@ use std::path::PathBuf;
 
 use ash::vk;
 
-use crate::VulkanBase;
-
 /// Collection of specific error types that Vulkan can raise, in rust form.
 #[derive(thiserror::Error, Debug)]
 pub enum VulkanError {
@@ -153,49 +151,6 @@ pub struct ShaderDesc {
     pub desc_set_layout_bindings: Vec<ShaderBindingDesc>,
     pub vertex_shader: PathBuf,
     pub fragment_shader: PathBuf,
-}
-
-/// Handle to resources on the GPU comprising a model, texture and shader.
-pub struct GpuModelRef {
-    pub vertex_buffer: BufferAndMemory,
-    pub index_buffer: BufferAndMemory,
-    pub diffuse_map: Option<Texture>,
-    // pub specular_map: Option<Texture>,
-    // pub bump_map: Option<Texture>,
-    pub shaders: ShaderDesc,
-}
-
-impl GpuModelRef {
-    pub fn new(
-        diffuse_map: Option<Texture>,
-        // specular_map: Option<Texture>,
-        // bump_map: Option<Texture>,
-        vertex_buffer: BufferAndMemory,
-        index_buffer: BufferAndMemory,
-        shaders: ShaderDesc,
-    ) -> Self {
-        Self {
-            diffuse_map,
-            // specular_map,
-            // bump_map,
-            vertex_buffer,
-            index_buffer,
-            shaders,
-        }
-    }
-    pub fn deallocate(&self, base: &mut VulkanBase) {
-        self.index_buffer.deallocate(&base.device);
-        self.vertex_buffer.deallocate(&base.device);
-        self.diffuse_map
-            .as_ref()
-            .map(|map| map.deallocate(&base.device));
-        // self.specular_map
-        //     .as_ref()
-        //     .map(|map| map.deallocate(&base.device));
-        // self.bump_map
-        //     .as_ref()
-        //     .map(|map| map.deallocate(&base.device));
-    }
 }
 
 /// Holds references to GPU resources for a texture.

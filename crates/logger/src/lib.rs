@@ -32,11 +32,11 @@ impl FromStr for LogLevel {
 impl fmt::Display for LogLevel {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            LogLevel::Error => write!(f, "E"),
-            LogLevel::Warn => write!(f, "W"),
+            LogLevel::Error => write!(f, "ERROR"),
+            LogLevel::Warn => write!(f, "WARN"),
             LogLevel::Info => write!(f, "I"),
-            LogLevel::Debug => write!(f, "D"),
-            LogLevel::Trace => write!(f, "T"),
+            LogLevel::Debug => write!(f, "DEBUG"),
+            LogLevel::Trace => write!(f, "TRACE"),
         }
     }
 }
@@ -54,6 +54,12 @@ impl LogLevel {
 pub struct Logger {
     pub level: LogLevel,
     path: Vec<String>,
+}
+
+impl Default for Logger {
+    fn default() -> Self {
+        Logger::new(LogLevel::Info)
+    }
 }
 
 impl Logger {

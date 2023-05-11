@@ -344,6 +344,11 @@ fn main() {
         } // 'frame_loop
 
         // Unload stateful plugins
+        ash_renderer_plugin
+            .lock()
+            .await
+            .call_unload(&mut *render_state.lock().await)
+            .unwrap();
         world_update_plugin
             .lock()
             .await

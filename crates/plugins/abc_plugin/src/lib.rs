@@ -8,7 +8,7 @@ struct AbcPlugin {
 }
 
 const NAME: &str = "abc-plugin";
-const VERSION: u64 = 0;
+const _VERSION: u64 = 0;
 
 impl StatefulPlugin for AbcPlugin {
     type State = World;

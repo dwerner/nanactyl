@@ -11,9 +11,7 @@ use sdl2::event::Event as SdlEvent;
 use sdl2::haptic::Haptic;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
-use sdl2::render::{Texture, TextureCreator};
 use sdl2::surface::Surface;
-use sdl2::video::Window;
 
 #[derive(thiserror::Error, Debug)]
 pub enum PlatformError {

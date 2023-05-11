@@ -11,6 +11,9 @@ use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::BufReader;
 use std::mem::{self, align_of};
+use std::os::raw::c_void;
+use std::ptr;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use ash::extensions::ext;
@@ -18,7 +21,7 @@ use ash::extensions::khr::{Surface, Swapchain};
 use ash::util::Align;
 use ash::{vk, Device, Entry};
 use glam::{Mat4, Vec3};
-use logger::{debug, info, Logger};
+use logger::{debug, info, warn, Logger};
 use models::{Image, Vertex};
 use platform::WinPtr;
 use plugin_self::{impl_plugin, StatefulPlugin};
@@ -34,11 +37,27 @@ use types::{
 };
 
 /// Renderer struct owning the descriptor pool, pipelines and descriptions.
-pub struct Renderer {
+struct Renderer {
     descriptor_pool: vk::DescriptorPool,
     graphics_pipelines: HashMap<ModelIndex, vk::Pipeline>,
     pipeline_descriptions: HashMap<ModelIndex, PipelineDesc>,
     logger: Logger,
+}
+
+#[repr(C)]
+struct DebugStruct {
+    placeholder: u32,
+    logger: Logger,
+}
+
+impl DebugStruct {
+    fn new(logger: Logger) -> Arc<Self> {
+        let s = DebugStruct {
+            placeholder: 42,
+            logger,
+        };
+        Arc::new(s)
+    }
 }
 
 impl Renderer {
@@ -513,9 +532,9 @@ fn surface_loader_physical_device<'a>(
 
 // TODO: write a frame struct here that's to hold all the resources a frame
 // needs
-pub struct Frame {}
+struct Frame {}
 
-pub struct VulkanBaseWrapper<'a> {
+struct VulkanBaseWrapper<'a> {
     base: &'a mut VulkanBase,
     logger: Logger,
 }
@@ -526,7 +545,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         Self { base, logger }
     }
 
-    pub fn renderer(&mut self) -> Result<Renderer, VulkanError> {
+    fn renderer(&mut self) -> Result<Renderer, VulkanError> {
         let logger = self.logger.sub("renderer");
         // TODO: shaders that apply only to certain models need different descriptor
         // sets.
@@ -558,7 +577,7 @@ impl<'a> VulkanBaseWrapper<'a> {
         }]
     }
 
-    pub fn create_graphics_pipelines(
+    fn create_graphics_pipelines(
         &mut self,
         pipeline_descriptions: &HashMap<ModelIndex, PipelineDesc>,
         render_pass: vk::RenderPass,
@@ -879,6 +898,8 @@ struct VulkanBase {
     flag_recreate_swapchain: bool,
 
     logger: Logger,
+
+    _debug_struct: Arc<DebugStruct>,
 }
 impl VulkanBase {
     /// Create attachments for renderpass construction
@@ -1025,10 +1046,11 @@ impl VulkanBase {
 
         let instance = unsafe { entry.create_instance(&create_info, None) }.unwrap();
 
+        let debug = DebugStruct::new(logger.sub("vk-callback"));
         let (maybe_debug_utils_loader, maybe_debug_call_back) = {
             if enable_validation_layer {
                 let (debug_utils_loader, debug_call_back) =
-                    create_debug_callback(&entry, &instance);
+                    create_debug_callback(&entry, &instance, &debug);
                 (Some(debug_utils_loader), Some(debug_call_back))
             } else {
                 (None, None)
@@ -1288,6 +1310,7 @@ impl VulkanBase {
             render_pass,
             flag_recreate_swapchain: false,
             logger,
+            _debug_struct: debug,
         })
     }
 
@@ -2417,7 +2440,7 @@ unsafe extern "system" fn vulkan_debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
     message_type: vk::DebugUtilsMessageTypeFlagsEXT,
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
-    _user_data: *mut std::os::raw::c_void,
+    user_data: *mut std::os::raw::c_void,
 ) -> vk::Bool32 {
     let callback_data = *p_callback_data;
     let message_id_number = callback_data.message_id_number;
@@ -2434,6 +2457,26 @@ unsafe extern "system" fn vulkan_debug_callback(
         CStr::from_ptr(callback_data.p_message).to_string_lossy()
     };
 
+    if ptr::null() != user_data {
+        let debug_struct = Weak::from_raw(user_data as *const DebugStruct);
+        if let Some(debug_struct) = debug_struct.upgrade() {
+            warn!(
+                debug_struct.logger,
+                "VK({}) {:?}: {:?} [{} ({})] : {}",
+                debug_struct.placeholder,
+                message_severity,
+                message_type,
+                message_id_name,
+                &message_id_number.to_string(),
+                message.trim(),
+            );
+        }
+        // We're done with this call, but Weak::from_raw takes ownership, and we don't
+        // want to drop this pointer. We will be called many times with this pointer.
+        mem::forget(debug_struct);
+        return vk::FALSE;
+    }
+
     println!(
         "VK {:?}: {:?} [{} ({})] : {}",
         message_severity,
@@ -2449,8 +2492,17 @@ unsafe extern "system" fn vulkan_debug_callback(
 fn create_debug_callback(
     entry: &Entry,
     instance: &ash::Instance,
+    debug: &Arc<DebugStruct>,
 ) -> (ext::DebugUtils, vk::DebugUtilsMessengerEXT) {
     let debug_utils_loader = ext::DebugUtils::new(entry, instance);
+
+    // Just attach a placeholder userdata object for context to be passed into
+    // callbacks. VulkanBase owns the Arc.
+    let weak = Arc::downgrade(debug);
+
+    // Yee haw.
+    let user_data = Weak::into_raw(weak) as *mut c_void;
+
     let debug_call_back = {
         let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
             .message_severity(
@@ -2463,6 +2515,7 @@ fn create_debug_callback(
                     | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
                     | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
             )
+            .user_data(user_data)
             .pfn_user_callback(Some(vulkan_debug_callback));
 
         unsafe {

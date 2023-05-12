@@ -2,7 +2,7 @@
 mod tests {
 
     use logger::{info, LogLevel};
-    use plugin_loader::Plugin;
+    use plugin_loader::{Plugin, PluginCheck, PluginError};
     use world::World;
 
     #[smol_potat::test]
@@ -59,13 +59,35 @@ mod tests {
         .run()
         .unwrap();
 
-        plugin.check(&mut state).unwrap();
+        match plugin.check(&mut state) {
+            Ok(PluginCheck::FoundNewVersion) => info!(
+                logger,
+                "found new version ({}) of plugin: {}",
+                plugin.version(),
+                plugin.name(),
+            ),
+            Ok(PluginCheck::Unchanged) => info!(logger, "plugin unchanged"),
+            Err(m @ PluginError::MetadataIo { .. }) => {
+                info!(
+                    logger,
+                    "error getting file metadata for plugin {}: {:?}",
+                    plugin.name(),
+                    m
+                );
+            }
+            Err(o @ PluginError::ErrorOnOpen(_)) => {
+                info!(logger, "error opening plugin {}: {:?}", plugin.name(), o);
+            }
+            Err(err) => panic!("unexpected error checking plugin - {err:?}"),
+        }
+
         plugin
             .call_update(&mut state, &std::time::Duration::from_secs(1))
             .await
             .unwrap();
 
         plugin.call_unload(&mut state).unwrap();
+
         drop(plugin);
     }
 }

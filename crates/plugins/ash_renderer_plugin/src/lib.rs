@@ -25,8 +25,8 @@ use glam::{Mat4, Vec3};
 use logger::{debug, info, Logger};
 use models::Vertex;
 use platform::WinPtr;
-use plugin_self::{impl_plugin, StatefulPlugin};
-use render::{Presenter, RenderPlugin, RenderScene, RenderState};
+use plugin_self::{impl_plugin_state_field, PluginState};
+use render::{Presenter, RenderPluginState, RenderScene, RenderState};
 use shader_objects::{PushConstants, UniformBuffer};
 use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, PipelineDesc, ShaderBindingDesc, ShaderDesc,
@@ -453,7 +453,7 @@ impl Renderer {
     }
 }
 
-impl Presenter for VulkanRenderPlugin {
+impl Presenter for VulkanRenderPluginState {
     fn present(&mut self, scene: &RenderScene) {
         if let Some(renderer) = &mut self.renderer {
             renderer
@@ -1757,7 +1757,7 @@ impl Drop for VulkanBase {
 }
 
 #[derive(Default)]
-pub struct VulkanRenderPlugin {
+pub struct VulkanRenderPluginState {
     win_ptr: Option<WinPtr>,
     enable_validation_layers: bool,
     base: Option<VulkanBase>,
@@ -1765,11 +1765,11 @@ pub struct VulkanRenderPlugin {
     logger: Logger,
 }
 
-impl StatefulPlugin for VulkanRenderPlugin {
+impl PluginState for VulkanRenderPluginState {
     type State = RenderState;
 
     fn new() -> Box<Self> {
-        Box::new(VulkanRenderPlugin::default())
+        Box::new(VulkanRenderPluginState::default())
     }
 
     fn load(&mut self, state: &mut Self::State) {
@@ -1839,6 +1839,12 @@ impl StatefulPlugin for VulkanRenderPlugin {
     }
 }
 
-impl RenderPlugin for VulkanRenderPlugin {}
+impl Drop for VulkanRenderPluginState {
+    fn drop(&mut self) {
+        info!(self.logger, "dropping vulkan render plugin state...");
+    }
+}
 
-impl_plugin!(VulkanRenderPlugin, RenderState => render_plugin);
+impl RenderPluginState for VulkanRenderPluginState {}
+
+impl_plugin_state_field!(VulkanRenderPluginState, RenderState => render_plugin_state);

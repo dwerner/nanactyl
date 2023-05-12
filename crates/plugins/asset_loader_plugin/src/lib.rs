@@ -82,7 +82,7 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     info!(
         logger,
         "loaded asset loader plugin (updates {}) - models {})",
-        world.updates,
+        world.stats.updates,
         world.facets.model_iter().count()
     );
 }
@@ -95,6 +95,6 @@ pub extern "C" fn unload(state: &mut AssetLoaderStateAndWorldLock) {
     state.world.clear();
     info!(
         state.world.logger,
-        "unloaded asset loader plugin ({})", state.world.updates
+        "unloaded asset loader plugin ({})", state.world.stats.updates
     );
 }

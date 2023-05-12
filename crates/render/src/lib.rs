@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use async_lock::{Mutex, MutexGuardArc};
 use logger::{LogLevel, Logger};
 use platform::WinPtr;
-use plugin_self::StatefulPlugin;
+use plugin_self::PluginState;
 use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalFacet, PhysicalIndex};
 use world::{Identity, Vec3, World};
 
@@ -53,11 +53,18 @@ pub enum SceneQueryError {
 pub struct RenderState {
     pub updates: u64,
     pub win_ptr: WinPtr,
-    pub render_plugin: Option<Box<dyn RenderPlugin<State = RenderState> + Send + Sync>>,
     pub enable_validation_layer: bool,
     pub model_upload_queue: VecDeque<(ModelIndex, models::Model)>,
-    pub scene: RenderScene,
     pub logger: Logger,
+
+    pub scene: RenderScene,
+
+    /// Internal plugin state held by RenderState. Must be cleared between each
+    /// update to the plugin, and unload called.
+    ///
+    /// Currently this *internal* state and the externally controlled "plugin"
+    /// owned by the app conflict in name a bit.
+    pub render_plugin_state: Option<Box<dyn RenderPluginState<State = Self> + Send + Sync>>,
 }
 
 impl RenderState {
@@ -65,7 +72,7 @@ impl RenderState {
         Self {
             updates: 0,
             win_ptr,
-            render_plugin: None,
+            render_plugin_state: None,
             enable_validation_layer,
             scene: RenderScene {
                 active_camera: if is_server { 0 } else { 1 },
@@ -98,7 +105,7 @@ impl RenderState {
     }
 
     pub fn tracked_model(&mut self, index: ModelIndex) -> Option<Instant> {
-        self.render_plugin
+        self.render_plugin_state
             .as_mut()
             .map(|plugin| plugin.tracked_model(index))
             .flatten()
@@ -111,16 +118,98 @@ impl RenderState {
     }
 
     pub fn update_scene(&mut self, scene: RenderScene) -> Result<(), SceneError> {
+        // TODO: remove this copying and indirection from RenderState
         self.scene.drawables = scene.drawables;
         self.scene.cameras = scene.cameras;
         Ok(())
     }
-}
 
-// TODO - replace with Box<dyn RenderPlugin>
-#[derive(Default)]
-pub struct VulkanRendererState {
-    pub presenter: Option<Box<dyn Presenter + Send + Sync>>,
+    pub fn update_render_scene(&mut self, world: &World) -> Result<(), SceneError> {
+        // TODO Fix hardcoded cameras.
+        let c1 = world
+            .get_camera_facet(0u32.into())
+            .map_err(SceneError::World)?;
+        let c2 = world
+            .get_camera_facet(1u32.into())
+            .map_err(SceneError::World)?;
+
+        let cameras = vec![c1, c2];
+        let mut drawables = vec![];
+
+        for (_id, thing) in world.things().iter().enumerate() {
+            let model_ref = match &thing.facets {
+                world::thing::ThingType::Camera { phys, camera } => {
+                    let phys = world
+                        .facets
+                        .physical(*phys)
+                        .ok_or(SceneQueryError::NoSuchPhys(*phys))?;
+                    let cam = world
+                        .facets
+                        .camera(*camera)
+                        .ok_or(SceneQueryError::NoSuchCamera(*camera))?;
+
+                    let right = cam.right(phys);
+                    let forward = cam.forward(phys);
+                    let pos =
+                        phys.position + Vec3::new(right.x + forward.x, -2.0, right.z + forward.z);
+                    let angles = Vec3::new(0.0, phys.angles.y - 1.57, 0.0);
+
+                    SceneModelInstance {
+                        model: cam.associated_model.unwrap(),
+                        pos,
+                        angles,
+                        scale: phys.scale,
+                    }
+                }
+                world::thing::ThingType::ModelObject { phys, model } => {
+                    let facet = world
+                        .facets
+                        .physical(*phys)
+                        .ok_or(SceneQueryError::NoSuchPhys(*phys))?;
+
+                    SceneModelInstance {
+                        model: *model,
+                        pos: facet.position,
+                        angles: facet.angles,
+                        scale: facet.scale,
+                    }
+                }
+            };
+            drawables.push(model_ref);
+        }
+        let active_camera = if world.is_server() { 0 } else { 1 };
+        let scene = RenderScene {
+            active_camera,
+            cameras,
+            drawables,
+        };
+        self.update_scene(scene)?;
+        Ok(())
+    }
+
+    /// Search through the world for models that need to be uploaded, and do so.
+    /// Does not yet handle updates to models.
+    pub fn update_models(&mut self, world: &World) {
+        let models: Vec<_> = {
+            world
+                .facets
+                .model_iter()
+                .map(|(index, model)| (index, model.clone()))
+                .collect()
+        };
+        // This needs to move to somewhere that owns the assets...
+        for (index, model) in models {
+            if let Some(_uploaded) = self.tracked_model(index) {
+                // TODO: handle model updates
+                // model already uploaded
+            } else if self.queued_model(index) {
+                // model already queued for upload
+            } else {
+                self.queue_model_for_upload(index, model)
+                    .expect("should upload");
+            }
+        }
+    }
 }
 
 /// Basic trait for calling into rendering functionality.
@@ -129,12 +218,13 @@ pub trait Presenter {
     fn update_resources(&mut self);
     fn drop_resources(&mut self);
 
+    /// Query for a tracked model.
     fn tracked_model(&mut self, index: ModelIndex) -> Option<Instant>;
     // TODO: upload_model, other resource management
 }
 
-/// A plugin that is also a Presenter.
-pub trait RenderPlugin: StatefulPlugin + Presenter {}
+/// A trait for the loader side to call into the renderer side.
+pub trait RenderPluginState: PluginState + Presenter {}
 
 #[derive(Debug, Copy, Clone)]
 pub struct TextureId(u32);
@@ -169,126 +259,4 @@ pub struct SceneModelInstance {
     pub pos: Vec3,
     pub angles: Vec3,
     pub scale: f32,
-}
-
-/// Acts as a combiner for Mutex, locking both mutexes but also releases both
-/// mutexes when dropped.
-pub struct LockWorldAndRenderState {
-    world: MutexGuardArc<World>,
-    render_state: MutexGuardArc<RenderState>,
-}
-
-impl LockWorldAndRenderState {
-    pub fn update_render_scene(&mut self) -> Result<(), SceneError> {
-        // TODO Fix hardcoded cameras.
-        let c1 = self
-            .world()
-            .get_camera_facet(0u32.into())
-            .map_err(SceneError::World)?;
-        let c2 = self
-            .world()
-            .get_camera_facet(1u32.into())
-            .map_err(SceneError::World)?;
-
-        let cameras = vec![c1, c2];
-        let mut drawables = vec![];
-
-        for (_id, thing) in self.world().things().iter().enumerate() {
-            let model_ref = match &thing.facets {
-                world::thing::ThingType::Camera { phys, camera } => {
-                    let phys = self
-                        .world()
-                        .facets
-                        .physical(*phys)
-                        .ok_or(SceneQueryError::NoSuchPhys(*phys))?;
-                    let cam = self
-                        .world()
-                        .facets
-                        .camera(*camera)
-                        .ok_or(SceneQueryError::NoSuchCamera(*camera))?;
-
-                    let right = cam.right(phys);
-                    let forward = cam.forward(phys);
-                    let pos =
-                        phys.position + Vec3::new(right.x + forward.x, -2.0, right.z + forward.z);
-                    let angles = Vec3::new(0.0, phys.angles.y - 1.57, 0.0);
-
-                    SceneModelInstance {
-                        model: cam.associated_model.unwrap(),
-                        pos,
-                        angles,
-                        scale: phys.scale,
-                    }
-                }
-                world::thing::ThingType::ModelObject { phys, model } => {
-                    let facet = self
-                        .world()
-                        .facets
-                        .physical(*phys)
-                        .ok_or(SceneQueryError::NoSuchPhys(*phys))?;
-
-                    SceneModelInstance {
-                        model: *model,
-                        pos: facet.position,
-                        angles: facet.angles,
-                        scale: facet.scale,
-                    }
-                }
-            };
-            drawables.push(model_ref);
-        }
-        let active_camera = if self.world().is_server() { 0 } else { 1 };
-        let scene = RenderScene {
-            active_camera,
-            cameras,
-            drawables,
-        };
-        self.render_state().update_scene(scene)?;
-        Ok(())
-    }
-
-    /// Search through the world for models that need to be uploaded, and do so.
-    /// Does not yet handle updates to models.
-    pub fn update_models(&mut self) {
-        let models: Vec<_> = {
-            let world = self.world();
-            world
-                .facets
-                .model_iter()
-                .map(|(index, model)| (index, model.clone()))
-                .collect()
-        };
-        // This needs to move to somewhere that owns the assets...
-        for (index, model) in models {
-            if let Some(_uploaded) = self.render_state().tracked_model(index) {
-                // TODO: handle model updates
-                // model already uploaded
-            } else if self.render_state().queued_model(index) {
-                // model already queued for upload
-            } else {
-                self.render_state()
-                    .queue_model_for_upload(index, model)
-                    .expect("should upload");
-            }
-        }
-    }
-
-    /// Locks the world and render state so that the renderstate may be updated
-    /// from the world.
-    pub async fn lock(world: &Arc<Mutex<World>>, render_state: &Arc<Mutex<RenderState>>) -> Self {
-        let world = Arc::clone(world).lock_arc().await;
-        let render_state = Arc::clone(render_state).lock_arc().await;
-        Self {
-            world,
-            render_state,
-        }
-    }
-
-    pub fn world(&self) -> &World {
-        self.world.deref()
-    }
-
-    pub fn render_state(&mut self) -> &mut RenderState {
-        self.render_state.deref_mut()
-    }
 }

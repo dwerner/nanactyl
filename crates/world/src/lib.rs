@@ -1,5 +1,7 @@
 //! Implements a world and entity system for the engine to mutate and render.
 
+pub mod thing;
+
 use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -7,22 +9,16 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_lock::{Mutex, MutexGuardArc};
+pub use glam::{Mat4, Quat, Vec3};
 use input::wire::InputState;
 use logger::{LogLevel, Logger};
 use models::Model;
 use network::{Connection, RpcError};
-use plugin_self::StatefulPlugin;
-use scene::Scene;
+use plugin_self::PluginState;
 use thing::{
     CameraFacet, CameraIndex, HealthFacet, HealthIndex, ModelFacet, ModelIndex, PhysicalFacet,
     PhysicalIndex, Thing, ThingType,
 };
-
-mod scene;
-pub mod thing;
-mod tree;
-
-pub use glam::{Mat4, Quat, Vec3};
 
 #[repr(C)]
 pub struct WorldLockAndControllerState {
@@ -188,24 +184,32 @@ pub enum WorldError {
 
 pub struct World {
     pub maybe_camera: Option<Identity>,
+
+    /// All entities
     pub things: Vec<Thing>,
     pub facets: WorldFacets,
-    pub scene: Scene,
-    pub updates: u64,
-    pub run_life: Duration,
-    pub last_tick: Instant,
+
+    pub stats: Stats,
+    pub config: Config,
 
     // TODO: support more than one connection, for servers
     // TODO: move into networking related struct
-    pub net_disabled: bool,
     pub connection: Option<Box<dyn Connection + Send + Sync + 'static>>,
     pub client_controller_state: Option<InputState>,
     pub server_controller_state: Option<InputState>,
-    pub maybe_server_addr: Option<SocketAddr>,
-
-    pub update_plugin_state: Option<Box<dyn StatefulPlugin<State = Self> + Send + Sync + 'static>>,
 
     pub logger: Logger,
+}
+
+pub struct Stats {
+    pub updates: u64,
+    pub run_life: Duration,
+    pub last_tick: Instant,
+}
+
+pub struct Config {
+    pub net_disabled: bool,
+    pub maybe_server_addr: Option<SocketAddr>,
 }
 
 impl World {
@@ -217,22 +221,25 @@ impl World {
     /// FIXME: make this /// independent of any connecting clients.
     pub fn new(maybe_server_addr: Option<SocketAddr>, logger: &Logger, net_disabled: bool) -> Self {
         Self {
-            net_disabled,
-            maybe_server_addr,
+            config: Config {
+                net_disabled,
+                maybe_server_addr,
+            },
+            stats: Stats {
+                updates: 0,
+                run_life: Duration::from_millis(0),
+                last_tick: Instant::now(),
+            },
             maybe_camera: None,
             things: vec![],
             facets: WorldFacets::default(),
-            scene: Scene::default(),
-            updates: 0,
-            run_life: Duration::from_millis(0),
-            last_tick: Instant::now(),
             connection: None,
             client_controller_state: None,
             server_controller_state: None,
             logger: logger.sub("world"),
-            update_plugin_state: None,
         }
     }
+
 
     pub fn get_camera_facet(
         &self,
@@ -285,7 +292,7 @@ impl World {
     }
 
     pub fn is_server(&self) -> bool {
-        self.maybe_server_addr.is_none()
+        self.config.maybe_server_addr.is_none()
     }
 
     pub fn add_thing(&mut self, thing: Thing) -> Result<Identity, WorldError> {

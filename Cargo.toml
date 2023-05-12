@@ -24,7 +24,6 @@ members = [
     "crates/plugins/tui_renderer_plugin",
     "crates/plugins/world_update_plugin",
     "crates/plugins/net_sync_plugin",
-    "crates/plugins/world_render_update_plugin",
 
     # binaries
     "crates/bin/nshell",

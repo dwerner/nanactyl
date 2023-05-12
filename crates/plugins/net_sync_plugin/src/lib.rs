@@ -35,9 +35,9 @@ enum PluginError {
 pub extern "C" fn load(state: &mut WorldLockAndControllerState) {
     info!(
         state.logger,
-        "reloaded net sync plugin ({})!", state.world.updates
+        "reloaded net sync plugin ({})!", state.world.stats.updates
     );
-    let connection = match state.world.maybe_server_addr {
+    let connection = match state.world.config.maybe_server_addr {
         Some(addr) => {
             futures_lite::future::block_on(async move {
                 let mut server = Peer::bind_dest("0.0.0.0:12001", &addr.to_string())
@@ -99,7 +99,7 @@ pub extern "C" fn update(s: &mut WorldLockAndControllerState, _dt: &Duration) {
 pub extern "C" fn unload(state: &mut WorldLockAndControllerState) {
     info!(
         state.logger,
-        "unloaded net sync plugin ({})...", state.world.updates
+        "unloaded net sync plugin ({})...", state.world.stats.updates
     );
     state.world.connection.take();
 }

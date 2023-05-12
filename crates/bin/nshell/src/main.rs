@@ -17,7 +17,7 @@ use input::wire::InputState;
 use input::{DeviceEvent, EngineEvent};
 use logger::{error, info, LogLevel, Logger};
 use plugin_loader::{Plugin, PluginCheck, PluginError};
-use render::{LockWorldAndRenderState, RenderState};
+use render::RenderState;
 use serde::Deserialize;
 use structopt::StructOpt;
 use structopt_yaml::StructOptYaml;
@@ -150,15 +150,6 @@ fn main() {
         .unwrap()
         .into_shared();
 
-        // world -> render state updater
-        let world_render_update_plugin =
-            Plugin::<render::LockWorldAndRenderState>::open_from_target_dir(
-                &opts.plugin_dir,
-                "world_render_update_plugin",
-            )
-            .unwrap()
-            .into_shared();
-
         // state needs to be dropped on the same thread as it was created
         let render_state = RenderState::new(
             win_ptr,
@@ -171,9 +162,10 @@ fn main() {
         let mut last_frame_complete = Instant::now();
 
         {
-            let mut world_render_update_state =
-                LockWorldAndRenderState::lock(&world, &render_state).await;
-            world_render_update_state.update_models();
+            render_state
+                .lock()
+                .await
+                .update_models(&*world.lock().await);
         }
 
         let mut frame = 0u64;
@@ -199,12 +191,6 @@ fn main() {
                 check_plugin(
                     &mut *asset_loader_plugin.lock().await,
                     &mut AssetLoaderStateAndWorldLock::lock(&world, &asset_loader_state).await,
-                    &logger,
-                );
-
-                check_plugin(
-                    &mut *world_render_update_plugin.lock().await,
-                    &mut LockWorldAndRenderState::lock(&world, &render_state).await,
                     &logger,
                 );
 
@@ -249,23 +235,12 @@ fn main() {
                 .await
                 .unwrap();
 
-            let _duration = executor
-                .spawn_on_core(2, {
-                    let render_state = Arc::clone(&render_state);
-                    let world = Arc::clone(&world);
-                    let plugin = Arc::clone(&world_render_update_plugin);
-                    Box::pin(async move {
-                        let mut state =
-                            render::LockWorldAndRenderState::lock(&world, &render_state).await;
-                        plugin
-                            .lock()
-                            .await
-                            .call_update(&mut state, &last_frame_elapsed)
-                            .await
-                    })
-                })
-                .await
-                .unwrap();
+            {
+                let state = &mut *render_state.lock().await;
+                let world = &*world.as_ref().lock().await;
+                state.update_models(world);
+                state.update_render_scene(world);
+            }
 
             match net_sync_plugin {
                 Some(ref net_sync_plugin) => {

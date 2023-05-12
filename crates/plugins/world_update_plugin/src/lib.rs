@@ -11,7 +11,7 @@ use glam::{Mat4, Vec3};
 use input::wire::InputState;
 use input::Button;
 use logger::{info, LogLevel, Logger};
-use plugin_self::{impl_plugin, StatefulPlugin};
+use plugin_self::{impl_plugin_static, PluginState};
 use rapier3d::control::{DynamicRayCastVehicleController, WheelTuning};
 use rapier3d::na::{self as nalgebra, point, vector, Vector};
 use rapier3d::prelude::{
@@ -20,7 +20,9 @@ use rapier3d::prelude::{
 use world::thing::{PhysicalIndex, EULER_ROT_ORDER};
 use world::{Identity, World, WorldError};
 
-struct WorldUpdatePlugin {
+/// Internal plugin state. The lifespan is load->update->unload and dropped
+/// after unload.
+struct WorldUpdatePluginState {
     logger: Logger,
     rigid_bodies: RigidBodySet,
     colliders: ColliderSet,
@@ -28,19 +30,17 @@ struct WorldUpdatePlugin {
     collider_handles: HashMap<PhysicalIndex, ColliderHandle>,
 }
 
-// The plugin is stateful and attached to the World struct as a Box<dyn
-// StatefulPlugin> in it's update_plugin_state field. All resources owned by the
-// plugin will be dropped when it is unloaded.
-impl_plugin!(WorldUpdatePlugin, World => update_plugin_state);
+// Hang any state for this plugin off a private static within.
+impl_plugin_static!(WorldUpdatePluginState, World);
 
-impl StatefulPlugin for WorldUpdatePlugin {
+impl PluginState for WorldUpdatePluginState {
     type State = World;
 
     fn new() -> Box<Self>
     where
         Self: Sized,
     {
-        Box::new(WorldUpdatePlugin {
+        Box::new(WorldUpdatePluginState {
             logger: LogLevel::Info.logger().sub("world-update"),
             rigid_bodies: RigidBodySet::new(),
             colliders: ColliderSet::new(),
@@ -52,7 +52,7 @@ impl StatefulPlugin for WorldUpdatePlugin {
     }
 
     fn load(&mut self, world: &mut Self::State) {
-        info!(world.logger, "loaded");
+        info!(world.logger, "loaded.");
 
         // Set up colliders and rigid bodies from the world state
         self.setup_ground_collider();
@@ -76,7 +76,7 @@ impl StatefulPlugin for WorldUpdatePlugin {
     }
 }
 
-impl WorldUpdatePlugin {
+impl WorldUpdatePluginState {
     fn setup_vehicle(&mut self) {
         let hw = 0.3;
         let hh = 0.15;
@@ -150,18 +150,18 @@ impl<'a> WorldExt<'a> {
     }
 
     fn update_stats(&mut self, dt: &Duration) {
-        self.inner.run_life += *dt;
-        self.inner.updates += 1;
+        self.inner.stats.run_life += *dt;
+        self.inner.stats.updates += 1;
     }
 
     fn duration_since_last_tick(&self) -> Duration {
         let now = Instant::now();
-        let since_last_tick = now.duration_since(self.inner.last_tick);
+        let since_last_tick = now.duration_since(self.inner.stats.last_tick);
         since_last_tick
     }
 
     fn set_last_tick(&mut self, now: Instant) {
-        self.inner.last_tick = now;
+        self.inner.stats.last_tick = now;
     }
 
     fn step_physical(&mut self) {

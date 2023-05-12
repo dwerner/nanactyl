@@ -1,5 +1,5 @@
 use logger::{info, LogLevel, Logger};
-use plugin_self::{impl_plugin, StatefulPlugin};
+use plugin_self::{impl_plugin_state_field, impl_plugin_static, PluginState};
 use world::World;
 
 struct AbcPlugin {
@@ -10,7 +10,7 @@ struct AbcPlugin {
 const NAME: &str = "abc-plugin";
 const _VERSION: u64 = 0;
 
-impl StatefulPlugin for AbcPlugin {
+impl PluginState for AbcPlugin {
     type State = World;
 
     fn new() -> Box<Self>
@@ -45,4 +45,4 @@ impl StatefulPlugin for AbcPlugin {
     }
 }
 
-impl_plugin!(AbcPlugin, World => update_plugin_state);
+impl_plugin_static!(AbcPlugin, World);

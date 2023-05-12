@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use gfx::Model;
 use glam::{EulerRot, Mat4, Vec3};
 
 pub const EULER_ROT_ORDER: EulerRot = EulerRot::XYZ;
@@ -11,7 +12,7 @@ pub struct HealthIndex(pub(crate) u32);
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct CameraIndex(pub(crate) u32);
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct ModelIndex(pub(crate) u32);
+pub struct GraphicsIndex(pub(crate) u32);
 
 impl From<u16> for CameraIndex {
     fn from(value: u16) -> Self {
@@ -49,19 +50,19 @@ impl From<PhysicalIndex> for u32 {
     }
 }
 
-impl From<u16> for ModelIndex {
+impl From<u16> for GraphicsIndex {
     fn from(value: u16) -> Self {
         Self(value as u32)
     }
 }
 
-impl From<ModelIndex> for u16 {
-    fn from(value: ModelIndex) -> Self {
+impl From<GraphicsIndex> for u16 {
+    fn from(value: GraphicsIndex) -> Self {
         value.0 as u16
     }
 }
 
-impl From<u32> for ModelIndex {
+impl From<u32> for GraphicsIndex {
     fn from(value: u32) -> Self {
         Self(value)
     }
@@ -85,7 +86,7 @@ impl From<usize> for PhysicalIndex {
     }
 }
 
-impl From<usize> for ModelIndex {
+impl From<usize> for GraphicsIndex {
     fn from(value: usize) -> Self {
         Self(value as u32)
     }
@@ -98,11 +99,12 @@ impl From<usize> for HealthIndex {
 }
 
 #[derive(Debug, Clone)]
-pub struct ModelFacet {
-    pub model: models::Model,
+pub struct GraphicsFacet {
+    pub model: Model,
 }
-impl ModelFacet {
-    pub fn new(model: models::Model) -> Self {
+
+impl GraphicsFacet {
+    pub fn new(model: Model) -> Self {
         Self { model }
     }
 }
@@ -203,7 +205,7 @@ impl std::fmt::Debug for PhysicalFacet {
 pub struct CameraFacet {
     pub view: Mat4,
     pub perspective: Mat4,
-    pub associated_model: Option<ModelIndex>,
+    pub associated_model: Option<GraphicsIndex>,
 }
 
 #[derive(Debug)]
@@ -233,7 +235,7 @@ impl CameraFacet {
         c
     }
 
-    pub fn set_associated_model(&mut self, model: ModelIndex) {
+    pub fn set_associated_model(&mut self, model: GraphicsIndex) {
         self.associated_model = Some(model);
     }
 
@@ -291,7 +293,7 @@ pub enum ThingType {
     },
     ModelObject {
         phys: PhysicalIndex,
-        model: ModelIndex,
+        model: GraphicsIndex,
     },
 }
 
@@ -301,7 +303,7 @@ pub struct Thing {
 }
 
 impl Thing {
-    pub fn model(phys: PhysicalIndex, model: ModelIndex) -> Self {
+    pub fn model(phys: PhysicalIndex, model: GraphicsIndex) -> Self {
         Thing {
             facets: ThingType::ModelObject { phys, model },
         }

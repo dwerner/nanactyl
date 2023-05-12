@@ -9,15 +9,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_lock::{Mutex, MutexGuardArc};
+use gfx::Model;
 pub use glam::{Mat4, Quat, Vec3};
 use input::wire::InputState;
 use logger::{LogLevel, Logger};
-use models::Model;
 use network::{Connection, RpcError};
 use plugin_self::PluginState;
 use thing::{
-    CameraFacet, CameraIndex, HealthFacet, HealthIndex, ModelFacet, ModelIndex, PhysicalFacet,
-    PhysicalIndex, Thing, ThingType,
+    CameraFacet, CameraIndex, GraphicsFacet, GraphicsIndex, HealthFacet, HealthIndex,
+    PhysicalFacet, PhysicalIndex, Thing, ThingType,
 };
 
 #[repr(C)]
@@ -101,7 +101,7 @@ pub trait Identifyable {
 #[derive(Default)]
 pub struct WorldFacets {
     cameras: Vec<CameraFacet>,
-    models: Vec<ModelFacet>,
+    models: Vec<GraphicsFacet>,
     pub physical: Vec<PhysicalFacet>,
     health: Vec<HealthFacet>,
 }
@@ -119,14 +119,14 @@ impl WorldFacets {
         self.cameras.get_mut(index.0 as usize)
     }
 
-    pub fn model_iter(&self) -> impl Iterator<Item = (ModelIndex, &Model)> {
+    pub fn model_iter(&self) -> impl Iterator<Item = (GraphicsIndex, &Model)> {
         self.models
             .iter()
             .enumerate()
             .map(|(index, facet)| (index.into(), &facet.model))
     }
 
-    pub fn model(&self, index: ModelIndex) -> Option<&ModelFacet> {
+    pub fn model(&self, index: GraphicsIndex) -> Option<&GraphicsFacet> {
         self.models.get(index.0 as usize)
     }
 
@@ -240,7 +240,6 @@ impl World {
         }
     }
 
-
     pub fn get_camera_facet(
         &self,
         cam_id: Identity,
@@ -313,10 +312,10 @@ impl World {
     }
 
     // Transform should be used as the offset of drawing from the physical facet
-    pub fn add_model(&mut self, model: ModelFacet) -> ModelIndex {
-        let models = &mut self.facets.models;
-        let idx = models.len();
-        models.push(model);
+    pub fn add_graphics(&mut self, model: GraphicsFacet) -> GraphicsIndex {
+        let graphics = &mut self.facets.models;
+        let idx = graphics.len();
+        graphics.push(model);
         idx.into()
     }
 

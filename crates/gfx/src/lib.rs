@@ -1,4 +1,4 @@
 //! Implements model loading through obj-parser.
 
-mod model;
-pub use crate::model::*;
+mod gfx;
+pub use crate::gfx::*;

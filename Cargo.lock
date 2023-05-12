@@ -108,10 +108,10 @@ dependencies = [
  "ash",
  "ash-window",
  "bytemuck",
+ "gfx",
  "glam",
  "image",
  "logger",
- "models",
  "platform",
  "plugin_self",
  "render",
@@ -124,8 +124,8 @@ dependencies = [
 name = "asset_loader_plugin"
 version = "0.1.0"
 dependencies = [
+ "gfx",
  "logger",
- "models",
  "world",
 ]
 
@@ -1254,6 +1254,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gfx"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "obj-parser",
+ "thiserror",
+]
+
+[[package]]
 name = "gif"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1633,15 +1642,6 @@ checksum = "e7810e0be55b428ada41041c41f32c9f1a42817901b4ccf45fa3d4b6561e74c7"
 dependencies = [
  "adler",
  "simd-adler32",
-]
-
-[[package]]
-name = "models"
-version = "0.1.0"
-dependencies = [
- "image",
- "obj-parser",
- "thiserror",
 ]
 
 [[package]]
@@ -2283,9 +2283,9 @@ name = "render"
 version = "0.1.0"
 dependencies = [
  "async-lock",
+ "gfx",
  "image",
  "logger",
- "models",
  "platform",
  "plugin_self",
  "thiserror",
@@ -3175,10 +3175,10 @@ name = "world"
 version = "0.1.0"
 dependencies = [
  "async-lock",
+ "gfx",
  "glam",
  "input",
  "logger",
- "models",
  "network",
  "plugin_self",
  "serde",

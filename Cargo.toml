@@ -5,7 +5,7 @@ members = [
     "crates/font-loader",
     "crates/logger",
     "crates/input",
-    "crates/models",
+    "crates/gfx",
     "crates/network",
     "crates/obj-parser",
     "crates/platform",

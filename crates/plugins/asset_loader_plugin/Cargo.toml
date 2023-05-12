@@ -10,5 +10,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 world = { path = "../../world" }
-models = { path = "../../models" }
+gfx = { path = "../../gfx" }
 logger = { path = "../../logger" }

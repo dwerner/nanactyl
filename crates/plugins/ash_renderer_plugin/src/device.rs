@@ -2,8 +2,8 @@ use std::mem::align_of;
 
 use ash::util::Align;
 use ash::vk;
+use gfx::Image;
 use logger::Logger;
-use models::Image;
 
 use crate::types::{BufferAndMemory, ShaderDesc, Texture, VulkanError};
 use crate::VulkanBase;
@@ -534,8 +534,8 @@ impl<'a> DeviceWrapper<'a> {
     }
 }
 
-/// Handle to resources on the GPU comprising a model, texture and shader.
-pub struct GpuModelRef {
+/// Handle to resources on the GPU comprising a mesh, texture and shader.
+pub struct GraphicsHandle {
     pub vertex_buffer: BufferAndMemory,
     pub index_buffer: BufferAndMemory,
     pub diffuse_map: Option<Texture>,
@@ -544,7 +544,7 @@ pub struct GpuModelRef {
     pub shaders: ShaderDesc,
 }
 
-impl GpuModelRef {
+impl GraphicsHandle {
     pub(crate) fn new(
         diffuse_map: Option<Texture>,
         // specular_map: Option<Texture>,

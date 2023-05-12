@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 platform = { path = "../platform" }
 world = { path = "../world" }
-models = { path = "../models" }
+gfx = { path = "../gfx" }
 logger = { path = "../logger" }
 plugin_self = { path = "../plugin_self" }
 

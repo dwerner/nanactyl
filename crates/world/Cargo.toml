@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-models = { path = "../models" }
+gfx = { path = "../gfx" }
 network = { path = "../network" }
 input = { path = "../input" }
 logger = { path = "../logger" }

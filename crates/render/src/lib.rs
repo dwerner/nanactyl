@@ -5,15 +5,15 @@
 //! from
 
 use std::collections::VecDeque;
-use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use async_lock::{Mutex, MutexGuardArc};
+use async_lock::Mutex;
+use gfx::Model;
 use logger::{LogLevel, Logger};
 use platform::WinPtr;
 use plugin_self::PluginState;
-use world::thing::{CameraFacet, CameraIndex, ModelIndex, PhysicalFacet, PhysicalIndex};
+use world::thing::{CameraFacet, CameraIndex, GraphicsIndex, PhysicalFacet, PhysicalIndex};
 use world::{Identity, Vec3, World};
 
 #[derive(Debug)]
@@ -54,7 +54,7 @@ pub struct RenderState {
     pub updates: u64,
     pub win_ptr: WinPtr,
     pub enable_validation_layer: bool,
-    pub model_upload_queue: VecDeque<(ModelIndex, models::Model)>,
+    pub model_upload_queue: VecDeque<(GraphicsIndex, Model)>,
     pub logger: Logger,
 
     pub scene: RenderScene,
@@ -93,25 +93,25 @@ impl RenderState {
     /// point.
     pub fn queue_model_for_upload(
         &mut self,
-        index: ModelIndex,
-        model: models::Model,
+        index: GraphicsIndex,
+        model: Model,
     ) -> Result<(), RenderStateError> {
         self.model_upload_queue.push_front((index, model));
         Ok(())
     }
 
-    pub fn drain_upload_queue(&mut self) -> VecDeque<(ModelIndex, models::Model)> {
+    pub fn drain_upload_queue(&mut self) -> VecDeque<(GraphicsIndex, Model)> {
         std::mem::take(&mut self.model_upload_queue)
     }
 
-    pub fn tracked_model(&mut self, index: ModelIndex) -> Option<Instant> {
+    pub fn tracked_model(&mut self, index: GraphicsIndex) -> Option<Instant> {
         self.render_plugin_state
             .as_mut()
             .map(|plugin| plugin.tracked_model(index))
             .flatten()
     }
 
-    pub fn queued_model(&self, index: ModelIndex) -> bool {
+    pub fn queued_model(&self, index: GraphicsIndex) -> bool {
         self.model_upload_queue
             .iter()
             .any(|(queued_idx, _)| index == *queued_idx)
@@ -219,7 +219,7 @@ pub trait Presenter {
     fn drop_resources(&mut self);
 
     /// Query for a tracked model.
-    fn tracked_model(&mut self, index: ModelIndex) -> Option<Instant>;
+    fn tracked_model(&mut self, index: GraphicsIndex) -> Option<Instant>;
     // TODO: upload_model, other resource management
 }
 
@@ -255,7 +255,7 @@ pub struct RenderScene {
 /// Intended to represent a model (uploaded to the GPU once) with instance
 /// information. Should attach to a game object or similar.
 pub struct SceneModelInstance {
-    pub model: ModelIndex,
+    pub model: GraphicsIndex,
     pub pos: Vec3,
     pub angles: Vec3,
     pub scale: f32,

@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-models = { path = "../../models" }
+gfx = { path = "../../gfx" }
 render = { path = "../../render" }
 world = { path = "../../world" }
 shader_objects = { path = "../../shader_objects" }

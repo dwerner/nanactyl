@@ -236,10 +236,11 @@ fn main() {
                 .unwrap();
 
             {
+                // TODO: stop copying state around.
                 let state = &mut *render_state.lock().await;
                 let world = &*world.as_ref().lock().await;
                 state.update_models(world);
-                state.update_render_scene(world);
+                state.update_render_scene(world).unwrap();
             }
 
             match net_sync_plugin {

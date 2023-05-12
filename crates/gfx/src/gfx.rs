@@ -57,12 +57,12 @@ pub enum LoadError {
 
 #[derive(Debug, Clone)]
 pub struct Model {
-    pub path: PathBuf,
-    pub loaded_time: Instant,
-    pub material: Material,
     pub mesh: Mesh,
     pub vertex_shader: PathBuf,
     pub fragment_shader: PathBuf,
+    pub material: Material,
+    pub loaded_time: Instant,
+    pub path: PathBuf,
 }
 
 impl Model {
@@ -129,6 +129,8 @@ fn load_image(stem: &str, base_path: &Path) -> Result<Image, LoadError> {
     Ok(diffuse_map)
 }
 
+// TODO: consider a more efficient layout and reusable storage for vertices
+// We want to copy less often.
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct Vertex {

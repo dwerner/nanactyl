@@ -20,10 +20,10 @@ use std::time::{Duration, Instant};
 
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry};
-use device::GpuModelRef;
+use device::GraphicsHandle;
+use gfx::{Model, Vertex};
 use glam::{Mat4, Vec3};
 use logger::{debug, info, Logger};
-use models::Vertex;
 use platform::WinPtr;
 use plugin_self::{impl_plugin_state_field, PluginState};
 use render::{Presenter, RenderPluginState, RenderScene, RenderState};
@@ -32,15 +32,15 @@ use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, PipelineDesc, ShaderBindingDesc, ShaderDesc,
     ShaderStage, ShaderStages, VertexInputAssembly, VulkanError,
 };
-use world::thing::{ModelIndex, EULER_ROT_ORDER};
+use world::thing::{GraphicsIndex, EULER_ROT_ORDER};
 
 use crate::device::DeviceWrapper;
 
 /// Renderer struct owning the descriptor pool, pipelines and descriptions.
 struct Renderer {
     descriptor_pool: vk::DescriptorPool,
-    graphics_pipelines: HashMap<ModelIndex, vk::Pipeline>,
-    pipeline_descriptions: HashMap<ModelIndex, PipelineDesc>,
+    graphics_pipelines: HashMap<GraphicsIndex, vk::Pipeline>,
+    pipeline_descriptions: HashMap<GraphicsIndex, PipelineDesc>,
     logger: Logger,
 }
 
@@ -162,7 +162,7 @@ impl Renderer {
         // TODO more than just models, meshes in general.
 
         // let logger = self.logger.sub("model render");
-        for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
+        for (model_index, (model, _uploaded_instant)) in base.tracked_graphics.iter() {
             // TODO: unified struct for models & pipelines
             let desc = match self.pipeline_descriptions.get_mut(model_index) {
                 Some(desc) => desc,
@@ -217,7 +217,7 @@ impl Renderer {
                 let push_constants = PushConstants { model_mat };
                 let push_constant_bytes = bytemuck::bytes_of(&push_constants);
 
-                let (model, _) = base.tracked_models.get(&drawable.model).unwrap();
+                let (model, _) = base.tracked_graphics.get(&drawable.model).unwrap();
                 w.cmd_push_constants(
                     base.draw_cmd_buf,
                     desc.layout,
@@ -287,6 +287,7 @@ impl Renderer {
         Ok(())
     }
 
+    // rebuilds pipelines and reloads shaders *from disk*.
     fn rebuild_pipelines_with_base(&mut self, base: &mut VulkanBase) -> Result<(), VulkanError> {
         let logger = self.logger.sub("rebuild_pipelines_with_base");
         if !self.graphics_pipelines.is_empty() {
@@ -316,8 +317,11 @@ impl Renderer {
         let mut pipeline_descriptions = HashMap::new();
 
         // For now we are creating a pipeline per model.
-        for (model_index, (model, _uploaded_instant)) in base.tracked_models.iter() {
-            info!(logger, "creating descriptor set for model {model_index:?}");
+        for (graphics_index, (handle, _uploaded_instant)) in base.tracked_graphics.iter() {
+            info!(
+                logger,
+                "creating descriptor set for graphics {graphics_index:?}"
+            );
             let uniform_buffer = {
                 let uniform_buffer = UniformBuffer::new();
                 let uniform_bytes = bytemuck::bytes_of(&uniform_buffer);
@@ -330,7 +334,7 @@ impl Renderer {
             };
 
             let desc_set_layout =
-                base.create_descriptor_set_layout(model.shaders.desc_set_layout_bindings.clone())?;
+                base.create_descriptor_set_layout(handle.shaders.desc_set_layout_bindings.clone())?;
 
             let descriptor_sets =
                 base.allocate_descriptor_sets(self.descriptor_pool, &[desc_set_layout])?;
@@ -346,7 +350,7 @@ impl Renderer {
                 &base.device,
                 descriptor_set,
                 &uniform_buffer,
-                model.diffuse_map.as_ref().map(|x| x.image_view),
+                handle.diffuse_map.as_ref().map(|x| x.image_view),
                 // None, // model.specular_map.as_ref().map(|x| x.image_view),
                 // None, // model.bump_map.as_ref().map(|x| x.image_view),
                 diffuse_sampler,
@@ -355,10 +359,10 @@ impl Renderer {
             );
 
             let mut vertex_spv_file = BufReader::new(
-                File::open(&model.shaders.vertex_shader).map_err(VulkanError::ShaderRead)?,
+                File::open(&handle.shaders.vertex_shader).map_err(VulkanError::ShaderRead)?,
             );
             let mut frag_spv_file = BufReader::new(
-                File::open(&model.shaders.fragment_shader).map_err(VulkanError::ShaderRead)?,
+                File::open(&handle.shaders.fragment_shader).map_err(VulkanError::ShaderRead)?,
             );
 
             let mut shader_stages = ShaderStages::new();
@@ -407,7 +411,7 @@ impl Renderer {
             )?;
 
             pipeline_descriptions.insert(
-                *model_index,
+                *graphics_index,
                 PipelineDesc::create(
                     desc_set_layout,
                     uniform_buffer,
@@ -478,10 +482,10 @@ impl Presenter for VulkanRenderPluginState {
         }
     }
 
-    fn tracked_model(&mut self, index: ModelIndex) -> Option<Instant> {
+    fn tracked_model(&mut self, index: GraphicsIndex) -> Option<Instant> {
         self.base
             .as_ref()?
-            .tracked_models
+            .tracked_graphics
             .get(&index)
             .map(|(_, tracked_instant)| *tracked_instant)
     }
@@ -575,7 +579,7 @@ struct VulkanBase {
     maybe_debug_utils_loader: Option<ash::extensions::ext::DebugUtils>,
     maybe_debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
 
-    tracked_models: HashMap<ModelIndex, (GpuModelRef, Instant)>,
+    tracked_graphics: HashMap<GraphicsIndex, (GraphicsHandle, Instant)>,
 
     framebuffers: Vec<vk::Framebuffer>,
     render_pass: vk::RenderPass,
@@ -587,11 +591,11 @@ struct VulkanBase {
     _debug_struct: Arc<VulkanDebug>,
 }
 impl VulkanBase {
-    fn upload_models(
+    fn upload_graphics(
         &mut self,
-        mut upload_queue: VecDeque<(ModelIndex, models::Model)>,
+        mut upload_queue: VecDeque<(GraphicsIndex, Model)>,
         logger: Logger,
-    ) -> Vec<(ModelIndex, GpuModelRef)> {
+    ) -> Vec<(GraphicsIndex, GraphicsHandle)> {
         let logger = logger.sub("upload_models");
 
         if upload_queue.is_empty() {
@@ -602,13 +606,13 @@ impl VulkanBase {
         let queue = self.present_queue;
         let queue_family_index = self.queue_family_index;
         let device_memory_properties = self.device_memory_properties;
-        let w = DeviceWrapper::wrap(&device, &logger.sub("upload_models"));
+        let w = DeviceWrapper::wrap(&device, &logger.sub("upload_graphics"));
         let pool = w.create_command_pool(queue_family_index).unwrap();
         let fence = w.create_fence().unwrap();
         let mut src_images = Vec::new();
         let mut completed_uploads = Vec::new();
         for (index, model) in upload_queue.drain(..) {
-            debug!(logger, "loading model at {index:?}");
+            debug!(logger, "loading graphics object at {index:?}");
             debug!(logger, "material {:?}", model.material.path);
 
             let command_buffers = w.allocate_command_buffers(pool).unwrap();
@@ -675,7 +679,7 @@ impl VulkanBase {
                 },
             ];
 
-            let uploaded_model = GpuModelRef::new(
+            let uploaded_model = GraphicsHandle::new(
                 diffuse_map,
                 vertex_buffer,
                 index_buffer,
@@ -736,9 +740,9 @@ impl VulkanBase {
 
     fn create_graphics_pipelines(
         &mut self,
-        pipeline_descriptions: &HashMap<ModelIndex, PipelineDesc>,
+        pipeline_descriptions: &HashMap<GraphicsIndex, PipelineDesc>,
         render_pass: vk::RenderPass,
-    ) -> Result<HashMap<ModelIndex, vk::Pipeline>, VulkanError> {
+    ) -> Result<HashMap<GraphicsIndex, vk::Pipeline>, VulkanError> {
         let mut graphics_pipelines = HashMap::new();
         for (model_index, desc) in pipeline_descriptions {
             let shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo> = desc
@@ -1087,10 +1091,10 @@ impl VulkanBase {
         Ok(framebuffers)
     }
     /// Track a model reference for cleanup when VulkanBase is dropped.
-    fn track_uploaded_model(&mut self, index: ModelIndex, model_ref: GpuModelRef) {
+    fn track_uploaded_model(&mut self, index: GraphicsIndex, model_ref: GraphicsHandle) {
         debug!(self.logger, "Tracking model {:?}", index);
         if let Some((existing_model, _instant)) = self
-            .tracked_models
+            .tracked_graphics
             .insert(index, (model_ref, Instant::now()))
         {
             debug!(self.logger, "Deallocating existing model {:?}", index);
@@ -1397,7 +1401,7 @@ impl VulkanBase {
             depth_image_memory,
             maybe_debug_utils_loader,
             maybe_debug_call_back,
-            tracked_models: HashMap::new(),
+            tracked_graphics: HashMap::new(),
             framebuffers,
             render_pass,
             flag_recreate_swapchain: false,
@@ -1720,7 +1724,7 @@ impl Drop for VulkanBase {
             self.device
                 .destroy_fence(self.setup_commands_reuse_fence, None);
 
-            let tracked_models: Vec<_> = self.tracked_models.drain().collect();
+            let tracked_models: Vec<_> = self.tracked_graphics.drain().collect();
             for (_index, (gpu_model, _instant)) in tracked_models {
                 gpu_model.deallocate(self);
             }
@@ -1809,7 +1813,7 @@ impl PluginState for VulkanRenderPluginState {
                     .base
                     .as_mut()
                     .unwrap()
-                    .upload_models(upload_queue, self.logger.sub("upload-models"))
+                    .upload_graphics(upload_queue, self.logger.sub("upload-models"))
                 {
                     self.base
                         .as_mut()

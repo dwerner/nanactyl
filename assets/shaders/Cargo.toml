@@ -1,11 +1,16 @@
 [workspace]
 members = [
+
+    # builds the shaders
     "rust_shader_builder",
-    "vertex_rustgpu",
-    "fragment_rustgpu",
-    "fragment_nolighting",
-    "skybox_vertex",
-    "skybox_fragment",
+
+    # individual shader crates
+    "shaders/skybox_vertex",
+    "shaders/skybox_fragment",
+    "shaders/default_vertex",
+    "shaders/default_fragment",
+    "shaders/debug_mesh_vertex",
+    "shaders/debug_mesh_fragment",
 ]
 # Compile build-dependencies in release mode with
 # the same settings as regular dependencies.
@@ -15,3 +20,7 @@ codegen-units = 16
 
 [profile.dev.build-override]
 opt-level = 3
+
+[workspace.dependencies]
+shader_objects = { path = "../../crates/shader_objects" }
+spirv-std = { git = "https://github.com/EmbarkStudios/rust-gpu" }

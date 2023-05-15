@@ -33,15 +33,16 @@ fn main() {
     for shader in [
         "skybox_vertex",
         "skybox_fragment",
-        "vertex_rustgpu",
-        "fragment_rustgpu",
-        "fragment_nolighting",
+        "default_vertex",
+        "default_fragment",
+        "debug_mesh_vertex",
+        "debug_mesh_fragment",
     ]
     .iter()
     {
         println!("cargo:rerun-if-changed=./{}", shader);
         let module_path = SpirvBuilder::new(
-            format!("{}/../{}", env!("CARGO_MANIFEST_DIR"), shader),
+            format!("{}/../shaders/{}", env!("CARGO_MANIFEST_DIR"), shader),
             "spirv-unknown-spv1.0",
         )
         .print_metadata(MetadataPrintout::Full)
@@ -54,7 +55,7 @@ fn main() {
         println!("cargo-warning={:?}", module_path);
         std::fs::copy(
             &module_path,
-            format!("{}/../{}.spv", env!("CARGO_MANIFEST_DIR"), shader),
+            format!("{}/../spv/{}.spv", env!("CARGO_MANIFEST_DIR"), shader),
         )
         .unwrap();
     }

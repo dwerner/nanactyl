@@ -10,14 +10,17 @@ use spirv_std::glam::{
     Vec4,
     //Vec4Swizzles
 };
+use spirv_std::image::SampledImage;
 // use spirv_std::num_traits::Pow;
-use spirv_std::spirv;
+use spirv_std::{spirv, Image};
 
 #[spirv(fragment)]
 pub fn fragment_main(
     #[spirv(frag_coord)] in_frag_coord: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] ubo: &UniformBuffer,
-    #[spirv(descriptor_set = 0, binding = 1)] diffuse_sampler: &sampler::Sampler2d,
+    #[spirv(descriptor_set = 0, binding = 1)] diffuse_sampler: &SampledImage<
+        Image!(2D, type=f32, sampled, depth=false),
+    >,
     // #[spirv(descriptor_set = 0, binding = 3)] _specular_sampler: &sampler::Sampler2d,
     // #[spirv(descriptor_set = 0, binding = 4)] _bump_sampler: &sampler::Sampler2d,
     normal: Vec4,
@@ -27,7 +30,7 @@ pub fn fragment_main(
     let mut fog_factor = 0.0;
     let mut diffuse_color = Vec4::ZERO;
 
-    let texture: Vec4 = unsafe { diffuse_sampler.sample(uv) };
+    let texture: Vec4 = diffuse_sampler.sample(uv);
     // let bump_map: Vec4 = unsafe { bump_sampler.sample(uv) };
     // let specular_map: Vec4 = unsafe { specular_sampler.sample(uv) };
 

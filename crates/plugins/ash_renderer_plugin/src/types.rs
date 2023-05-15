@@ -142,8 +142,8 @@ impl ShaderBindingDesc {
 #[derive(Clone)]
 pub struct ShaderDesc {
     pub desc_set_layout_bindings: Vec<ShaderBindingDesc>,
-    pub vertex_shader: PathBuf,
-    pub fragment_shader: PathBuf,
+    pub vertex_shader_path: PathBuf,
+    pub fragment_shader_path: PathBuf,
 }
 
 /// Holds references to GPU resources for a texture.

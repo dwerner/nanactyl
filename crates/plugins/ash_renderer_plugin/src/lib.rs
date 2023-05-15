@@ -10,7 +10,7 @@ mod debug_callback;
 mod device;
 mod types;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::BufReader;
@@ -21,18 +21,18 @@ use std::time::{Duration, Instant};
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry};
 use device::GraphicsHandle;
-use gfx::{Model, Vertex};
+use gfx::{DiffuseColor, GpuNeeds, Vertex};
 use glam::{Mat4, Vec3};
 use logger::{debug, info, Logger};
 use platform::WinPtr;
 use plugin_self::{impl_plugin_state_field, PluginState};
-use render::{Presenter, RenderPluginState, RenderScene, RenderState};
+use render::{Presenter, RenderPluginState, RenderScene, RenderState, RenderStateError};
 use shader_objects::{PushConstants, UniformBuffer};
 use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, PipelineDesc, ShaderBindingDesc, ShaderDesc,
     ShaderStage, ShaderStages, VertexInputAssembly, VulkanError,
 };
-use world::thing::{GraphicsIndex, EULER_ROT_ORDER};
+use world::thing::{GraphicsFacet, GraphicsIndex, EULER_ROT_ORDER};
 
 use crate::device::DeviceWrapper;
 
@@ -61,11 +61,7 @@ impl VulkanDebug {
 }
 
 impl Renderer {
-    fn present_with_base(
-        &mut self,
-        base: &mut VulkanBase,
-        scene: &RenderScene,
-    ) -> Result<(), VulkanError> {
+    fn present(&mut self, base: &mut VulkanBase, scene: &RenderScene) -> Result<(), VulkanError> {
         if base.flag_recreate_swapchain {
             base.recreate_swapchain()?;
         }
@@ -173,11 +169,9 @@ impl Renderer {
                 None => continue,
             };
 
-            {
-                let ubo = UniformBuffer::with_proj(proj_mat);
-                let ubo_bytes = bytemuck::bytes_of(&ubo);
-                w.update_buffer(&mut desc.uniform_buffer, ubo_bytes)?;
-            }
+            let ubo = UniformBuffer::with_proj(proj_mat);
+            let ubo_bytes = bytemuck::bytes_of(&ubo);
+            w.update_buffer(&mut desc.uniform_buffer, ubo_bytes)?;
 
             w.cmd_bind_descriptor_sets(
                 base.draw_cmd_buf,
@@ -288,8 +282,8 @@ impl Renderer {
     }
 
     // rebuilds pipelines and reloads shaders *from disk*.
-    fn rebuild_pipelines_with_base(&mut self, base: &mut VulkanBase) -> Result<(), VulkanError> {
-        let logger = self.logger.sub("rebuild_pipelines_with_base");
+    fn rebuild_pipelines(&mut self, base: &mut VulkanBase) -> Result<(), VulkanError> {
+        let logger = self.logger.sub("rebuild_pipelines");
         if !self.graphics_pipelines.is_empty() {
             info!(
                 logger,
@@ -359,10 +353,11 @@ impl Renderer {
             );
 
             let mut vertex_spv_file = BufReader::new(
-                File::open(&handle.shaders.vertex_shader).map_err(VulkanError::ShaderRead)?,
+                File::open(&handle.shaders.vertex_shader_path).map_err(VulkanError::ShaderRead)?,
             );
             let mut frag_spv_file = BufReader::new(
-                File::open(&handle.shaders.fragment_shader).map_err(VulkanError::ShaderRead)?,
+                File::open(&handle.shaders.fragment_shader_path)
+                    .map_err(VulkanError::ShaderRead)?,
             );
 
             let mut shader_stages = ShaderStages::new();
@@ -438,7 +433,7 @@ impl Renderer {
         Ok(())
     }
 
-    fn drop_resources_with_base(&mut self, base: &mut VulkanBase) -> Result<(), VulkanError> {
+    fn drop_resources(&mut self, base: &mut VulkanBase) -> Result<(), VulkanError> {
         unsafe {
             base.device
                 .device_wait_idle()
@@ -461,7 +456,7 @@ impl Presenter for VulkanRenderPluginState {
     fn present(&mut self, scene: &RenderScene) {
         if let Some(renderer) = &mut self.renderer {
             renderer
-                .present_with_base(self.base.as_mut().unwrap(), scene)
+                .present(self.base.as_mut().unwrap(), scene)
                 .unwrap();
         }
     }
@@ -469,7 +464,7 @@ impl Presenter for VulkanRenderPluginState {
     fn update_resources(&mut self) {
         if let Some(renderer) = &mut self.renderer {
             renderer
-                .rebuild_pipelines_with_base(self.base.as_mut().unwrap())
+                .rebuild_pipelines(self.base.as_mut().unwrap())
                 .unwrap();
         }
     }
@@ -477,7 +472,7 @@ impl Presenter for VulkanRenderPluginState {
     fn drop_resources(&mut self) {
         if let Some(renderer) = &mut self.renderer {
             renderer
-                .drop_resources_with_base(self.base.as_mut().unwrap())
+                .drop_resources(self.base.as_mut().unwrap())
                 .unwrap();
         }
     }
@@ -488,6 +483,30 @@ impl Presenter for VulkanRenderPluginState {
             .tracked_graphics
             .get(&index)
             .map(|(_, tracked_instant)| *tracked_instant)
+    }
+
+    fn upload_graphics(
+        &mut self,
+        graphics: &[(GraphicsIndex, &GraphicsFacet)],
+    ) -> Result<(), RenderStateError> {
+        let logger = self.logger.sub("upload_graphic");
+
+        let (base, renderer) = self
+            .base
+            .as_mut()
+            .zip(self.renderer.as_mut())
+            .ok_or(RenderStateError::NoVulkanBase)?;
+
+        for (index, handle) in base.upload_graphics(graphics, &logger) {
+            info!(logger, "plugin side upload graphics: {:?}", index);
+            base.track_uploaded_graphic(index, handle);
+        }
+
+        renderer
+            .rebuild_pipelines(self.base.as_mut().unwrap())
+            .unwrap();
+
+        Ok(())
     }
 }
 
@@ -590,13 +609,14 @@ struct VulkanBase {
 
     _debug_struct: Arc<VulkanDebug>,
 }
+
 impl VulkanBase {
     fn upload_graphics(
         &mut self,
-        mut upload_queue: VecDeque<(GraphicsIndex, Model)>,
-        logger: Logger,
+        upload_queue: &[(GraphicsIndex, &GraphicsFacet)],
+        logger: &Logger,
     ) -> Vec<(GraphicsIndex, GraphicsHandle)> {
-        let logger = logger.sub("upload_models");
+        let logger = logger.sub("upload_graphics");
 
         if upload_queue.is_empty() {
             return vec![];
@@ -606,14 +626,13 @@ impl VulkanBase {
         let queue = self.present_queue;
         let queue_family_index = self.queue_family_index;
         let device_memory_properties = self.device_memory_properties;
-        let w = DeviceWrapper::wrap(&device, &logger.sub("upload_graphics"));
+        let w = DeviceWrapper::wrap(&device, &logger.sub("device"));
         let pool = w.create_command_pool(queue_family_index).unwrap();
         let fence = w.create_fence().unwrap();
         let mut src_images = Vec::new();
         let mut completed_uploads = Vec::new();
-        for (index, model) in upload_queue.drain(..) {
+        for (index, model) in upload_queue {
             debug!(logger, "loading graphics object at {index:?}");
-            debug!(logger, "material {:?}", model.material.path);
 
             let command_buffers = w.allocate_command_buffers(pool).unwrap();
             let command_buffer = command_buffers[0];
@@ -621,12 +640,16 @@ impl VulkanBase {
             w.wait_for_fence(fence).unwrap();
             w.begin_command_buffer(command_buffer).unwrap();
 
-            let diffuse_map = w.maybe_cmd_upload_image(
-                model.material.diffuse_map.as_ref(),
-                device_memory_properties,
-                command_buffer,
-                &mut src_images,
-            );
+            let diffuse_map = match model.gfx.diffuse_color() {
+                Some(DiffuseColor::Texture(texture)) => Some(w.cmd_upload_image(
+                    texture,
+                    device_memory_properties,
+                    command_buffer,
+                    &mut src_images,
+                )),
+                None | Some(DiffuseColor::Color(_)) => None,
+            };
+
             // let specular_map = maybe_cmd_upload_image(
             //     &w,
             //     model.material.specular_map.as_ref(),
@@ -651,7 +674,7 @@ impl VulkanBase {
                 .allocate_and_init_buffer(
                     vk::BufferUsageFlags::VERTEX_BUFFER,
                     device_memory_properties,
-                    &model.mesh.vertices,
+                    model.gfx.mesh_vertices(),
                 )
                 .unwrap();
 
@@ -659,7 +682,7 @@ impl VulkanBase {
                 .allocate_and_init_buffer(
                     vk::BufferUsageFlags::INDEX_BUFFER,
                     device_memory_properties,
-                    &model.mesh.indices,
+                    model.gfx.mesh_indices(),
                 )
                 .unwrap();
 
@@ -687,11 +710,11 @@ impl VulkanBase {
                 // hardcoding this for now to move forward with model rendering
                 ShaderDesc {
                     desc_set_layout_bindings,
-                    vertex_shader: model.vertex_shader.clone(),
-                    fragment_shader: model.fragment_shader.clone(),
+                    vertex_shader_path: model.gfx.vertex_shader_path().to_path_buf(),
+                    fragment_shader_path: model.gfx.fragment_shader_path().to_path_buf(),
                 },
             );
-            completed_uploads.push((index, uploaded_model));
+            completed_uploads.push((*index, uploaded_model));
         }
         unsafe {
             device.device_wait_idle().unwrap();
@@ -719,7 +742,7 @@ impl VulkanBase {
             pipeline_descriptions: HashMap::new(),
             logger,
         };
-        renderer.rebuild_pipelines_with_base(self)?;
+        renderer.rebuild_pipelines(self)?;
         Ok(renderer)
     }
 
@@ -1091,11 +1114,11 @@ impl VulkanBase {
         Ok(framebuffers)
     }
     /// Track a model reference for cleanup when VulkanBase is dropped.
-    fn track_uploaded_model(&mut self, index: GraphicsIndex, model_ref: GraphicsHandle) {
+    fn track_uploaded_graphic(&mut self, index: GraphicsIndex, handle: GraphicsHandle) {
         debug!(self.logger, "Tracking model {:?}", index);
         if let Some((existing_model, _instant)) = self
             .tracked_graphics
-            .insert(index, (model_ref, Instant::now()))
+            .insert(index, (handle, Instant::now()))
         {
             debug!(self.logger, "Deallocating existing model {:?}", index);
             existing_model.deallocate(self);
@@ -1762,8 +1785,7 @@ impl Drop for VulkanBase {
 
 #[derive(Default)]
 pub struct VulkanRenderPluginState {
-    win_ptr: Option<WinPtr>,
-    enable_validation_layers: bool,
+    _win_ptr: Option<WinPtr>,
     base: Option<VulkanBase>,
     renderer: Option<Renderer>,
     logger: Logger,
@@ -1805,29 +1827,8 @@ impl PluginState for VulkanRenderPluginState {
                 let logger = state.logger.sub("ash-renderer-update");
                 info!(logger, "updates: {} time: {:?}...", state.updates, dt);
             }
-
-            if state.updates % 10 == 0 {
-                let upload_queue = state.drain_upload_queue();
-                let rebuild_resources = !upload_queue.is_empty();
-                for (index, uploaded_model) in self
-                    .base
-                    .as_mut()
-                    .unwrap()
-                    .upload_graphics(upload_queue, self.logger.sub("upload-models"))
-                {
-                    self.base
-                        .as_mut()
-                        .unwrap()
-                        .track_uploaded_model(index, uploaded_model);
-                }
-                if rebuild_resources {
-                    renderer
-                        .rebuild_pipelines_with_base(self.base.as_mut().unwrap())
-                        .unwrap();
-                }
-            }
             renderer
-                .present_with_base(self.base.as_mut().unwrap(), &state.scene)
+                .present(self.base.as_mut().unwrap(), &state.scene)
                 .unwrap();
         }
     }
@@ -1837,7 +1838,7 @@ impl PluginState for VulkanRenderPluginState {
         info!(logger, "unloading ash_renderer_plugin...");
         if let Some(presenter) = &mut self.renderer {
             presenter
-                .drop_resources_with_base(self.base.as_mut().unwrap())
+                .drop_resources(self.base.as_mut().unwrap())
                 .unwrap();
         }
     }

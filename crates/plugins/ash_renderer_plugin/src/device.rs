@@ -13,14 +13,14 @@ use crate::VulkanBase;
 /// vs in the rendering module
 pub struct DeviceWrapper<'a> {
     device: &'a ash::Device,
-    logger: Logger,
+    _logger: Logger,
 }
 
 impl<'a> DeviceWrapper<'a> {
     pub fn wrap(device: &'a ash::Device, logger: &Logger) -> Self {
         Self {
             device,
-            logger: logger.sub("device-wrapper"),
+            _logger: logger.sub("device-wrapper"),
         }
     }
     /// Create a pipeline layout. Note `push_constants_len` must be len in bytes
@@ -498,21 +498,17 @@ impl<'a> DeviceWrapper<'a> {
         }
     }
 
-    pub(crate) fn maybe_cmd_upload_image(
+    pub(crate) fn cmd_upload_image(
         &self,
-        map: Option<&Image>,
+        image: &Image,
         device_memory_properties: vk::PhysicalDeviceMemoryProperties,
         command_buffer: vk::CommandBuffer,
         src_images: &mut Vec<BufferAndMemory>,
-    ) -> Option<Texture> {
-        if let Some(image) = map {
-            let (diffuse_map_buffer, dest_texture) =
-                self.record_upload_image(image, device_memory_properties, command_buffer);
-            src_images.push(diffuse_map_buffer);
-            Some(dest_texture)
-        } else {
-            None
-        }
+    ) -> Texture {
+        let (diffuse_map_buffer, dest_texture) =
+            self.record_upload_image(image, device_memory_properties, command_buffer);
+        src_images.push(diffuse_map_buffer);
+        dest_texture
     }
 
     fn record_upload_image(

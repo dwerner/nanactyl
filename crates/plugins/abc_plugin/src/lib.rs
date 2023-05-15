@@ -1,5 +1,5 @@
 use logger::{info, LogLevel, Logger};
-use plugin_self::{impl_plugin_state_field, impl_plugin_static, PluginState};
+use plugin_self::{impl_plugin_static, PluginState};
 use world::World;
 
 struct AbcPlugin {

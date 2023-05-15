@@ -8,3 +8,4 @@ obj-parser = { path = "../obj-parser" }
 
 thiserror = { workspace = true }
 image = { workspace = true }
+glam = { workspace = true }

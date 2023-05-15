@@ -1,13 +1,12 @@
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
+use glam::Vec4;
 use image::GenericImageView;
 use obj_parser::model::{Interleaved, Mtl, MtlError, Obj, ObjError};
 
 #[derive(Debug, Clone)]
 pub struct Material {
-    pub path: PathBuf,
     pub diffuse_map: Option<Image>,
     pub specular_map: Option<Image>,
     pub bump_map: Option<Image>,
@@ -57,16 +56,145 @@ pub enum LoadError {
 
 #[derive(Debug, Clone)]
 pub struct Model {
-    pub mesh: Mesh,
-    pub vertex_shader: PathBuf,
-    pub fragment_shader: PathBuf,
-    pub material: Material,
-    pub loaded_time: Instant,
-    pub path: PathBuf,
+    mesh: Mesh,
+    vertex_shader: PathBuf,
+    fragment_shader: PathBuf,
+    material: Material,
+}
+
+impl Drop for Model {
+    fn drop(&mut self) {
+        println!("dropping model {:?}", self);
+    }
+}
+
+impl GpuNeeds for Model {
+    fn fragment_shader_path(&self) -> &Path {
+        self.fragment_shader.as_path()
+    }
+
+    fn vertex_shader_path(&self) -> &Path {
+        self.vertex_shader.as_path()
+    }
+
+    fn mesh_vertices(&self) -> &[Vertex] {
+        self.mesh.vertices.as_slice()
+    }
+
+    fn mesh_indices(&self) -> &[u32] {
+        self.mesh.indices.as_slice()
+    }
+
+    fn diffuse_color(&self) -> Option<DiffuseColor<'_>> {
+        self.material
+            .diffuse_map
+            .as_ref()
+            .map(DiffuseColor::Texture)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DebugMesh {
+    vertices: Vec<Vertex>,
+    indices: Vec<u32>,
+    color: Vec4,
+}
+
+impl GpuNeeds for DebugMesh {
+    fn fragment_shader_path(&self) -> &Path {
+        Path::new("assets/shaders/debug_frag.spv")
+    }
+
+    fn vertex_shader_path(&self) -> &Path {
+        Path::new("assets/shaders/debug_vert.spv")
+    }
+
+    fn mesh_vertices(&self) -> &[Vertex] {
+        self.vertices.as_slice()
+    }
+
+    fn mesh_indices(&self) -> &[u32] {
+        self.indices.as_slice()
+    }
+
+    fn diffuse_color(&self) -> Option<DiffuseColor<'_>> {
+        Some(DiffuseColor::Color(self.color))
+    }
+}
+
+pub enum DiffuseColor<'a> {
+    Color(Vec4),
+    Texture(&'a Image),
+}
+
+// TODO: consider an interface for all graphics drawable types
+pub trait GpuNeeds {
+    fn fragment_shader_path(&self) -> &Path;
+    fn vertex_shader_path(&self) -> &Path;
+    fn mesh_vertices(&self) -> &[Vertex];
+    fn mesh_indices(&self) -> &[u32];
+    fn diffuse_color(&self) -> Option<DiffuseColor<'_>>;
+}
+
+pub enum Graphic {
+    Model(Model),
+    DebugMesh(DebugMesh),
+}
+
+impl Graphic {
+    pub fn new_model(model: Model) -> Self {
+        Graphic::Model(model)
+    }
+
+    pub fn new_debug_mesh(vertices: Vec<Vertex>, indices: Vec<u32>, color: Vec4) -> Self {
+        let mesh = DebugMesh {
+            vertices,
+            indices,
+            color,
+        };
+        Graphic::DebugMesh(mesh)
+    }
+}
+
+impl GpuNeeds for Graphic {
+    fn fragment_shader_path(&self) -> &Path {
+        match self {
+            Graphic::Model(model) => model.fragment_shader_path(),
+            Graphic::DebugMesh(mesh) => mesh.fragment_shader_path(),
+        }
+    }
+
+    fn vertex_shader_path(&self) -> &Path {
+        match self {
+            Graphic::Model(model) => model.vertex_shader_path(),
+            Graphic::DebugMesh(mesh) => mesh.vertex_shader_path(),
+        }
+    }
+
+    fn mesh_vertices(&self) -> &[Vertex] {
+        match self {
+            Graphic::Model(model) => model.mesh_vertices(),
+            Graphic::DebugMesh(mesh) => mesh.mesh_vertices(),
+        }
+    }
+
+    fn mesh_indices(&self) -> &[u32] {
+        match self {
+            Graphic::Model(model) => model.mesh_indices(),
+            Graphic::DebugMesh(mesh) => mesh.mesh_indices(),
+        }
+    }
+
+    fn diffuse_color(&self) -> Option<DiffuseColor<'_>> {
+        match self {
+            Graphic::Model(model) => model.diffuse_color(),
+            Graphic::DebugMesh(mesh) => mesh.diffuse_color(),
+        }
+    }
 }
 
 impl Model {
-    pub fn load(
+    pub fn load_obj(
         filename: impl AsRef<Path>,
         vertex_shader: impl AsRef<Path>,
         fragment_shader: impl AsRef<Path>,
@@ -101,11 +229,8 @@ impl Model {
         };
 
         Ok(Model {
-            path: base_filename,
             mesh,
-            loaded_time: Instant::now(),
             material: Material {
-                path: material_path,
                 diffuse_map,
                 specular_map,
                 bump_map,

@@ -165,7 +165,7 @@ fn main() {
             render_state
                 .lock()
                 .await
-                .update_models(&*world.lock().await);
+                .upload_untracked_graphics(&*world.lock().await);
         }
 
         let mut frame = 0u64;
@@ -239,7 +239,7 @@ fn main() {
                 // TODO: stop copying state around.
                 let state = &mut *render_state.lock().await;
                 let world = &*world.as_ref().lock().await;
-                state.update_models(world);
+                state.upload_untracked_graphics(world);
                 state.update_render_scene(world).unwrap();
             }
 
@@ -319,16 +319,18 @@ fn main() {
             frame += 1;
         } // 'frame_loop
 
+        world_update_plugin
+            .lock()
+            .await
+            .call_unload(&mut *world.lock().await)
+            .unwrap();
+        drop(world_update_plugin);
+
         // Unload stateful plugins
         ash_renderer_plugin
             .lock()
             .await
             .call_unload(&mut *render_state.lock().await)
-            .unwrap();
-        world_update_plugin
-            .lock()
-            .await
-            .call_unload(&mut *world.lock().await)
             .unwrap();
     });
 

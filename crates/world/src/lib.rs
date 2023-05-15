@@ -9,12 +9,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_lock::{Mutex, MutexGuardArc};
-use gfx::Model;
 pub use glam::{Mat4, Quat, Vec3};
 use input::wire::InputState;
 use logger::{LogLevel, Logger};
 use network::{Connection, RpcError};
-use plugin_self::PluginState;
 use thing::{
     CameraFacet, CameraIndex, GraphicsFacet, GraphicsIndex, HealthFacet, HealthIndex,
     PhysicalFacet, PhysicalIndex, Thing, ThingType,
@@ -119,11 +117,11 @@ impl WorldFacets {
         self.cameras.get_mut(index.0 as usize)
     }
 
-    pub fn model_iter(&self) -> impl Iterator<Item = (GraphicsIndex, &Model)> {
+    pub fn gfx_iter(&self) -> impl Iterator<Item = (GraphicsIndex, &GraphicsFacet)> {
         self.models
             .iter()
             .enumerate()
-            .map(|(index, facet)| (index.into(), &facet.model))
+            .map(|(index, facet)| (index.into(), facet))
     }
 
     pub fn model(&self, index: GraphicsIndex) -> Option<&GraphicsFacet> {
@@ -212,8 +210,60 @@ pub struct Config {
     pub maybe_server_addr: Option<SocketAddr>,
 }
 
+/// Reference to a model and for now positional and orientation data.
+/// Intended to represent a model (uploaded to the GPU once) with instance
+/// information. Should attach to a game object or similar.
+pub struct Drawable {
+    pub model: GraphicsIndex,
+    pub pos: Vec3,
+    pub angles: Vec3,
+    pub scale: f32,
+}
+
 impl World {
     pub const SIM_TICK_DELAY: Duration = Duration::from_millis(8);
+
+    pub fn get_drawable(
+        &self,
+        phys: &PhysicalIndex,
+        model: &GraphicsIndex,
+    ) -> Result<Drawable, WorldError> {
+        let physical_facet = self
+            .facets
+            .physical(*phys)
+            .ok_or(WorldError::NoSuchPhys(*phys))?;
+        Ok(Drawable {
+            model: *model,
+            pos: physical_facet.position,
+            angles: physical_facet.angles,
+            scale: physical_facet.scale,
+        })
+    }
+
+    pub fn get_camera_drawable(
+        &self,
+        phys: &PhysicalIndex,
+        camera: &CameraIndex,
+    ) -> Result<Drawable, WorldError> {
+        let phys = self
+            .facets
+            .physical(*phys)
+            .ok_or(WorldError::NoSuchPhys(*phys))?;
+        let cam = self
+            .facets
+            .camera(*camera)
+            .ok_or(WorldError::NoSuchCamera(*camera))?;
+        let right = cam.right(phys);
+        let forward = cam.forward(phys);
+        let pos = phys.position + Vec3::new(right.x + forward.x, -2.0, right.z + forward.z);
+        let angles = Vec3::new(0.0, phys.angles.y - 1.57, 0.0);
+        Ok(Drawable {
+            model: cam.associated_model.unwrap(),
+            pos,
+            angles,
+            scale: phys.scale,
+        })
+    }
 
     /// Create a new client or server binding. Currently, in server mode, this
     /// waits for a client to connect before continuing.

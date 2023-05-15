@@ -258,7 +258,7 @@ pub mod wire {
                     facet: camera.into(),
                     _pad: 0,
                 },
-                thing::ThingType::ModelObject { phys, model } => Self {
+                thing::ThingType::GraphicsObject { phys, model } => Self {
                     tag: 1,
                     phys: phys.into(),
                     facet: model.into(),

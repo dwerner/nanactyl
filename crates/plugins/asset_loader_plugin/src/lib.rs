@@ -15,22 +15,22 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     let world = &mut state.world;
     let logger = &world.logger.sub("asset-loader");
 
-    let ico_model = Model::load(
+    let ico_model = Model::load_obj(
         "assets/models/static/tank.obj",
         "assets/shaders/vertex_rustgpu.spv",
         "assets/shaders/fragment_rustgpu.spv",
     )
     .unwrap();
-    let ico_model_facet = GraphicsFacet::new(ico_model);
+    let ico_model_facet = GraphicsFacet::from_model(ico_model);
     let ico_model_idx = world.add_graphics(ico_model_facet);
 
-    let cube_model = Model::load(
+    let cube_model = Model::load_obj(
         "assets/models/static/cube.obj",
         "assets/shaders/vertex_rustgpu.spv",
         "assets/shaders/fragment_rustgpu.spv",
     )
     .unwrap();
-    let cube_model_facet = GraphicsFacet::new(cube_model);
+    let cube_model_facet = GraphicsFacet::from_model(cube_model);
     let cube_model_idx = world.add_graphics(cube_model_facet);
 
     for (x, z) in [(10.0, 10.0), (-10.0, -10.0)].into_iter() {
@@ -67,14 +67,14 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
         }
     }
 
-    let sky_model = Model::load(
+    let sky_model = Model::load_obj(
         "assets/models/static/skybox.obj",
         "assets/shaders/skybox_vertex.spv",
         "assets/shaders/skybox_fragment.spv",
     )
     .unwrap();
     let sky_phys = PhysicalFacet::new_cuboid(0.0, 0.0, 0.0, 200.0);
-    let model_facet = GraphicsFacet::new(sky_model);
+    let model_facet = GraphicsFacet::from_model(sky_model);
     let sky_model_idx = world.add_graphics(model_facet);
     let sky_phys_idx = world.add_physical(sky_phys);
     let thing = Thing::model(sky_phys_idx, sky_model_idx);
@@ -84,7 +84,7 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
         logger,
         "loaded asset loader plugin (updates {}) - models {})",
         world.stats.updates,
-        world.facets.model_iter().count()
+        world.facets.gfx_iter().count()
     );
 }
 

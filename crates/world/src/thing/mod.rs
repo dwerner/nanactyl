@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use gfx::Model;
+use gfx::{Graphic, Model};
 use glam::{EulerRot, Mat4, Vec3};
 
 pub const EULER_ROT_ORDER: EulerRot = EulerRot::XYZ;
@@ -98,14 +98,15 @@ impl From<usize> for HealthIndex {
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct GraphicsFacet {
-    pub model: Model,
+    pub gfx: Graphic,
 }
 
 impl GraphicsFacet {
-    pub fn new(model: Model) -> Self {
-        Self { model }
+    pub fn from_model(model: Model) -> Self {
+        Self {
+            gfx: Graphic::new_model(model),
+        }
     }
 }
 
@@ -291,7 +292,7 @@ pub enum ThingType {
         phys: PhysicalIndex,
         camera: CameraIndex,
     },
-    ModelObject {
+    GraphicsObject {
         phys: PhysicalIndex,
         model: GraphicsIndex,
     },
@@ -305,7 +306,7 @@ pub struct Thing {
 impl Thing {
     pub fn model(phys: PhysicalIndex, model: GraphicsIndex) -> Self {
         Thing {
-            facets: ThingType::ModelObject { phys, model },
+            facets: ThingType::GraphicsObject { phys, model },
         }
     }
     pub fn camera(phys: PhysicalIndex, camera: CameraIndex) -> Self {

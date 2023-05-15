@@ -4,48 +4,30 @@
 //! This module is a landing-pad (In particular VulkanBase) for functionality
 //! from
 
-use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use async_lock::Mutex;
-use gfx::Model;
-use logger::{LogLevel, Logger};
+use logger::{info, warn, LogLevel, Logger};
 use platform::WinPtr;
 use plugin_self::PluginState;
-use world::thing::{CameraFacet, CameraIndex, GraphicsIndex, PhysicalFacet, PhysicalIndex};
-use world::{Identity, Vec3, World};
-
-#[derive(Debug)]
-pub struct Drawable {
-    pub id: world::Identity,
-    pub rendered: Duration,
-}
+use world::thing::{CameraFacet, GraphicsFacet, GraphicsIndex, PhysicalFacet, ThingType};
+use world::{Drawable, World};
 
 #[derive(thiserror::Error, Debug)]
 pub enum RenderStateError {
     #[error("plugin error {0:?}")]
     PluginError(Box<dyn std::error::Error + Send + Sync>),
     #[error("model upload error")]
-    ModelUploadTODO,
+    ModelUpload,
+    #[error("vulkan base doesn't exist. Is a renderer set up?")]
+    NoVulkanBase,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum SceneError {
-    #[error("query error {0}")]
-    Query(#[from] SceneQueryError),
     #[error("world error {0:?}")]
     World(world::WorldError),
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum SceneQueryError {
-    #[error("thing with id {0:?} not found in scene")]
-    ThingNotFound(Identity),
-    #[error("no phys facet at index {0:?}")]
-    NoSuchPhys(PhysicalIndex),
-    #[error("no camera facet at index {0:?}")]
-    NoSuchCamera(CameraIndex),
 }
 
 /// "Declarative" style api attempt - don't expose any renderer details/buffers,
@@ -54,7 +36,6 @@ pub struct RenderState {
     pub updates: u64,
     pub win_ptr: WinPtr,
     pub enable_validation_layer: bool,
-    pub model_upload_queue: VecDeque<(GraphicsIndex, Model)>,
     pub logger: Logger,
 
     pub scene: RenderScene,
@@ -79,7 +60,6 @@ impl RenderState {
                 cameras: vec![],
                 drawables: vec![],
             },
-            model_upload_queue: Default::default(),
             logger: LogLevel::Info.logger(),
         }
     }
@@ -88,33 +68,11 @@ impl RenderState {
         Arc::new(Mutex::new(self))
     }
 
-    /// Queue a model for upload to the GPU. This is done by adding it to a
-    /// queue on RenderState, and from there it is uploaded at a plugin-defined
-    /// point.
-    pub fn queue_model_for_upload(
-        &mut self,
-        index: GraphicsIndex,
-        model: Model,
-    ) -> Result<(), RenderStateError> {
-        self.model_upload_queue.push_front((index, model));
-        Ok(())
-    }
-
-    pub fn drain_upload_queue(&mut self) -> VecDeque<(GraphicsIndex, Model)> {
-        std::mem::take(&mut self.model_upload_queue)
-    }
-
     pub fn tracked_model(&mut self, index: GraphicsIndex) -> Option<Instant> {
         self.render_plugin_state
             .as_mut()
             .map(|plugin| plugin.tracked_model(index))
             .flatten()
-    }
-
-    pub fn queued_model(&self, index: GraphicsIndex) -> bool {
-        self.model_upload_queue
-            .iter()
-            .any(|(queued_idx, _)| index == *queued_idx)
     }
 
     pub fn update_scene(&mut self, scene: RenderScene) -> Result<(), SceneError> {
@@ -129,50 +87,21 @@ impl RenderState {
         let c1 = world
             .get_camera_facet(0u32.into())
             .map_err(SceneError::World)?;
+
         let c2 = world
             .get_camera_facet(1u32.into())
             .map_err(SceneError::World)?;
 
         let cameras = vec![c1, c2];
-        let mut drawables = vec![];
 
+        let mut drawables = vec![];
         for (_id, thing) in world.things().iter().enumerate() {
             let model_ref = match &thing.facets {
-                world::thing::ThingType::Camera { phys, camera } => {
-                    let phys = world
-                        .facets
-                        .physical(*phys)
-                        .ok_or(SceneQueryError::NoSuchPhys(*phys))?;
-                    let cam = world
-                        .facets
-                        .camera(*camera)
-                        .ok_or(SceneQueryError::NoSuchCamera(*camera))?;
-
-                    let right = cam.right(phys);
-                    let forward = cam.forward(phys);
-                    let pos =
-                        phys.position + Vec3::new(right.x + forward.x, -2.0, right.z + forward.z);
-                    let angles = Vec3::new(0.0, phys.angles.y - 1.57, 0.0);
-
-                    SceneModelInstance {
-                        model: cam.associated_model.unwrap(),
-                        pos,
-                        angles,
-                        scale: phys.scale,
-                    }
-                }
-                world::thing::ThingType::ModelObject { phys, model } => {
-                    let facet = world
-                        .facets
-                        .physical(*phys)
-                        .ok_or(SceneQueryError::NoSuchPhys(*phys))?;
-
-                    SceneModelInstance {
-                        model: *model,
-                        pos: facet.position,
-                        angles: facet.angles,
-                        scale: facet.scale,
-                    }
+                ThingType::Camera { phys, camera } => world
+                    .get_camera_drawable(phys, camera)
+                    .map_err(SceneError::World)?,
+                ThingType::GraphicsObject { phys, model } => {
+                    world.get_drawable(phys, model).map_err(SceneError::World)?
                 }
             };
             drawables.push(model_ref);
@@ -189,24 +118,29 @@ impl RenderState {
 
     /// Search through the world for models that need to be uploaded, and do so.
     /// Does not yet handle updates to models.
-    pub fn update_models(&mut self, world: &World) {
-        let models: Vec<_> = {
-            world
-                .facets
-                .model_iter()
-                .map(|(index, model)| (index, model.clone()))
-                .collect()
-        };
+    pub fn upload_untracked_graphics(&mut self, world: &World) {
+        let drawables: Vec<_> = world.facets.gfx_iter().collect();
         // This needs to move to somewhere that owns the assets...
-        for (index, model) in models {
+        for (index, graphic) in drawables {
             if let Some(_uploaded) = self.tracked_model(index) {
                 // TODO: handle model updates
                 // model already uploaded
-            } else if self.queued_model(index) {
-                // model already queued for upload
+                // } else if self.queued_model(index) {
+                //     // model already queued for upload
             } else {
-                self.queue_model_for_upload(index, model)
-                    .expect("should upload");
+                info!(self.logger, "uploading graphic {:?}", index);
+                match self.render_plugin_state.as_mut() {
+                    // for now upload one at a time, with a barrier between each.
+                    // we can also upload all at once, but this currently easier to debug.
+                    Some(render_plugin_state) => {
+                        render_plugin_state
+                            .upload_graphics(&[(index, graphic)])
+                            .expect("should upload graphic");
+                    }
+                    None => {
+                        warn!(self.logger, "no render state to upload to");
+                    }
+                }
             }
         }
     }
@@ -220,7 +154,11 @@ pub trait Presenter {
 
     /// Query for a tracked model.
     fn tracked_model(&mut self, index: GraphicsIndex) -> Option<Instant>;
-    // TODO: upload_model, other resource management
+
+    fn upload_graphics(
+        &mut self,
+        graphics: &[(GraphicsIndex, &GraphicsFacet)],
+    ) -> Result<(), RenderStateError>;
 }
 
 /// A trait for the loader side to call into the renderer side.
@@ -248,15 +186,5 @@ pub struct RenderScene {
     // TODO: should this just be indices?
     pub active_camera: usize,
     pub cameras: Vec<(PhysicalFacet, CameraFacet)>,
-    pub drawables: Vec<SceneModelInstance>,
-}
-
-/// Reference to a model and for now positional and orientation data.
-/// Intended to represent a model (uploaded to the GPU once) with instance
-/// information. Should attach to a game object or similar.
-pub struct SceneModelInstance {
-    pub model: GraphicsIndex,
-    pub pos: Vec3,
-    pub angles: Vec3,
-    pub scale: f32,
+    pub drawables: Vec<Drawable>,
 }

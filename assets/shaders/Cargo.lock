@@ -15,9 +15,9 @@ dependencies = [
 
 [[package]]
 name = "aho-corasick"
-version = "0.7.20"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc936419f96fa211c1b9166887b38e5e40b19958e5b895be7c1f93adec7071ac"
+checksum = "67fc08ce920c31afb70f013dcce1bfc3a3195de6a228474e45e1f145b36f8d04"
 dependencies = [
  "memchr",
 ]
@@ -88,6 +88,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "debug_mesh_fragment"
+version = "0.1.0"
+dependencies = [
+ "shader_objects",
+ "spirv-std",
+]
+
+[[package]]
+name = "debug_mesh_vertex"
+version = "0.1.0"
+dependencies = [
+ "shader_objects",
+ "spirv-std",
+]
+
+[[package]]
+name = "default_fragment"
+version = "0.1.0"
+dependencies = [
+ "shader_objects",
+ "spirv-std",
+]
+
+[[package]]
+name = "default_vertex"
+version = "0.1.0"
+dependencies = [
+ "shader_objects",
+ "spirv-std",
+]
+
+[[package]]
 name = "either"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -95,28 +127,12 @@ checksum = "7fcaabb2fef8c910e7f4c7ce9f67a1283a1715879a7c230ca9d6d1ae31f16d91"
 
 [[package]]
 name = "elsa"
-version = "1.7.0"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b4b5d23ed6b6948d68240aafa4ac98e568c9a020efd9d4201a6288bc3006e09"
+checksum = "b5e0aca8dce8856e420195bd13b6a64de3334235ccc9214e824b86b12bf26283"
 dependencies = [
  "indexmap",
  "stable_deref_trait",
-]
-
-[[package]]
-name = "fragment_nolighting"
-version = "0.1.0"
-dependencies = [
- "shader_objects",
- "spirv-std",
-]
-
-[[package]]
-name = "fragment_rustgpu"
-version = "0.1.0"
-dependencies = [
- "shader_objects",
- "spirv-std",
 ]
 
 [[package]]
@@ -130,9 +146,9 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c05aeb6a22b8f62540c194aac980f2115af067bfe15a0734d7277a768d396b31"
+checksum = "c85e1d9ab2eadba7e5040d4e09cbd6d072b76a557ad64e797c2cb9d4da21d7e4"
 dependencies = [
  "cfg-if",
  "libc",
@@ -166,13 +182,19 @@ checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 
 [[package]]
 name = "indexmap"
-version = "1.9.2"
+version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1885e79c1fc4b10f0e172c475f458b7f7b93061064d98c3293e98c5ba0c8b399"
+checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
 dependencies = [
  "autocfg",
  "hashbrown 0.12.3",
 ]
+
+[[package]]
+name = "internal-iterator"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a668ef46056a63366da9d74f48062da9ece1a27958f2f3704aa6f7421c4433f5"
 
 [[package]]
 name = "itertools"
@@ -185,15 +207,15 @@ dependencies = [
 
 [[package]]
 name = "itoa"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fad582f4b9e86b6caa621cabeb0963332d92eea04729ab12892c2533951e6440"
+checksum = "453ad9f582a441959e5f0d088b02ce04cfe8d51a8eaf077f12ac6d3e94164ca6"
 
 [[package]]
 name = "jobserver"
-version = "0.1.25"
+version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "068b1ee6743e4d11fb9c6a1e6064b3693a1b600e7f5f5988047d98b3dc9fb90b"
+checksum = "936cfd212a0155903bcbc060e316fb6cc7cbf2e1907329391ebadc1fe0ce77c2"
 dependencies = [
  "libc",
 ]
@@ -206,15 +228,21 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.139"
+version = "0.2.144"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "201de327520df007757c1f0adce6e827fe8562fbc28bfd9c15571c66ca1f5f79"
+checksum = "2b00cc1c228a6782d0f076e7b232802e0c5689d41bb5df366f2a6b6621cfdfe1"
 
 [[package]]
 name = "libm"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "348108ab3fba42ec82ff6e9564fc4ca0247bdccdc68dd8af9764bbc79c3c8ffb"
+
+[[package]]
+name = "longest-increasing-subsequence"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3bd0dd2cd90571056fdb71f6275fada10131182f84899f4b2a916e565d81d86"
 
 [[package]]
 name = "memchr"
@@ -234,9 +262,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.17.0"
+version = "1.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f61fba1741ea2b3d6a1e3178721804bb716a68a6aeba1149b5d52e3d464ea66"
+checksum = "b7e5500299e16ebb147ae15a00a942af264cf3688f47923b8fc2cd5858f23ad3"
 
 [[package]]
 name = "proc-macro2"
@@ -264,9 +292,9 @@ checksum = "e0501e134c6905fee1f10fed25b0a7e1261bf676cffac9543a7d0730dec01af2"
 
 [[package]]
 name = "regex"
-version = "1.7.1"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48aaa5748ba571fb95cd2c85c09f629215d3a6ece942baa100950af03a34f733"
+checksum = "af83e617f331cc6ae2da5443c602dfa5af81e517212d9d611a5b3ba1777b5370"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -275,9 +303,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.6.28"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "456c603be3e8d448b072f410900c09faf164fbce2d480456f50eea6e25f9c848"
+checksum = "a5996294f19bd3aae0453a862ad728f60e6600695733dd5df01da90c54363a3c"
 
 [[package]]
 name = "rspirv"
@@ -299,9 +327,9 @@ dependencies = [
 
 [[package]]
 name = "rustc-demangle"
-version = "0.1.21"
+version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ef03e0a2b150c7a90d01faf6254c9c48a41e95fb2a8c2ac1c6f0d2b9aefc342"
+checksum = "d626bb9dae77e28219937af045c257c28bfd3f69333c512553507f5f9798cb76"
 
 [[package]]
 name = "rustc-hash"
@@ -311,13 +339,14 @@ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc_codegen_spirv"
-version = "0.5.0"
-source = "git+https://github.com/EmbarkStudios/rust-gpu#547309a73c8e2e712961487be29637dabf3390b5"
+version = "0.7.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#474b89d8b17068108d48df4a8a3b808a7e60be37"
 dependencies = [
  "ar",
  "either",
  "hashbrown 0.11.2",
  "indexmap",
+ "itertools",
  "lazy_static",
  "libc",
  "num-traits",
@@ -337,8 +366,8 @@ dependencies = [
 
 [[package]]
 name = "rustc_codegen_spirv-types"
-version = "0.5.0"
-source = "git+https://github.com/EmbarkStudios/rust-gpu#547309a73c8e2e712961487be29637dabf3390b5"
+version = "0.7.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#474b89d8b17068108d48df4a8a3b808a7e60be37"
 dependencies = [
  "rspirv",
  "serde",
@@ -346,9 +375,9 @@ dependencies = [
 
 [[package]]
 name = "ryu"
-version = "1.0.12"
+version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b4b9743ed687d4b4bcedf9ff5eaa7398495ae14e61cba0a295704edbc7decde"
+checksum = "f91339c0467de62360649f8d3e185ca8de4224ff281f66000de5eb2a77a79041"
 
 [[package]]
 name = "sanitize-filename"
@@ -362,18 +391,18 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.152"
+version = "1.0.156"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb7d1f0d3021d347a83e556fc4683dea2ea09d87bccdf88ff5c12545d89d5efb"
+checksum = "314b5b092c0ade17c00142951e50ced110ec27cea304b1037c6969246c2469a4"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.152"
+version = "1.0.156"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af487d118eecd09402d70a5d72551860e788df87b464af30e5ea6a38c75c541e"
+checksum = "d7e29c4601e36bcec74a223228dce795f4cd3616341a4af93520ca1a837c087d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -382,9 +411,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.93"
+version = "1.0.96"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cad406b69c91885b5107daf2c29572f6c8cdb3c66826821e286c533490c0bc76"
+checksum = "057d394a50403bcac12672b2b18fb387ab6d289d957dab67dd201875391e52f1"
 dependencies = [
  "itoa",
  "ryu",
@@ -426,16 +455,18 @@ dependencies = [
 
 [[package]]
 name = "spirt"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06834ebbbbc6f86448fd5dc7ccbac80e36f52f8d66838683752e19d3cae9a459"
+checksum = "e24fa996f12f3c667efbceaa99c222b8910a295a14d2c43c3880dfab2752def7"
 dependencies = [
  "arrayvec",
  "bytemuck",
  "elsa",
  "indexmap",
+ "internal-iterator",
  "itertools",
  "lazy_static",
+ "longest-increasing-subsequence",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -454,8 +485,8 @@ dependencies = [
 
 [[package]]
 name = "spirv-builder"
-version = "0.5.0"
-source = "git+https://github.com/EmbarkStudios/rust-gpu#547309a73c8e2e712961487be29637dabf3390b5"
+version = "0.7.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#474b89d8b17068108d48df4a8a3b808a7e60be37"
 dependencies = [
  "memchr",
  "raw-string",
@@ -467,8 +498,8 @@ dependencies = [
 
 [[package]]
 name = "spirv-std"
-version = "0.5.0"
-source = "git+https://github.com/EmbarkStudios/rust-gpu#547309a73c8e2e712961487be29637dabf3390b5"
+version = "0.7.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#474b89d8b17068108d48df4a8a3b808a7e60be37"
 dependencies = [
  "bitflags",
  "glam",
@@ -479,8 +510,8 @@ dependencies = [
 
 [[package]]
 name = "spirv-std-macros"
-version = "0.5.0"
-source = "git+https://github.com/EmbarkStudios/rust-gpu#547309a73c8e2e712961487be29637dabf3390b5"
+version = "0.7.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#474b89d8b17068108d48df4a8a3b808a7e60be37"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -490,8 +521,8 @@ dependencies = [
 
 [[package]]
 name = "spirv-std-types"
-version = "0.5.0"
-source = "git+https://github.com/EmbarkStudios/rust-gpu#547309a73c8e2e712961487be29637dabf3390b5"
+version = "0.7.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#474b89d8b17068108d48df4a8a3b808a7e60be37"
 
 [[package]]
 name = "spirv-tools"
@@ -539,14 +570,6 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
-
-[[package]]
-name = "vertex_rustgpu"
-version = "0.1.0"
-dependencies = [
- "shader_objects",
- "spirv-std",
-]
 
 [[package]]
 name = "wasi"

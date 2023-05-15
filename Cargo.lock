@@ -1257,6 +1257,7 @@ dependencies = [
 name = "gfx"
 version = "0.1.0"
 dependencies = [
+ "glam",
  "image",
  "obj-parser",
  "thiserror",

@@ -408,6 +408,72 @@ mod tests {
 
     #[smol_potat::test]
     #[named]
+    async fn test_atomics_in_generated_plugin() {
+        let tempdir = TempDir::new(function_name!()).unwrap();
+        let src = {
+            let global_scope = quote! {
+                use std::sync::Arc;
+                type State = (Vec<Arc<bool>>, Arc<bool>);
+            };
+            let operation = quote! {
+
+                for _ in 0..10 {
+                    state.0.push(Arc::clone(&state.1));
+                }
+
+            };
+            let item_fn_load: ItemFn = parse_quote!(
+                #[no_mangle]
+                pub extern "C" fn load(state: &mut State) {
+                    #operation
+                }
+            );
+
+            let item_fn_update: ItemFn = parse_quote!(
+                #[no_mangle]
+                pub extern "C" fn update(state: &mut State, _dt: &std::time::Duration) {
+                    #operation
+                }
+            );
+
+            let item_fn_unload: ItemFn = parse_quote!(
+                #[no_mangle]
+                pub extern "C" fn unload(state: &mut State) {
+                    #operation
+                    println!("refs at unload: {}", Arc::strong_count(&state.1));
+                }
+            );
+
+            let fns = [item_fn_load, item_fn_update, item_fn_unload];
+
+            let module = quote! {
+                #(#fns)*
+            };
+
+            let src = format!(
+                "{global_scope}\n{module_source}",
+                global_scope = global_scope,
+                module_source = module
+            );
+
+            src
+        };
+        let plugin_path = compile_lib(&tempdir, &src);
+
+        // The normal use case - load a plugin, pass in state, then reload.
+        let mut state = (Vec::new(), Arc::new(true));
+        let mut loader =
+            Plugin::<(Vec<Arc<bool>>, Arc<bool>)>::open_at(plugin_path, "test_plugin").unwrap();
+        let _update = loader.check(&mut state).unwrap();
+        loader
+            .call_update(&mut state, &Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(Arc::strong_count(&state.1), 2);
+    }
+
+    #[smol_potat::test]
+    #[named]
     async fn test_generated_plugin() {
         let tempdir = TempDir::new(function_name!()).unwrap();
         let src = generate_plugin_for_test(quote!(), quote! { *state += 1; });

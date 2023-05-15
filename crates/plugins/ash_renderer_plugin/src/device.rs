@@ -1,8 +1,9 @@
 use std::mem::align_of;
+use std::primitive;
 
 use ash::util::Align;
 use ash::vk;
-use gfx::Image;
+use gfx::{Image, Primitive};
 use logger::Logger;
 
 use crate::types::{BufferAndMemory, ShaderDesc, Texture, VulkanError};
@@ -538,6 +539,7 @@ pub struct GraphicsHandle {
     // pub specular_map: Option<Texture>,
     // pub bump_map: Option<Texture>,
     pub shaders: ShaderDesc,
+    pub primitive: Primitive,
 }
 
 impl GraphicsHandle {
@@ -548,6 +550,7 @@ impl GraphicsHandle {
         vertex_buffer: BufferAndMemory,
         index_buffer: BufferAndMemory,
         shaders: ShaderDesc,
+        primitive: Primitive,
     ) -> Self {
         Self {
             diffuse_map,
@@ -556,6 +559,7 @@ impl GraphicsHandle {
             vertex_buffer,
             index_buffer,
             shaders,
+            primitive,
         }
     }
     pub(crate) fn deallocate(&self, base: &mut VulkanBase) {

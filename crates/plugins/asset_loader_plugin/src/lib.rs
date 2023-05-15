@@ -17,8 +17,8 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
 
     let ico_model = Model::load_obj(
         "assets/models/static/tank.obj",
-        "assets/shaders/vertex_rustgpu.spv",
-        "assets/shaders/fragment_rustgpu.spv",
+        "assets/shaders/spv/default_vertex.spv",
+        "assets/shaders/spv/default_fragment.spv",
     )
     .unwrap();
     let ico_model_facet = GraphicsFacet::from_model(ico_model);
@@ -26,11 +26,14 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
 
     let cube_model = Model::load_obj(
         "assets/models/static/cube.obj",
-        "assets/shaders/vertex_rustgpu.spv",
-        "assets/shaders/fragment_rustgpu.spv",
+        "assets/shaders/spv/default_vertex.spv",
+        "assets/shaders/spv/default_fragment.spv",
     )
     .unwrap();
     let cube_model_facet = GraphicsFacet::from_model(cube_model);
+
+    let cube_model_facet = cube_model_facet.debug_mesh();
+
     let cube_model_idx = world.add_graphics(cube_model_facet);
 
     for (x, z) in [(10.0, 10.0), (-10.0, -10.0)].into_iter() {
@@ -69,13 +72,13 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
 
     let sky_model = Model::load_obj(
         "assets/models/static/skybox.obj",
-        "assets/shaders/skybox_vertex.spv",
-        "assets/shaders/skybox_fragment.spv",
+        "assets/shaders/spv/skybox_vertex.spv",
+        "assets/shaders/spv/skybox_fragment.spv",
     )
     .unwrap();
     let sky_phys = PhysicalFacet::new_cuboid(0.0, 0.0, 0.0, 200.0);
-    let model_facet = GraphicsFacet::from_model(sky_model);
-    let sky_model_idx = world.add_graphics(model_facet);
+    let graphics = GraphicsFacet::from_model(sky_model);
+    let sky_model_idx = world.add_graphics(graphics);
     let sky_phys_idx = world.add_physical(sky_phys);
     let thing = Thing::model(sky_phys_idx, sky_model_idx);
     world.add_thing(thing).unwrap();

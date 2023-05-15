@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
+use std::primitive;
 
 use glam::Vec4;
 use image::GenericImageView;
@@ -77,11 +78,11 @@ impl GpuNeeds for Model {
         self.vertex_shader.as_path()
     }
 
-    fn mesh_vertices(&self) -> &[Vertex] {
+    fn vertices(&self) -> &[Vertex] {
         self.mesh.vertices.as_slice()
     }
 
-    fn mesh_indices(&self) -> &[u32] {
+    fn indices(&self) -> &[u32] {
         self.mesh.indices.as_slice()
     }
 
@@ -98,22 +99,39 @@ pub struct DebugMesh {
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
     color: Vec4,
+    primitive: Primitive,
+}
+
+impl DebugMesh {
+    /// Retrieve the primitive type for this debug mesh.
+    pub fn primitive(&self) -> Primitive {
+        self.primitive
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum Primitive {
+    PointList = 0,
+    LineList = 1,
+    LineStrip = 2,
+    TriangleList = 3,
 }
 
 impl GpuNeeds for DebugMesh {
     fn fragment_shader_path(&self) -> &Path {
-        Path::new("assets/shaders/debug_frag.spv")
+        Path::new("assets/shaders/spv/debug_mesh_fragment.spv")
     }
 
     fn vertex_shader_path(&self) -> &Path {
-        Path::new("assets/shaders/debug_vert.spv")
+        Path::new("assets/shaders/spv/debug_mesh_vertex.spv")
     }
 
-    fn mesh_vertices(&self) -> &[Vertex] {
+    fn vertices(&self) -> &[Vertex] {
         self.vertices.as_slice()
     }
 
-    fn mesh_indices(&self) -> &[u32] {
+    fn indices(&self) -> &[u32] {
         self.indices.as_slice()
     }
 
@@ -127,32 +145,111 @@ pub enum DiffuseColor<'a> {
     Texture(&'a Image),
 }
 
-// TODO: consider an interface for all graphics drawable types
-pub trait GpuNeeds {
-    fn fragment_shader_path(&self) -> &Path;
-    fn vertex_shader_path(&self) -> &Path;
-    fn mesh_vertices(&self) -> &[Vertex];
-    fn mesh_indices(&self) -> &[u32];
-    fn diffuse_color(&self) -> Option<DiffuseColor<'_>>;
+impl<'a> DiffuseColor<'a> {
+    pub fn is_texture(&self) -> bool {
+        matches!(self, DiffuseColor::Texture(_))
+    }
+    pub fn is_color(&self) -> bool {
+        matches!(self, DiffuseColor::Color(_))
+    }
 }
 
+/// Provide what we need to draw this object.
+pub trait GpuNeeds {
+    /// Return vertices of this object.
+    fn vertices(&self) -> &[Vertex];
+
+    /// Return indices of this object.
+    fn indices(&self) -> &[u32];
+
+    /// Return the diffuse color/map of this object.
+    fn diffuse_color(&self) -> Option<DiffuseColor<'_>>;
+
+    /// Return the path to the fragment shader.
+    fn fragment_shader_path(&self) -> &Path;
+
+    /// Return the path to the vertex shader.
+    fn vertex_shader_path(&self) -> &Path;
+}
+
+/// A drawable object.
+///
+/// Add new variants here.
 pub enum Graphic {
+    /// A model, with a texture and shaders.
     Model(Model),
+
+    /// A debug mesh, color and primitive types.
     DebugMesh(DebugMesh),
+
+    // TODO
+    ParticleSystem,
 }
 
 impl Graphic {
+    /// Create a new graphic from a model.
     pub fn new_model(model: Model) -> Self {
         Graphic::Model(model)
     }
 
-    pub fn new_debug_mesh(vertices: Vec<Vertex>, indices: Vec<u32>, color: Vec4) -> Self {
+    /// Create a new debug mesh with parts.
+    pub fn new_debug_mesh(
+        vertices: Vec<Vertex>,
+        indices: Vec<u32>,
+        color: Vec4,
+        primitive: Primitive,
+    ) -> Self {
         let mesh = DebugMesh {
             vertices,
             indices,
             color,
+            primitive,
         };
         Graphic::DebugMesh(mesh)
+    }
+
+    /// Convert a graphic into a debug mesh. For the model, it strips the
+    /// material and applies a color.
+    pub fn into_debug_mesh(self, color: Vec4, primitive: Primitive) -> Self {
+        match self {
+            s @ Graphic::DebugMesh(_) => s,
+            Graphic::Model(model) => {
+                let vertices = model.vertices().to_vec();
+                let indices = model.indices().to_vec();
+                Graphic::new_debug_mesh(vertices, indices, color, primitive)
+            }
+            Graphic::ParticleSystem => todo!(),
+        }
+    }
+
+    pub fn primitive(&self) -> Primitive {
+        match self {
+            Graphic::Model(_) => Primitive::TriangleList,
+            Graphic::DebugMesh(mesh) => mesh.primitive(),
+            Graphic::ParticleSystem => todo!(),
+        }
+    }
+
+    pub fn into_wireframe(self) -> Self {
+        match self {
+            Graphic::Model(model) => {
+                let vertices = model.vertices().to_vec();
+                let indices = model.indices().to_vec();
+                Graphic::new_debug_mesh(
+                    vertices,
+                    indices,
+                    Vec4::new(1.0, 0.0, 0.0, 1.0),
+                    Primitive::LineList,
+                )
+            }
+            Graphic::DebugMesh(mesh) => Graphic::new_debug_mesh(
+                mesh.vertices,
+                mesh.indices,
+                Vec4::new(1.0, 0.0, 0.0, 1.0),
+                Primitive::LineList,
+            ),
+            Graphic::ParticleSystem => todo!(),
+        }
     }
 }
 
@@ -161,6 +258,7 @@ impl GpuNeeds for Graphic {
         match self {
             Graphic::Model(model) => model.fragment_shader_path(),
             Graphic::DebugMesh(mesh) => mesh.fragment_shader_path(),
+            Graphic::ParticleSystem => todo!(),
         }
     }
 
@@ -168,20 +266,23 @@ impl GpuNeeds for Graphic {
         match self {
             Graphic::Model(model) => model.vertex_shader_path(),
             Graphic::DebugMesh(mesh) => mesh.vertex_shader_path(),
+            Graphic::ParticleSystem => todo!(),
         }
     }
 
-    fn mesh_vertices(&self) -> &[Vertex] {
+    fn vertices(&self) -> &[Vertex] {
         match self {
-            Graphic::Model(model) => model.mesh_vertices(),
-            Graphic::DebugMesh(mesh) => mesh.mesh_vertices(),
+            Graphic::Model(model) => model.vertices(),
+            Graphic::DebugMesh(mesh) => mesh.vertices(),
+            Graphic::ParticleSystem => todo!(),
         }
     }
 
-    fn mesh_indices(&self) -> &[u32] {
+    fn indices(&self) -> &[u32] {
         match self {
-            Graphic::Model(model) => model.mesh_indices(),
-            Graphic::DebugMesh(mesh) => mesh.mesh_indices(),
+            Graphic::Model(model) => model.indices(),
+            Graphic::DebugMesh(mesh) => mesh.indices(),
+            Graphic::ParticleSystem => todo!(),
         }
     }
 
@@ -189,6 +290,7 @@ impl GpuNeeds for Graphic {
         match self {
             Graphic::Model(model) => model.diffuse_color(),
             Graphic::DebugMesh(mesh) => mesh.diffuse_color(),
+            Graphic::ParticleSystem => todo!(),
         }
     }
 }

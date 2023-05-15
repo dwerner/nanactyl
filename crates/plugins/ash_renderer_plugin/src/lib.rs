@@ -13,20 +13,23 @@ mod types;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read};
 use std::mem;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry};
+use bytemuck::bytes_of;
 use device::GraphicsHandle;
-use gfx::{DiffuseColor, GpuNeeds, Vertex};
+use gfx::{DiffuseColor, GpuNeeds, Primitive, Vertex};
 use glam::{Mat4, Vec3};
 use logger::{debug, info, Logger};
 use platform::WinPtr;
 use plugin_self::{impl_plugin_state_field, PluginState};
 use render::{Presenter, RenderPluginState, RenderScene, RenderState, RenderStateError};
+use rspirv_reflect::{DescriptorType, Reflection};
 use shader_objects::{PushConstants, UniformBuffer};
 use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, PipelineDesc, ShaderBindingDesc, ShaderDesc,
@@ -35,6 +38,7 @@ use types::{
 use world::thing::{GraphicsFacet, GraphicsIndex, EULER_ROT_ORDER};
 
 use crate::device::DeviceWrapper;
+use crate::types::read_shader_module;
 
 /// Renderer struct owning the descriptor pool, pipelines and descriptions.
 struct Renderer {
@@ -158,13 +162,13 @@ impl Renderer {
         // TODO more than just models, meshes in general.
 
         // let logger = self.logger.sub("model render");
-        for (model_index, (model, _uploaded_instant)) in base.tracked_graphics.iter() {
+        for (gfx_index, (model, _uploaded_instant)) in base.tracked_graphics.iter() {
             // TODO: unified struct for models & pipelines
-            let desc = match self.pipeline_descriptions.get_mut(model_index) {
+            let desc = match self.pipeline_descriptions.get_mut(gfx_index) {
                 Some(desc) => desc,
                 None => continue,
             };
-            let pipeline = match self.graphics_pipelines.get(model_index) {
+            let pipeline = match self.graphics_pipelines.get(gfx_index) {
                 Some(pipeline) => pipeline,
                 None => continue,
             };
@@ -195,7 +199,7 @@ impl Renderer {
                 0,
                 vk::IndexType::UINT32,
             );
-            for drawable in scene.drawables.iter().filter(|p| p.model == *model_index) {
+            for drawable in scene.drawables.iter().filter(|p| p.gfx == *gfx_index) {
                 // create a matrix for translating to the given position.
                 let scale = Mat4::from_scale(drawable.scale * Vec3::ONE);
                 let translation = Mat4::from_translation(-drawable.pos);
@@ -211,7 +215,7 @@ impl Renderer {
                 let push_constants = PushConstants { model_mat };
                 let push_constant_bytes = bytemuck::bytes_of(&push_constants);
 
-                let (model, _) = base.tracked_graphics.get(&drawable.model).unwrap();
+                let (model, _) = base.tracked_graphics.get(&drawable.gfx).unwrap();
                 w.cmd_push_constants(
                     base.draw_cmd_buf,
                     desc.layout,
@@ -281,7 +285,8 @@ impl Renderer {
         Ok(())
     }
 
-    // rebuilds pipelines and reloads shaders *from disk*.
+    /// Rebuilds pipelines and reloads shaders *from disk*.
+    // TODO: build pipeline and bindings from more rich introspection of assets.
     fn rebuild_pipelines(&mut self, base: &mut VulkanBase) -> Result<(), VulkanError> {
         let logger = self.logger.sub("rebuild_pipelines");
         if !self.graphics_pipelines.is_empty() {
@@ -304,10 +309,8 @@ impl Renderer {
             }
         }
 
-        // TODO: shaders that apply only to certain models need different descriptor
-        // sets.
-        // TODO: any pool can be a thread local, but then any object must be destroyed
-        // on that thread.
+        // TODO: rework to use rspirv-reflect, or reuse that info as gathered during
+        // pipeline construction.
         let mut pipeline_descriptions = HashMap::new();
 
         // For now we are creating a pipeline per model.
@@ -334,24 +337,29 @@ impl Renderer {
                 base.allocate_descriptor_sets(self.descriptor_pool, &[desc_set_layout])?;
 
             // TODO compose a struct for containing samplers and related images
-            let diffuse_sampler = base.create_sampler()?;
             //let specular_sampler = bw.create_sampler()?;
             //let bump_sampler = bw.create_sampler()?;
 
+            let mut maybe_diffuse_sampler = None;
+            let maybe_diffuse_image_view = handle.diffuse_map.as_ref().map(|map| map.image_view);
             let descriptor_set = descriptor_sets[0];
+
+            if handle.diffuse_map.is_some() {
+                let diffuse_sampler = base.create_sampler()?;
+                maybe_diffuse_sampler = Some(diffuse_sampler);
+            }
 
             VulkanBase::update_descriptor_set(
                 &base.device,
                 descriptor_set,
                 &uniform_buffer,
-                handle.diffuse_map.as_ref().map(|x| x.image_view),
+                maybe_diffuse_image_view,
                 // None, // model.specular_map.as_ref().map(|x| x.image_view),
                 // None, // model.bump_map.as_ref().map(|x| x.image_view),
-                diffuse_sampler,
+                maybe_diffuse_sampler,
                 // specular_sampler,
                 // bump_sampler,
             );
-
             let mut vertex_spv_file = BufReader::new(
                 File::open(&handle.shaders.vertex_shader_path).map_err(VulkanError::ShaderRead)?,
             );
@@ -376,8 +384,9 @@ impl Renderer {
                 vk::PipelineShaderStageCreateFlags::empty(),
             )?;
 
-            let mut vertex_input_assembly =
-                VertexInputAssembly::new(vk::PrimitiveTopology::TRIANGLE_LIST);
+            let topology = primitive_to_vk_topology(handle.primitive);
+            let mut vertex_input_assembly = VertexInputAssembly::new(topology);
+
             vertex_input_assembly.add_binding_description::<Vertex>(0, vk::VertexInputRate::VERTEX);
             vertex_input_assembly.add_attribute_description(
                 0,
@@ -411,7 +420,7 @@ impl Renderer {
                     desc_set_layout,
                     uniform_buffer,
                     descriptor_set,
-                    diffuse_sampler,
+                    maybe_diffuse_sampler,
                     // specular_sampler,
                     // bump_sampler,
                     pipeline_layout,
@@ -419,12 +428,15 @@ impl Renderer {
                     base.scissors(),
                     shader_stages,
                     vertex_input_assembly,
+                    primitive_to_vk_polygon_mode(handle.primitive),
                 ),
             );
         }
 
-        let graphics_pipelines =
-            base.create_graphics_pipelines(&pipeline_descriptions, base.render_pass)?;
+        let graphics_pipelines = base.create_graphics_pipelines_from_descriptions(
+            &pipeline_descriptions,
+            base.render_pass,
+        )?;
 
         debug!(logger, "rebuilt {} pipelines", graphics_pipelines.len());
         self.graphics_pipelines = graphics_pipelines;
@@ -631,7 +643,7 @@ impl VulkanBase {
         let fence = w.create_fence().unwrap();
         let mut src_images = Vec::new();
         let mut completed_uploads = Vec::new();
-        for (index, model) in upload_queue {
+        for (index, graphic) in upload_queue {
             debug!(logger, "loading graphics object at {index:?}");
 
             let command_buffers = w.allocate_command_buffers(pool).unwrap();
@@ -640,7 +652,7 @@ impl VulkanBase {
             w.wait_for_fence(fence).unwrap();
             w.begin_command_buffer(command_buffer).unwrap();
 
-            let diffuse_map = match model.gfx.diffuse_color() {
+            let diffuse_map = match graphic.gfx.diffuse_color() {
                 Some(DiffuseColor::Texture(texture)) => Some(w.cmd_upload_image(
                     texture,
                     device_memory_properties,
@@ -674,7 +686,7 @@ impl VulkanBase {
                 .allocate_and_init_buffer(
                     vk::BufferUsageFlags::VERTEX_BUFFER,
                     device_memory_properties,
-                    model.gfx.mesh_vertices(),
+                    graphic.gfx.vertices(),
                 )
                 .unwrap();
 
@@ -682,25 +694,40 @@ impl VulkanBase {
                 .allocate_and_init_buffer(
                     vk::BufferUsageFlags::INDEX_BUFFER,
                     device_memory_properties,
-                    model.gfx.mesh_indices(),
+                    graphic.gfx.indices(),
                 )
                 .unwrap();
 
-            let desc_set_layout_bindings = vec![
-                ShaderBindingDesc {
-                    binding: 0,
-                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: 1,
-                    // make the uniform buffer available at both vertex and fragment stages
-                    stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                },
-                ShaderBindingDesc {
-                    binding: 1,
+            let mut stage_flags = vk::ShaderStageFlags::empty();
+
+            // reflect over shaders and determine descriptor sets
+            stage_flags |= self.reflect_shader_descriptors(
+                graphic.gfx.vertex_shader_path(),
+                DescriptorType::UNIFORM_BUFFER,
+                vk::ShaderStageFlags::VERTEX,
+            );
+
+            stage_flags |= self.reflect_shader_descriptors(
+                graphic.gfx.fragment_shader_path(),
+                DescriptorType::UNIFORM_BUFFER,
+                vk::ShaderStageFlags::FRAGMENT,
+            );
+
+            let mut desc_set_layout_bindings = vec![ShaderBindingDesc {
+                binding: 0,
+                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: 1,
+                stage_flags,
+            }];
+
+            if diffuse_map.is_some() {
+                desc_set_layout_bindings.push(ShaderBindingDesc {
+                    binding: desc_set_layout_bindings.len() as u32,
                     descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                     descriptor_count: 1,
                     stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                },
-            ];
+                });
+            }
 
             let uploaded_model = GraphicsHandle::new(
                 diffuse_map,
@@ -710,9 +737,10 @@ impl VulkanBase {
                 // hardcoding this for now to move forward with model rendering
                 ShaderDesc {
                     desc_set_layout_bindings,
-                    vertex_shader_path: model.gfx.vertex_shader_path().to_path_buf(),
-                    fragment_shader_path: model.gfx.fragment_shader_path().to_path_buf(),
+                    vertex_shader_path: graphic.gfx.vertex_shader_path().to_path_buf(),
+                    fragment_shader_path: graphic.gfx.fragment_shader_path().to_path_buf(),
                 },
+                graphic.gfx.primitive(),
             );
             completed_uploads.push((*index, uploaded_model));
         }
@@ -761,7 +789,7 @@ impl VulkanBase {
         }]
     }
 
-    fn create_graphics_pipelines(
+    fn create_graphics_pipelines_from_descriptions(
         &mut self,
         pipeline_descriptions: &HashMap<GraphicsIndex, PipelineDesc>,
         render_pass: vk::RenderPass,
@@ -782,7 +810,7 @@ impl VulkanBase {
             let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
                 front_face: vk::FrontFace::COUNTER_CLOCKWISE,
                 line_width: 1.0,
-                polygon_mode: vk::PolygonMode::FILL,
+                polygon_mode: desc.polygon_mode,
                 ..Default::default()
             };
 
@@ -860,10 +888,12 @@ impl VulkanBase {
         device: &ash::Device,
         descriptor_set: vk::DescriptorSet,
         uniform_buffer: &BufferAndMemory,
-        diffuse_image_view: Option<vk::ImageView>,
+
+        // TODO: imageview + sampler struct
+        maybe_diffuse_image_view: Option<vk::ImageView>,
+        maybe_diffuse_sampler: Option<vk::Sampler>,
         //specular_image_view: Option<vk::ImageView>,
         //bump_image_view: Option<vk::ImageView>,
-        diffuse_sampler: vk::Sampler,
         //_specular_sampler: vk::Sampler,
         //_bump_sampler: vk::Sampler,
     ) {
@@ -877,26 +907,29 @@ impl VulkanBase {
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
             .buffer_info(&uniform_descriptors)];
 
-        // if let Some(diffuse) = diffuse_image_view {
-
-        let diffuse = diffuse_image_view.unwrap();
-        let descriptor = vk::DescriptorImageInfo::builder()
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image_view(diffuse)
-            .sampler(diffuse_sampler);
-        let tex_descriptors = vec![*descriptor];
-        //let binding = 1 + tex_descriptors.len();
-        let write = vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_set)
-            .dst_binding(1)
-            .dst_array_element(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&tex_descriptors);
-        write_desc_sets.push(*write);
-        unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
-        // } else {
-        //     unreachable!("diffuse")
-        // }
+        if let (Some(diffuse), Some(diffuse_sampler)) =
+            (maybe_diffuse_image_view, maybe_diffuse_sampler)
+        {
+            println!("Updating diffuse image view");
+            let descriptor = vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(diffuse)
+                .sampler(diffuse_sampler);
+            let tex_descriptors = vec![*descriptor];
+            //let binding = 1 + tex_descriptors.len();
+            let write = vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_set)
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&tex_descriptors);
+            write_desc_sets.push(*write);
+            unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
+            return;
+        } else {
+            println!("updating descriptor set no diffuse");
+            unsafe { device.update_descriptor_sets(&write_desc_sets, &[]) };
+        }
 
         // if let Some(specular) = specular_image_view {
         //     let descriptor = vk::DescriptorImageInfo::builder()
@@ -1188,6 +1221,7 @@ impl VulkanBase {
         let device_extension_names_raw = [Swapchain::name().as_ptr()];
         let features = vk::PhysicalDeviceFeatures {
             shader_clip_distance: 1,
+            fill_mode_non_solid: 1,
             ..Default::default()
         };
         let priorities = [1.0];
@@ -1732,6 +1766,29 @@ impl VulkanBase {
         unsafe { device.queue_submit(submit_queue, &[submit_info], command_buffer_reuse_fence) }
             .unwrap();
     }
+
+    /// Gather the requisite shader stage flags from the shader.
+    // TODO: this could instead build a ShaderStageDesc, which would be more useful.
+    fn reflect_shader_descriptors(
+        &self,
+        shader: &Path,
+        desc_type: DescriptorType,
+        stage: vk::ShaderStageFlags,
+    ) -> vk::ShaderStageFlags {
+        let mut vertex_shader = BufReader::new(File::open(shader).unwrap());
+        let mut bytes_read = vec![];
+        let _ = vertex_shader.read_to_end(&mut bytes_read).unwrap();
+        let vertex_shader = Reflection::new_from_spirv(&bytes_read).unwrap();
+        let shader_stage_flags = vk::ShaderStageFlags::empty();
+        for (_set, binding_map) in vertex_shader.get_descriptor_sets().unwrap() {
+            for (binding, desc) in binding_map {
+                if desc.ty == desc_type {
+                    return stage;
+                }
+            }
+        }
+        shader_stage_flags
+    }
 }
 
 impl Drop for VulkanBase {
@@ -1847,6 +1904,24 @@ impl PluginState for VulkanRenderPluginState {
 impl Drop for VulkanRenderPluginState {
     fn drop(&mut self) {
         info!(self.logger, "dropping vulkan render plugin state...");
+    }
+}
+
+fn primitive_to_vk_topology(primitive: Primitive) -> vk::PrimitiveTopology {
+    match primitive {
+        Primitive::PointList => vk::PrimitiveTopology::POINT_LIST,
+        Primitive::LineList => vk::PrimitiveTopology::LINE_LIST,
+        Primitive::LineStrip => vk::PrimitiveTopology::LINE_STRIP,
+        Primitive::TriangleList => vk::PrimitiveTopology::TRIANGLE_LIST,
+    }
+}
+
+fn primitive_to_vk_polygon_mode(primitive: Primitive) -> vk::PolygonMode {
+    match primitive {
+        Primitive::PointList => vk::PolygonMode::POINT,
+        Primitive::LineList => vk::PolygonMode::LINE,
+        Primitive::LineStrip => vk::PolygonMode::LINE,
+        Primitive::TriangleList => vk::PolygonMode::FILL,
     }
 }
 

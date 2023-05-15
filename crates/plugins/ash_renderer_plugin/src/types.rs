@@ -312,7 +312,7 @@ pub struct PipelineDesc {
     pub desc_set_layout: vk::DescriptorSetLayout,
     pub uniform_buffer: BufferAndMemory,
     pub descriptor_set: vk::DescriptorSet,
-    pub diffuse_sampler: vk::Sampler,
+    pub maybe_diffuse_sampler: Option<vk::Sampler>,
     // pub specular_sampler: vk::Sampler,
     // pub bump_sampler: vk::Sampler,
     pub layout: vk::PipelineLayout,
@@ -320,6 +320,7 @@ pub struct PipelineDesc {
     pub scissors: Vec<vk::Rect2D>,
     pub shader_stages: ShaderStages,
     pub vertex_input_assembly: VertexInputAssembly,
+    pub polygon_mode: vk::PolygonMode,
 }
 
 impl PipelineDesc {
@@ -329,7 +330,7 @@ impl PipelineDesc {
         desc_set_layout: vk::DescriptorSetLayout,
         uniform_buffer: BufferAndMemory,
         descriptor_set: vk::DescriptorSet,
-        diffuse_sampler: vk::Sampler,
+        maybe_diffuse_sampler: Option<vk::Sampler>,
         // specular_sampler: vk::Sampler,
         // bump_sampler: vk::Sampler,
         layout: vk::PipelineLayout,
@@ -337,12 +338,13 @@ impl PipelineDesc {
         scissors: Vec<vk::Rect2D>,
         shader_stages: ShaderStages,
         vertex_input_assembly: VertexInputAssembly,
+        polygon_mode: vk::PolygonMode,
     ) -> Self {
         Self {
             desc_set_layout,
             uniform_buffer,
             descriptor_set,
-            diffuse_sampler,
+            maybe_diffuse_sampler,
             // specular_sampler,
             // bump_sampler,
             layout,
@@ -350,6 +352,7 @@ impl PipelineDesc {
             scissors,
             shader_stages,
             vertex_input_assembly,
+            polygon_mode,
         }
     }
     /// Deallocate PipelineDesc's resources on the GPU.
@@ -360,7 +363,9 @@ impl PipelineDesc {
             for shader_module in self.shader_stages.modules.iter() {
                 device.destroy_shader_module(*shader_module, None);
             }
-            device.destroy_sampler(self.diffuse_sampler, None);
+            if let Some(sampler) = self.maybe_diffuse_sampler {
+                device.destroy_sampler(sampler, None);
+            }
             // device.destroy_sampler(self.specular_sampler, None);
             // device.destroy_sampler(self.bump_sampler, None);
             device.destroy_descriptor_set_layout(self.desc_set_layout, None);

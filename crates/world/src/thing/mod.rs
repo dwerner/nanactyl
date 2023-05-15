@@ -1,16 +1,22 @@
 use std::time::Duration;
 
-use gfx::{Graphic, Model};
-use glam::{EulerRot, Mat4, Vec3};
+use gfx::{Graphic, Model, Primitive, Vertex};
+use glam::{EulerRot, Mat4, Vec3, Vec4};
 
 pub const EULER_ROT_ORDER: EulerRot = EulerRot::XYZ;
 
+/// Index to address a physical object.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct PhysicalIndex(pub(crate) u32);
+
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct HealthIndex(pub(crate) u32);
+
+/// Index to address a camera.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct CameraIndex(pub(crate) u32);
+
+/// Index to address a graphic.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct GraphicsIndex(pub(crate) u32);
 
@@ -106,6 +112,26 @@ impl GraphicsFacet {
     pub fn from_model(model: Model) -> Self {
         Self {
             gfx: Graphic::new_model(model),
+        }
+    }
+
+    pub fn debug_mesh(self) -> Self {
+        Self {
+            gfx: self
+                .gfx
+                .into_debug_mesh(Vec4::new(1.0, 0.0, 0.0, 1.0), Primitive::TriangleList),
+        }
+    }
+
+    pub fn line_strip(vertices: Vec<Vertex>, color: Vec4) -> Self {
+        Self {
+            gfx: Graphic::new_debug_mesh(vertices, vec![], color, Primitive::LineStrip),
+        }
+    }
+
+    pub fn line_list(vertices: Vec<Vertex>, color: Vec4) -> Self {
+        Self {
+            gfx: Graphic::new_debug_mesh(vertices, vec![], color, Primitive::LineStrip),
         }
     }
 }
@@ -206,7 +232,7 @@ impl std::fmt::Debug for PhysicalFacet {
 pub struct CameraFacet {
     pub view: Mat4,
     pub perspective: Mat4,
-    pub associated_model: Option<GraphicsIndex>,
+    pub associated_graphics: Option<GraphicsIndex>,
 }
 
 #[derive(Debug)]
@@ -230,14 +256,14 @@ impl CameraFacet {
                 0.1,    // near
                 1000.0, //far
             ),
-            associated_model: None,
+            associated_graphics: None,
         };
         c.update_view_matrix(phys);
         c
     }
 
-    pub fn set_associated_model(&mut self, model: GraphicsIndex) {
-        self.associated_model = Some(model);
+    pub fn set_associated_model(&mut self, gfx: GraphicsIndex) {
+        self.associated_graphics = Some(gfx);
     }
 
     pub fn set_perspective(&mut self, fov: f32, aspect: f32, near: f32, far: f32) {

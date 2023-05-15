@@ -99,7 +99,7 @@ pub trait Identifyable {
 #[derive(Default)]
 pub struct WorldFacets {
     cameras: Vec<CameraFacet>,
-    models: Vec<GraphicsFacet>,
+    graphics: Vec<GraphicsFacet>,
     pub physical: Vec<PhysicalFacet>,
     health: Vec<HealthFacet>,
 }
@@ -118,14 +118,14 @@ impl WorldFacets {
     }
 
     pub fn gfx_iter(&self) -> impl Iterator<Item = (GraphicsIndex, &GraphicsFacet)> {
-        self.models
+        self.graphics
             .iter()
             .enumerate()
             .map(|(index, facet)| (index.into(), facet))
     }
 
     pub fn model(&self, index: GraphicsIndex) -> Option<&GraphicsFacet> {
-        self.models.get(index.0 as usize)
+        self.graphics.get(index.0 as usize)
     }
 
     pub fn physical(&self, index: PhysicalIndex) -> Option<&PhysicalFacet> {
@@ -210,11 +210,11 @@ pub struct Config {
     pub maybe_server_addr: Option<SocketAddr>,
 }
 
-/// Reference to a model and for now positional and orientation data.
+/// Reference to a graphics object and for now positional and orientation data.
 /// Intended to represent a model (uploaded to the GPU once) with instance
 /// information. Should attach to a game object or similar.
 pub struct Drawable {
-    pub model: GraphicsIndex,
+    pub gfx: GraphicsIndex,
     pub pos: Vec3,
     pub angles: Vec3,
     pub scale: f32,
@@ -233,7 +233,7 @@ impl World {
             .physical(*phys)
             .ok_or(WorldError::NoSuchPhys(*phys))?;
         Ok(Drawable {
-            model: *model,
+            gfx: *model,
             pos: physical_facet.position,
             angles: physical_facet.angles,
             scale: physical_facet.scale,
@@ -258,7 +258,7 @@ impl World {
         let pos = phys.position + Vec3::new(right.x + forward.x, -2.0, right.z + forward.z);
         let angles = Vec3::new(0.0, phys.angles.y - 1.57, 0.0);
         Ok(Drawable {
-            model: cam.associated_model.unwrap(),
+            gfx: cam.associated_graphics.unwrap(),
             pos,
             angles,
             scale: phys.scale,
@@ -363,7 +363,7 @@ impl World {
 
     // Transform should be used as the offset of drawing from the physical facet
     pub fn add_graphics(&mut self, model: GraphicsFacet) -> GraphicsIndex {
-        let graphics = &mut self.facets.models;
+        let graphics = &mut self.facets.graphics;
         let idx = graphics.len();
         graphics.push(model);
         idx.into()
@@ -401,7 +401,7 @@ impl World {
         self.things.clear();
         facets.cameras.clear();
         facets.health.clear();
-        facets.models.clear();
+        facets.graphics.clear();
         facets.physical.clear();
     }
 }

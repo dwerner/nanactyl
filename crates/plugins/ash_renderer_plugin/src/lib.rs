@@ -567,11 +567,7 @@ fn surface_loader_physical_device<'a>(
 // needs
 struct Frame {}
 
-/// VulkanBase - base functionality for the Vulkan plugin. The
-/// idea here is to keep the facilities as generic as is reasonable and provide
-/// them to `ash_renderer_plugin`. In essence, what doesn't change much stays
-/// here, while rapidly moving/changing code should live in the plugin until it
-/// stabilizes into generic functionality.
+/// Carries vulkan state.
 struct VulkanBase {
     win_ptr: platform::WinPtr,
     entry: ash::Entry,

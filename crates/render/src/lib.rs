@@ -68,10 +68,10 @@ impl RenderState {
         Arc::new(Mutex::new(self))
     }
 
-    pub fn tracked_model(&mut self, index: GraphicsIndex) -> Option<Instant> {
+    pub fn tracked_graphics(&mut self, index: GraphicsIndex) -> Option<Instant> {
         self.render_plugin_state
             .as_mut()
-            .map(|plugin| plugin.tracked_model(index))
+            .map(|plugin| plugin.tracked_graphics(index))
             .flatten()
     }
 
@@ -122,7 +122,7 @@ impl RenderState {
         let drawables: Vec<_> = world.facets.gfx_iter().collect();
         // This needs to move to somewhere that owns the assets...
         for (index, graphic) in drawables {
-            if let Some(_uploaded) = self.tracked_model(index) {
+            if let Some(_uploaded) = self.tracked_graphics(index) {
                 // TODO: handle model updates
                 // model already uploaded
                 // } else if self.queued_model(index) {
@@ -152,8 +152,8 @@ pub trait Presenter {
     fn update_resources(&mut self);
     fn deallocate(&mut self);
 
-    /// Query for a tracked model.
-    fn tracked_model(&mut self, index: GraphicsIndex) -> Option<Instant>;
+    /// Query for a tracked drawable.
+    fn tracked_graphics(&mut self, index: GraphicsIndex) -> Option<Instant>;
 
     fn upload_graphics(
         &mut self,

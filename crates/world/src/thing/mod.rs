@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use gfx::{Graphic, Model, Primitive, Vertex};
+use gfx::{DebugMesh, Graphic, Model, Primitive, Vertex};
 use glam::{EulerRot, Mat4, Vec3, Vec4};
 
 pub const EULER_ROT_ORDER: EulerRot = EulerRot::XYZ;
@@ -115,11 +115,17 @@ impl GraphicsFacet {
         }
     }
 
-    pub fn debug_mesh(self) -> Self {
+    pub fn into_debug_mesh(self) -> Self {
         Self {
             gfx: self
                 .gfx
                 .into_debug_mesh(Vec4::new(1.0, 0.0, 0.0, 1.0), Primitive::LineStrip),
+        }
+    }
+
+    pub fn with_debug_mesh(debug_mesh: DebugMesh) -> Self {
+        Self {
+            gfx: Graphic::DebugMesh(debug_mesh),
         }
     }
 
@@ -163,6 +169,157 @@ pub enum Shape {
     Cylinder { radius: f32, height: f32 },
     Capsule { radius: f32, height: f32 },
     Sphere { radius: f32 },
+}
+
+impl Shape {
+    pub fn cuboid(width: f32, height: f32, depth: f32) -> Self {
+        Shape::Cuboid {
+            width,
+            height,
+            depth,
+        }
+    }
+
+    pub fn cylinder(radius: f32, height: f32) -> Self {
+        Shape::Cylinder { radius, height }
+    }
+
+    pub fn capsule(radius: f32, height: f32) -> Self {
+        Shape::Capsule { radius, height }
+    }
+
+    pub fn sphere(radius: f32) -> Self {
+        Shape::Sphere { radius }
+    }
+
+    pub fn into_debug_mesh(&self, color: Vec4) -> DebugMesh {
+        let vertices = match self {
+            Shape::Cuboid {
+                width,
+                height,
+                depth,
+            } => generate_cuboid(*width, *height, *depth),
+            Shape::Cylinder { radius, height } => generate_cylinder(*radius, *height, 10),
+            Shape::Sphere { radius } => generate_sphere(*radius, 10),
+            Shape::Capsule { radius, height } => generate_capsule(*radius, *height, 10),
+        };
+        DebugMesh::new(vertices, color)
+    }
+}
+
+fn generate_cuboid(width: f32, height: f32, depth: f32) -> Vec<Vertex> {
+    let w = width / 2.0;
+    let h = height / 2.0;
+    let d = depth / 2.0;
+
+    vec![
+        // Bottom square
+        Vertex::pos_only(-w, -h, -d),
+        Vertex::pos_only(w, -h, -d),
+        Vertex::pos_only(w, -h, d),
+        Vertex::pos_only(-w, -h, d),
+        // Top square
+        Vertex::pos_only(-w, h, -d),
+        Vertex::pos_only(w, h, -d),
+        Vertex::pos_only(w, h, d),
+        Vertex::pos_only(-w, h, d),
+        // Vertical lines
+        Vertex::pos_only(-w, -h, -d),
+        Vertex::pos_only(-w, h, -d),
+        Vertex::pos_only(w, -h, -d),
+        Vertex::pos_only(w, h, -d),
+        Vertex::pos_only(w, -h, d),
+        Vertex::pos_only(w, h, d),
+        Vertex::pos_only(-w, -h, d),
+        Vertex::pos_only(-w, h, d),
+    ]
+}
+
+pub fn generate_sphere(radius: f32, segments: usize) -> Vec<Vertex> {
+    let mut result = Vec::new();
+
+    for i in 0..segments {
+        for j in 0..segments {
+            let theta1 = (i as f32) * 2.0 * std::f32::consts::PI / (segments as f32);
+            let theta2 = ((i + 1) as f32) * 2.0 * std::f32::consts::PI / (segments as f32);
+
+            let phi1 = (j as f32) * std::f32::consts::PI / (segments as f32);
+            let phi2 = ((j + 1) as f32) * std::f32::consts::PI / (segments as f32);
+
+            let x1 = radius * theta1.sin() * phi1.sin();
+            let y1 = radius * phi1.cos();
+            let z1 = radius * theta1.cos() * phi1.sin();
+
+            let x2 = radius * theta2.sin() * phi1.sin();
+            let y2 = radius * phi1.cos();
+            let z2 = radius * theta2.cos() * phi1.sin();
+
+            let x3 = radius * theta1.sin() * phi2.sin();
+            let y3 = radius * phi2.cos();
+            let z3 = radius * theta1.cos() * phi2.sin();
+
+            result.push(Vertex::pos_only(x1, y1, z1));
+            result.push(Vertex::pos_only(x2, y2, z2));
+            result.push(Vertex::pos_only(x3, y3, z3));
+        }
+    }
+    result
+}
+
+pub fn generate_cylinder(radius: f32, height: f32, segments: usize) -> Vec<Vertex> {
+    let mut result = Vec::new();
+
+    for i in 0..segments {
+        let theta1 = (i as f32) * 2.0 * std::f32::consts::PI / (segments as f32);
+        let theta2 = ((i + 1) as f32) * 2.0 * std::f32::consts::PI / (segments as f32);
+
+        let x1 = radius * theta1.sin();
+        let y1 = -height / 2.0;
+        let z1 = radius * theta1.cos();
+
+        let x2 = radius * theta2.sin();
+        let y2 = -height / 2.0;
+        let z2 = radius * theta2.cos();
+
+        let x3 = radius * theta1.sin();
+        let y3 = height / 2.0;
+        let z3 = radius * theta1.cos();
+
+        let x4 = radius * theta2.sin();
+        let y4 = height / 2.0;
+        let z4 = radius * theta2.cos();
+
+        result.push(Vertex::pos_only(x1, y1, z1));
+        result.push(Vertex::pos_only(x2, y2, z2));
+        result.push(Vertex::pos_only(x3, y3, z3));
+        result.push(Vertex::pos_only(x4, y4, z4));
+    }
+
+    result
+}
+
+fn generate_capsule(radius: f32, height: f32, segments: usize) -> Vec<Vertex> {
+    let mut result = Vec::new();
+
+    // Generate top hemisphere (sphere)
+    let mut top_hemisphere = generate_sphere(radius, segments);
+    for vertex in &mut top_hemisphere {
+        vertex.pos[1] += height / 2.0;
+    }
+    result.append(&mut top_hemisphere);
+
+    // Generate bottom hemisphere (sphere)
+    let mut bottom_hemisphere = generate_sphere(radius, segments);
+    for vertex in &mut bottom_hemisphere {
+        vertex.pos[1] -= height / 2.0;
+    }
+    result.append(&mut bottom_hemisphere);
+
+    // Generate cylinder
+    let mut cylinder = generate_cylinder(radius, height, segments);
+    result.append(&mut cylinder);
+
+    result
 }
 
 #[derive(Clone)]

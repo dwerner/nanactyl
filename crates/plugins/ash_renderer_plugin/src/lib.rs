@@ -466,7 +466,7 @@ impl Presenter for VulkanRenderPluginState {
         }
     }
 
-    fn tracked_model(&mut self, index: GraphicsIndex) -> Option<Instant> {
+    fn tracked_graphics(&mut self, index: GraphicsIndex) -> Option<Instant> {
         self.base
             .as_ref()?
             .tracked_graphics
@@ -491,6 +491,7 @@ impl Presenter for VulkanRenderPluginState {
             base.track_uploaded_graphic(index, handle);
         }
 
+        // todo: do this only when we actually upload something
         renderer
             .rebuild_pipelines(self.base.as_mut().unwrap())
             .unwrap();
@@ -709,7 +710,7 @@ impl VulkanBase {
         // sets.
         //? TODO: any pool can be a thread local, but then any object must be destroyed
         //? on that thread.
-        let descriptor_pool = self.create_descriptor_pool(12, 8, 8)?;
+        let descriptor_pool = self.create_descriptor_pool(20, 20, 20)?;
         let mut renderer = Renderer {
             descriptor_pool,
             pipelines: HashMap::new(),

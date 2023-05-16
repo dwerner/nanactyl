@@ -102,6 +102,14 @@ pub struct DebugMesh {
 }
 
 impl DebugMesh {
+    pub fn new(vertices: Vec<Vertex>, color: Vec4) -> Self {
+        Self {
+            vertices,
+            indices: vec![0],
+            color,
+            primitive: Primitive::LineList,
+        }
+    }
     /// Retrieve the primitive type for this debug mesh.
     pub fn primitive(&self) -> Primitive {
         self.primitive
@@ -366,6 +374,13 @@ pub struct Vertex {
 }
 
 impl Vertex {
+    pub fn pos_only(x: f32, y: f32, z: f32) -> Self {
+        Vertex {
+            pos: [x, y, z, 1.0],
+            uv: [0.0, 0.0],
+            normal: [0.0, 0.0, 0.0],
+        }
+    }
     pub fn new(v: (f32, f32, f32, f32), vt: (f32, f32, f32), vn: (f32, f32, f32)) -> Self {
         Vertex {
             pos: [v.0, v.1, v.2, v.3],

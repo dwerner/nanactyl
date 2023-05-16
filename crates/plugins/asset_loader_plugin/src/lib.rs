@@ -32,7 +32,7 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     .unwrap();
     let cube_model_facet = GraphicsFacet::from_model(cube_model);
 
-    let cube_model_facet = cube_model_facet.debug_mesh();
+    let cube_model_facet = cube_model_facet.into_debug_mesh();
 
     let cube_model_idx = world.add_graphics(cube_model_facet);
 

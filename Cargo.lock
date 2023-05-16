@@ -2323,8 +2323,7 @@ dependencies = [
 [[package]]
 name = "rspirv-reflect"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b482432a4d407e1aa135839be12f4f838f84b5bfe00825e6239abf813ccfcc27"
+source = "git+https://github.com/dwerner/rspirv-reflect?branch=entry-points#cfb2b4f07c7550b678222053dc0d7550b83c7a4a"
 dependencies = [
  "rspirv",
  "thiserror",

@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use std::primitive;
 
 use glam::Vec4;
 use image::GenericImageView;

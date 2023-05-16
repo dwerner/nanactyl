@@ -1,11 +1,12 @@
 use std::mem::align_of;
+use std::sync::Arc;
 
 use ash::util::Align;
 use ash::vk;
 use gfx::{Image, Primitive};
 use logger::Logger;
 
-use crate::types::{BufferAndMemory, ShaderDesc, Texture, VulkanError};
+use crate::types::{BufferAndMemory, Shader, Texture, VulkanError};
 use crate::VulkanBase;
 
 /// Newtype over `ash::Device` allowing our own methods to be implemented.
@@ -537,7 +538,8 @@ pub struct GraphicsHandle {
     pub diffuse_map: Option<Texture>,
     // pub specular_map: Option<Texture>,
     // pub bump_map: Option<Texture>,
-    pub shaders: ShaderDesc,
+    pub vertex_shader: Arc<Shader>,
+    pub fragment_shader: Arc<Shader>,
     pub primitive: Primitive,
 }
 
@@ -548,7 +550,8 @@ impl GraphicsHandle {
         // bump_map: Option<Texture>,
         vertex_buffer: BufferAndMemory,
         index_buffer: BufferAndMemory,
-        shaders: ShaderDesc,
+        vertex_shader: Shader,
+        fragment_shader: Shader,
         primitive: Primitive,
     ) -> Self {
         Self {
@@ -557,7 +560,8 @@ impl GraphicsHandle {
             // bump_map,
             vertex_buffer,
             index_buffer,
-            shaders,
+            vertex_shader: Arc::new(vertex_shader),
+            fragment_shader: Arc::new(fragment_shader),
             primitive,
         }
     }

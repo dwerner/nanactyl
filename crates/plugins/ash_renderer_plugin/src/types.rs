@@ -1,16 +1,20 @@
-use core::fmt;
 use std::ffi::{CString, NulError};
-use std::fmt::Formatter;
-use std::io;
+use std::fs::File;
+use std::io::{self, BufReader, Cursor, Read};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use ash::vk;
+use rspirv_reflect::{DescriptorType, EntryPoint, Reflection};
 
 /// Collection of specific error types that Vulkan can raise, in rust form.
 #[derive(thiserror::Error, Debug)]
 pub enum VulkanError {
     #[error("error reading shader ({0:?})")]
     ShaderRead(io::Error),
+
+    #[error("error reflecting over shader ({0:?})")]
+    ShaderReflect(rspirv_reflect::ReflectError),
 
     #[error("Unable to find suitable memorytype for the buffer")]
     UnableToFindMemoryTypeForBuffer,
@@ -92,58 +96,32 @@ impl BufferAndMemory {
 
 /// Describes a shader binding.
 #[derive(Clone)]
-pub struct ShaderBindingDesc {
+pub struct DescriptorSetLayoutBinding {
+    pub set: u32,
     pub binding: u32,
     pub descriptor_type: vk::DescriptorType,
     pub descriptor_count: u32,
-    pub stage_flags: vk::ShaderStageFlags,
 }
 
-impl fmt::Debug for ShaderBindingDesc {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let vertex = self.stage_flags.contains(vk::ShaderStageFlags::VERTEX);
-        let fragment = self.stage_flags.contains(vk::ShaderStageFlags::FRAGMENT);
-        // todo: more shader stages
-
-        let mut flags = Vec::new();
-        if vertex {
-            flags.push("VERTEX");
-        }
-        if fragment {
-            flags.push("FRAGMENT");
-        }
-        f.debug_struct("ShaderBindingDesc")
-            .field("binding", &self.binding)
-            .field("descriptor_type", &self.descriptor_type)
-            .field("descriptor_count", &self.descriptor_count)
-            .field("stage_flags", &[flags.join(",")])
-            .finish()
-    }
-}
-
-impl ShaderBindingDesc {
-    pub fn into_layout_binding(self) -> vk::DescriptorSetLayoutBinding {
+impl DescriptorSetLayoutBinding {
+    pub fn as_layout_binding(
+        &self,
+        stage_flags: vk::ShaderStageFlags,
+    ) -> vk::DescriptorSetLayoutBinding {
         let Self {
             binding,
             descriptor_type,
             descriptor_count,
-            stage_flags,
+            ..
         } = self;
         vk::DescriptorSetLayoutBinding {
-            binding,
-            descriptor_type,
-            descriptor_count,
+            binding: *binding,
+            descriptor_type: *descriptor_type,
+            descriptor_count: *descriptor_count,
             stage_flags,
             ..Default::default()
         }
     }
-}
-
-#[derive(Clone)]
-pub struct ShaderDesc {
-    pub desc_set_layout_bindings: Vec<ShaderBindingDesc>,
-    pub vertex_shader_path: PathBuf,
-    pub fragment_shader_path: PathBuf,
 }
 
 /// Holds references to GPU resources for a texture.
@@ -308,7 +286,7 @@ impl<'a> AttachmentsModifier<'a> {
 }
 
 /// Describes a pipeline.
-pub struct PipelineDesc {
+pub struct Pipeline {
     pub desc_set_layout: vk::DescriptorSetLayout,
     pub uniform_buffer: BufferAndMemory,
     pub descriptor_set: vk::DescriptorSet,
@@ -321,9 +299,10 @@ pub struct PipelineDesc {
     pub shader_stages: ShaderStages,
     pub vertex_input_assembly: VertexInputAssembly,
     pub polygon_mode: vk::PolygonMode,
+    pub vk: Option<vk::Pipeline>,
 }
 
-impl PipelineDesc {
+impl Pipeline {
     /// Create a new PipelineDesc.
     #[allow(clippy::too_many_arguments)]
     pub fn create(
@@ -353,8 +332,10 @@ impl PipelineDesc {
             shader_stages,
             vertex_input_assembly,
             polygon_mode,
+            vk: None,
         }
     }
+
     /// Deallocate PipelineDesc's resources on the GPU.
     pub fn deallocate(&self, device: &ash::Device) {
         unsafe {
@@ -371,20 +352,120 @@ impl PipelineDesc {
             device.destroy_descriptor_set_layout(self.desc_set_layout, None);
         }
     }
+
+    pub(crate) fn set_vk(&mut self, vk: vk::Pipeline) {
+        self.vk = Some(vk)
+    }
 }
 
-/// TODO: Move to DeviceWrap
-pub fn read_shader_module<R>(
-    device: &ash::Device,
-    reader: &mut R,
-) -> Result<vk::ShaderModule, VulkanError>
-where
-    R: io::Read + io::Seek,
-{
-    let shader_code = ash::util::read_spv(reader).map_err(VulkanError::ShaderRead)?;
-    let shader_create_info = vk::ShaderModuleCreateInfo::builder().code(&shader_code);
-    unsafe { device.create_shader_module(&shader_create_info, None) }
-        .map_err(VulkanError::VkResultToDo)
+#[derive(Clone)]
+pub struct Shader {
+    data: Vec<u8>,
+    path: PathBuf,
+    entry_points: Vec<EntryPoint>,
+    descriptor_set_bindings: Vec<DescriptorSetLayoutBinding>,
+    push_constant_ranges: Vec<vk::PushConstantRange>,
+}
+
+impl Shader {
+    /// Read and reflect over a SPIR-V shader .spv file, storing data and
+    /// metadata for later use. Can be used to create an
+    /// ash::vk::ShaderModule with `as_shader_module`.
+    ///
+    /// A shader doesn't know what stages are available, so you must specify
+    /// when creating a pipeline.
+    pub fn read_spv(path: PathBuf) -> Result<Self, VulkanError> {
+        let mut reader = BufReader::new(File::open(&path).map_err(VulkanError::ShaderRead)?);
+        let mut data = Vec::new();
+        reader
+            .read_to_end(&mut data)
+            .map_err(VulkanError::ShaderRead)?;
+
+        let reflection = Reflection::new_from_spirv(&data).unwrap();
+
+        let mut descriptor_set_bindings = Vec::new();
+        for (set, binding_map) in reflection
+            .get_descriptor_sets()
+            .map_err(VulkanError::ShaderReflect)?
+        {
+            for (binding, desc) in binding_map {
+                let descriptor_type = match desc.ty {
+                    DescriptorType::SAMPLER => vk::DescriptorType::SAMPLER,
+                    DescriptorType::COMBINED_IMAGE_SAMPLER => {
+                        vk::DescriptorType::COMBINED_IMAGE_SAMPLER
+                    }
+                    DescriptorType::SAMPLED_IMAGE => vk::DescriptorType::SAMPLED_IMAGE,
+                    DescriptorType::STORAGE_IMAGE => vk::DescriptorType::STORAGE_IMAGE,
+                    DescriptorType::UNIFORM_TEXEL_BUFFER => {
+                        vk::DescriptorType::UNIFORM_TEXEL_BUFFER
+                    }
+                    DescriptorType::STORAGE_TEXEL_BUFFER => {
+                        vk::DescriptorType::STORAGE_TEXEL_BUFFER
+                    }
+                    DescriptorType::UNIFORM_BUFFER => vk::DescriptorType::UNIFORM_BUFFER,
+                    DescriptorType::STORAGE_BUFFER => vk::DescriptorType::STORAGE_BUFFER,
+                    DescriptorType::UNIFORM_BUFFER_DYNAMIC => {
+                        vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC
+                    }
+                    DescriptorType::STORAGE_BUFFER_DYNAMIC => {
+                        vk::DescriptorType::STORAGE_BUFFER_DYNAMIC
+                    }
+                    DescriptorType::INPUT_ATTACHMENT => vk::DescriptorType::INPUT_ATTACHMENT,
+                    DescriptorType::INLINE_UNIFORM_BLOCK_EXT => {
+                        vk::DescriptorType::INLINE_UNIFORM_BLOCK_EXT
+                    }
+                    DescriptorType::ACCELERATION_STRUCTURE_KHR => {
+                        vk::DescriptorType::ACCELERATION_STRUCTURE_KHR
+                    }
+                    DescriptorType::ACCELERATION_STRUCTURE_NV => {
+                        vk::DescriptorType::ACCELERATION_STRUCTURE_NV
+                    }
+                    // todo: err
+                    _ => unreachable!("Unsupported descriptor type"),
+                };
+                let descriptor_count = match desc.binding_count {
+                    rspirv_reflect::BindingCount::One => 1,
+                    rspirv_reflect::BindingCount::StaticSized(s) => s as u32,
+                    // bindless
+                    rspirv_reflect::BindingCount::Unbounded => todo!(),
+                };
+                descriptor_set_bindings.push(DescriptorSetLayoutBinding {
+                    set,
+                    binding,
+                    descriptor_type,
+                    descriptor_count,
+                });
+            }
+        }
+
+        let entry_points = reflection
+            .get_entry_points()
+            .map_err(VulkanError::ShaderReflect)?;
+
+        // TODO: complete this
+        let mut push_constant_ranges = Vec::new();
+
+        Ok(Self {
+            data,
+            path,
+            descriptor_set_bindings,
+            entry_points,
+            push_constant_ranges,
+        })
+    }
+
+    /// Create an ash::vk::ShaderModule from the SPIR-V shader data.
+    pub fn as_shader_module(&self, device: &ash::Device) -> Result<vk::ShaderModule, VulkanError> {
+        let mut cursor = Cursor::new(&self.data);
+        let code = ash::util::read_spv(&mut cursor).map_err(VulkanError::ShaderRead)?;
+        let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);
+        unsafe { device.create_shader_module(&create_info, None) }
+            .map_err(VulkanError::VkResultToDo)
+    }
+
+    pub fn desc_set_layout_bindings(&self) -> &[DescriptorSetLayoutBinding] {
+        &self.descriptor_set_bindings
+    }
 }
 
 /// Tracks modules and definitions used to initialize shaders.
@@ -399,21 +480,27 @@ impl ShaderStages {
         Self::default()
     }
 
-    pub fn add_shader<R>(
+    pub fn add_shader(
         &mut self,
         device: &ash::Device,
-        reader: &mut R,
-        entry_point_name: &'static str,
-        stage: vk::ShaderStageFlags,
-        flags: vk::PipelineShaderStageCreateFlags,
-    ) -> Result<(), VulkanError>
-    where
-        R: io::Read + io::Seek,
-    {
-        let module = read_shader_module(device, reader)?;
+        shader: Arc<Shader>,
+        stage_flags: vk::ShaderStageFlags,
+    ) -> Result<(), VulkanError> {
+        let pipeline_flags = vk::PipelineShaderStageCreateFlags::empty();
+
+        // TODO do more thank just grab the first entry point
+        let entry_point_name = shader.entry_points[0].name.clone();
+        let module = shader.as_shader_module(device)?;
+
         let idx = self.modules.len();
         self.modules.push(module);
-        let shader_stage = ShaderStage::new(self.modules[idx], entry_point_name, stage, flags)?;
+
+        let shader_stage = ShaderStage::new(
+            self.modules[idx],
+            entry_point_name,
+            stage_flags,
+            pipeline_flags,
+        )?;
         self.shader_stage_defs.push(shader_stage);
         Ok(())
     }
@@ -431,7 +518,7 @@ pub struct ShaderStage {
 impl ShaderStage {
     pub fn new(
         module: vk::ShaderModule,
-        entry_point_name: &'static str,
+        entry_point_name: String,
         stage: vk::ShaderStageFlags,
         flags: vk::PipelineShaderStageCreateFlags,
     ) -> Result<Self, VulkanError> {

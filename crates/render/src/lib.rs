@@ -150,7 +150,7 @@ impl RenderState {
 pub trait Presenter {
     fn present(&mut self, scene: &RenderScene);
     fn update_resources(&mut self);
-    fn drop_resources(&mut self);
+    fn deallocate(&mut self);
 
     /// Query for a tracked model.
     fn tracked_model(&mut self, index: GraphicsIndex) -> Option<Instant>;

@@ -1,5 +1,4 @@
 use std::mem::align_of;
-use std::primitive;
 
 use ash::util::Align;
 use ash::vk;

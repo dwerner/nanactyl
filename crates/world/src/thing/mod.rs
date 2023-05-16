@@ -119,7 +119,7 @@ impl GraphicsFacet {
         Self {
             gfx: self
                 .gfx
-                .into_debug_mesh(Vec4::new(1.0, 0.0, 0.0, 1.0), Primitive::TriangleList),
+                .into_debug_mesh(Vec4::new(1.0, 0.0, 0.0, 1.0), Primitive::LineStrip),
         }
     }
 

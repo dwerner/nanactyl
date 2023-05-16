@@ -791,7 +791,7 @@ impl VulkanBase {
         render_pass: vk::RenderPass,
     ) -> Result<HashMap<GraphicsIndex, vk::Pipeline>, VulkanError> {
         let mut graphics_pipelines = HashMap::new();
-        for (model_index, desc) in pipeline_descriptions {
+        for (gfx_index, desc) in pipeline_descriptions {
             let shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo> = desc
                 .shader_stages
                 .shader_stage_defs
@@ -805,7 +805,7 @@ impl VulkanBase {
 
             let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
                 front_face: vk::FrontFace::COUNTER_CLOCKWISE,
-                line_width: 1.0,
+                line_width: 2.0,
                 polygon_mode: desc.polygon_mode,
                 ..Default::default()
             };
@@ -873,7 +873,7 @@ impl VulkanBase {
             }
             .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))?
                 [0];
-            graphics_pipelines.insert(*model_index, pipeline);
+            graphics_pipelines.insert(*gfx_index, pipeline);
         }
         Ok(graphics_pipelines)
     }

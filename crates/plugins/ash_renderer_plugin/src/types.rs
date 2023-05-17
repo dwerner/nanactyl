@@ -1,11 +1,10 @@
 use std::ffi::{CString, NulError};
 use std::fs::File;
 use std::io::{self, BufReader, Cursor, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ash::vk;
-use rspirv_reflect::{DescriptorType, EntryPoint, Reflection};
 
 /// Collection of specific error types that Vulkan can raise, in rust form.
 #[derive(thiserror::Error, Debug)]
@@ -13,8 +12,8 @@ pub enum VulkanError {
     #[error("error reading shader ({0:?})")]
     ShaderRead(io::Error),
 
-    #[error("error reflecting over shader ({0:?})")]
-    ShaderReflect(rspirv_reflect::ReflectError),
+    #[error("error reflecting over shader {0}")]
+    ShaderReflect(String),
 
     #[error("Unable to find suitable memorytype for the buffer")]
     UnableToFindMemoryTypeForBuffer,
@@ -54,6 +53,15 @@ pub enum VulkanError {
 
     #[error("error enumerating physical devices {0:?})")]
     EnumeratePhysicalDevices(vk::Result),
+
+    #[error("error no shader entry point found")]
+    NoShaderEntryPoint,
+}
+
+impl VulkanError {
+    pub fn shader_reflect(s: &str) -> Self {
+        VulkanError::ShaderReflect(s.to_string())
+    }
 }
 
 /// A handle to a Vulkan GPU buffer and it's backing memory.
@@ -95,7 +103,7 @@ impl BufferAndMemory {
 }
 
 /// Describes a shader binding.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct DescriptorSetLayoutBinding {
     pub set: u32,
     pub binding: u32,
@@ -358,13 +366,27 @@ impl Pipeline {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug)]
+pub struct EntryPoint {
+    name: String,
+    stage_flags: vk::ShaderStageFlags,
+    descriptor_set_layout_bindings: Vec<DescriptorSetLayoutBinding>,
+    push_constant_ranges: Vec<vk::PushConstantRange>,
+}
+impl EntryPoint {
+    pub fn desc_set_layout_bindings(&self) -> &[DescriptorSetLayoutBinding] {
+        &self.descriptor_set_layout_bindings
+    }
+
+    pub fn push_constant_ranges(&self) -> &[vk::PushConstantRange] {
+        &self.push_constant_ranges
+    }
+}
+
 pub struct Shader {
     data: Vec<u8>,
     path: PathBuf,
     entry_points: Vec<EntryPoint>,
-    descriptor_set_bindings: Vec<DescriptorSetLayoutBinding>,
-    push_constant_ranges: Vec<vk::PushConstantRange>,
 }
 
 impl Shader {
@@ -381,76 +403,59 @@ impl Shader {
             .read_to_end(&mut data)
             .map_err(VulkanError::ShaderRead)?;
 
-        let reflection = Reflection::new_from_spirv(&data).unwrap();
+        let shader_module = spirv_reflect::ShaderModule::load_u8_data(&data)
+            .map_err(VulkanError::shader_reflect)?;
 
-        let mut descriptor_set_bindings = Vec::new();
-        for (set, binding_map) in reflection
-            .get_descriptor_sets()
-            .map_err(VulkanError::ShaderReflect)?
+        let mut entry_points = Vec::new();
+        for entry_point in shader_module
+            .enumerate_entry_points()
+            .map_err(VulkanError::shader_reflect)?
         {
-            for (binding, desc) in binding_map {
-                let descriptor_type = match desc.ty {
-                    DescriptorType::SAMPLER => vk::DescriptorType::SAMPLER,
-                    DescriptorType::COMBINED_IMAGE_SAMPLER => {
-                        vk::DescriptorType::COMBINED_IMAGE_SAMPLER
-                    }
-                    DescriptorType::SAMPLED_IMAGE => vk::DescriptorType::SAMPLED_IMAGE,
-                    DescriptorType::STORAGE_IMAGE => vk::DescriptorType::STORAGE_IMAGE,
-                    DescriptorType::UNIFORM_TEXEL_BUFFER => {
-                        vk::DescriptorType::UNIFORM_TEXEL_BUFFER
-                    }
-                    DescriptorType::STORAGE_TEXEL_BUFFER => {
-                        vk::DescriptorType::STORAGE_TEXEL_BUFFER
-                    }
-                    DescriptorType::UNIFORM_BUFFER => vk::DescriptorType::UNIFORM_BUFFER,
-                    DescriptorType::STORAGE_BUFFER => vk::DescriptorType::STORAGE_BUFFER,
-                    DescriptorType::UNIFORM_BUFFER_DYNAMIC => {
-                        vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC
-                    }
-                    DescriptorType::STORAGE_BUFFER_DYNAMIC => {
-                        vk::DescriptorType::STORAGE_BUFFER_DYNAMIC
-                    }
-                    DescriptorType::INPUT_ATTACHMENT => vk::DescriptorType::INPUT_ATTACHMENT,
-                    DescriptorType::INLINE_UNIFORM_BLOCK_EXT => {
-                        vk::DescriptorType::INLINE_UNIFORM_BLOCK_EXT
-                    }
-                    DescriptorType::ACCELERATION_STRUCTURE_KHR => {
-                        vk::DescriptorType::ACCELERATION_STRUCTURE_KHR
-                    }
-                    DescriptorType::ACCELERATION_STRUCTURE_NV => {
-                        vk::DescriptorType::ACCELERATION_STRUCTURE_NV
-                    }
-                    // todo: err
-                    _ => unreachable!("Unsupported descriptor type"),
-                };
-                let descriptor_count = match desc.binding_count {
-                    rspirv_reflect::BindingCount::One => 1,
-                    rspirv_reflect::BindingCount::StaticSized(s) => s as u32,
-                    // bindless
-                    rspirv_reflect::BindingCount::Unbounded => todo!(),
-                };
-                descriptor_set_bindings.push(DescriptorSetLayoutBinding {
-                    set,
-                    binding,
-                    descriptor_type,
-                    descriptor_count,
+            let stage_flags = spirv_reflect_shader_stage_to_vk(entry_point.shader_stage);
+            let mut descriptor_set_bindings = Vec::new();
+            for descriptor_set in shader_module
+                .enumerate_descriptor_sets(Some(&entry_point.name))
+                .map_err(VulkanError::shader_reflect)?
+            {
+                for binding in descriptor_set.bindings {
+                    let set = binding.set;
+                    let descriptor_type =
+                        spirv_reflect_descriptor_type_to_vk(&binding.descriptor_type);
+                    let descriptor_count = binding.count;
+                    let binding = binding.binding;
+                    descriptor_set_bindings.push(DescriptorSetLayoutBinding {
+                        set,
+                        binding,
+                        descriptor_type,
+                        descriptor_count,
+                    });
+                }
+            }
+            let mut push_constant_ranges = Vec::new();
+            for push_constant in shader_module
+                .enumerate_push_constant_blocks(Some(&entry_point.name))
+                .map_err(VulkanError::shader_reflect)?
+            {
+                let offset = push_constant.offset;
+                let size = push_constant.size;
+                push_constant_ranges.push(vk::PushConstantRange {
+                    stage_flags,
+                    offset,
+                    size,
                 });
             }
+            entry_points.push(EntryPoint {
+                name: entry_point.name.clone(),
+                stage_flags,
+                descriptor_set_layout_bindings: descriptor_set_bindings.clone(),
+                push_constant_ranges: Vec::new(),
+            })
         }
-
-        let entry_points = reflection
-            .get_entry_points()
-            .map_err(VulkanError::ShaderReflect)?;
-
-        // TODO: complete this
-        let mut push_constant_ranges = Vec::new();
 
         Ok(Self {
             data,
             path,
-            descriptor_set_bindings,
             entry_points,
-            push_constant_ranges,
         })
     }
 
@@ -463,8 +468,39 @@ impl Shader {
             .map_err(VulkanError::VkResultToDo)
     }
 
-    pub fn desc_set_layout_bindings(&self) -> &[DescriptorSetLayoutBinding] {
-        &self.descriptor_set_bindings
+    pub fn entry_points(&self) -> &[EntryPoint] {
+        &self.entry_points
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+fn spirv_reflect_shader_stage_to_vk(
+    stage: spirv_reflect::types::ReflectShaderStageFlags,
+) -> vk::ShaderStageFlags {
+    vk::ShaderStageFlags::from_raw(stage.bits())
+}
+
+fn spirv_reflect_descriptor_type_to_vk(
+    desc: &spirv_reflect::types::ReflectDescriptorType,
+) -> vk::DescriptorType {
+    use spirv_reflect::types::ReflectDescriptorType::*;
+    match desc {
+        Undefined => unimplemented!("Undefined descriptor type"),
+        Sampler => vk::DescriptorType::SAMPLER,
+        CombinedImageSampler => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+        SampledImage => vk::DescriptorType::SAMPLED_IMAGE,
+        StorageImage => vk::DescriptorType::STORAGE_IMAGE,
+        UniformTexelBuffer => vk::DescriptorType::UNIFORM_TEXEL_BUFFER,
+        StorageTexelBuffer => vk::DescriptorType::STORAGE_TEXEL_BUFFER,
+        UniformBuffer => vk::DescriptorType::UNIFORM_BUFFER,
+        StorageBuffer => vk::DescriptorType::STORAGE_BUFFER,
+        UniformBufferDynamic => vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+        StorageBufferDynamic => vk::DescriptorType::STORAGE_BUFFER_DYNAMIC,
+        InputAttachment => vk::DescriptorType::INPUT_ATTACHMENT,
+        AccelerationStructureNV => vk::DescriptorType::ACCELERATION_STRUCTURE_NV,
     }
 }
 
@@ -489,7 +525,13 @@ impl ShaderStages {
         let pipeline_flags = vk::PipelineShaderStageCreateFlags::empty();
 
         // TODO do more thank just grab the first entry point
-        let entry_point_name = shader.entry_points[0].name.clone();
+        let entry_point_name = shader
+            .entry_points
+            .get(0)
+            .ok_or(VulkanError::NoShaderEntryPoint)?
+            .name
+            .clone();
+
         let module = shader.as_shader_module(device)?;
 
         let idx = self.modules.len();

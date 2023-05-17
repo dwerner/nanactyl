@@ -2,8 +2,6 @@
 // HACK(eddyb) can't easily see warnings otherwise from `spirv-builder` builds.
 #![deny(warnings)]
 
-pub mod sampler;
-
 use shader_objects::{UniformBuffer, MAX_LIGHTS};
 use spirv_std::glam::{
     Vec2,

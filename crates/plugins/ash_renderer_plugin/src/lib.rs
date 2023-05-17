@@ -303,7 +303,9 @@ impl Renderer {
         for (graphics_index, (handle, _uploaded_instant)) in base.tracked_graphics.iter() {
             info!(
                 logger,
-                "creating descriptor set for graphics {graphics_index:?}"
+                "upload graphics {graphics_index:?}, vert: {} frag: {}",
+                handle.vertex_shader.path().display(),
+                handle.fragment_shader.path().display()
             );
             let uniform_buffer = {
                 let uniform_buffer = UniformBuffer::new();
@@ -416,7 +418,7 @@ impl Renderer {
             self.pipelines.insert(*graphics_index, pipeline);
         }
 
-        debug!(logger, "rebuilt {} pipelines", self.pipelines.len());
+        info!(logger, "rebuilt {} pipelines", self.pipelines.len());
 
         Ok(())
     }
@@ -924,11 +926,26 @@ impl VulkanBase {
         vertex_shader: &Shader,
         fragment_shader: &Shader,
     ) -> Result<vk::DescriptorSetLayout, VulkanError> {
-        let vertex_bindings = vertex_shader.desc_set_layout_bindings().iter();
-        let fragment_bindings = fragment_shader.desc_set_layout_bindings().iter();
+        let vertex_bindings =
+            vertex_shader
+                .entry_points()
+                .iter()
+                .fold(Vec::new(), |mut acc, entry_point| {
+                    acc.extend(entry_point.desc_set_layout_bindings());
+                    acc
+                });
+
+        let fragment_bindings =
+            fragment_shader
+                .entry_points()
+                .iter()
+                .fold(Vec::new(), |mut acc, entry_point| {
+                    acc.extend(entry_point.desc_set_layout_bindings());
+                    acc
+                });
 
         let bindings: Vec<_> =
-            merge_vertex_and_fragment_bindings(vertex_bindings, fragment_bindings).collect();
+            merge_vertex_and_fragment_bindings(&vertex_bindings, &fragment_bindings).collect();
 
         let descriptor_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         let layout = unsafe {
@@ -1790,10 +1807,6 @@ impl PluginState for VulkanRenderPluginState {
         // Call render, buffers are updated etc
         if let Some(renderer) = self.renderer.as_mut() {
             state.updates += 1;
-            if state.updates % 600 == 0 {
-                let logger = state.logger.sub("ash-renderer-update");
-                info!(logger, "updates: {} time: {:?}...", state.updates, dt);
-            }
             renderer
                 .present(self.base.as_mut().unwrap(), &state.scene)
                 .unwrap();
@@ -1819,8 +1832,8 @@ impl Drop for VulkanRenderPluginState {
 /// ShaderStageFlags based on if they are coming from a vertex or fragment
 /// shader.
 fn merge_vertex_and_fragment_bindings<'a>(
-    vertex_bindings: impl Iterator<Item = &'a DescriptorSetLayoutBinding>,
-    fragment_bindings: impl Iterator<Item = &'a DescriptorSetLayoutBinding>,
+    vertex_bindings: &[&'a DescriptorSetLayoutBinding],
+    fragment_bindings: &[&'a DescriptorSetLayoutBinding],
 ) -> impl Iterator<Item = vk::DescriptorSetLayoutBinding> {
     let mut merged = HashMap::new();
     for binding in vertex_bindings {

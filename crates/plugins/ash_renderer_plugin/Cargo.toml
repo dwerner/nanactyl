@@ -22,4 +22,6 @@ bytemuck = { workspace = true }
 glam = { workspace = true }
 thiserror = { workspace = true }
 image = { workspace = true }
-rspirv-reflect = { workspace = true }
+
+# until which time this is inadequate and we want a better lib
+spirv-reflect = { workspace = true }

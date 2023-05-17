@@ -115,8 +115,8 @@ dependencies = [
  "platform",
  "plugin_self",
  "render",
- "rspirv-reflect",
  "shader_objects",
+ "spirv-reflect",
  "thiserror",
  "world",
 ]
@@ -1242,15 +1242,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fxhash"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
-dependencies = [
- "byteorder",
-]
-
-[[package]]
 name = "getrandom"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2310,26 +2301,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5864e7ef1a6b7bcf1d6ca3f655e65e724ed3b52546a0d0a663c991522f552ea"
 
 [[package]]
-name = "rspirv"
-version = "0.11.0+1.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1503993b59ca9ae4127365c3293517576d7ce56be9f3d8abb1625c85ddc583ba"
-dependencies = [
- "fxhash",
- "num-traits",
- "spirv",
-]
-
-[[package]]
-name = "rspirv-reflect"
-version = "0.8.0"
-source = "git+https://github.com/dwerner/rspirv-reflect?branch=entry-points#cfb2b4f07c7550b678222053dc0d7550b83c7a4a"
-dependencies = [
- "rspirv",
- "thiserror",
-]
-
-[[package]]
 name = "rustc-demangle"
 version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2634,10 +2605,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "spirv"
-version = "0.2.0+1.5.4"
+name = "spirv-reflect"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "246bfa38fe3db3f1dfc8ca5a2cdeb7348c78be2112740cc0ec8ef18b6d94f830"
+checksum = "cecc7af6a7d3ca6d15f4d6b5077df89c77ad1f4b314d0cabee221656d041dad7"
+dependencies = [
+ "bitflags",
+ "cc",
+ "num-traits",
+ "serde",
+ "serde_derive",
+ "spirv_headers",
+]
+
+[[package]]
+name = "spirv_headers"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f5b132530b1ac069df335577e3581765995cba5a13995cdbbdbc8fb057c532c"
 dependencies = [
  "bitflags",
  "num-traits",

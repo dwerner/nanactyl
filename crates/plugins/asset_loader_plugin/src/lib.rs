@@ -53,8 +53,8 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     }
 
     // initialize some state, lots of model_object entities
-    for i in -4..4i32 {
-        for j in -6..6i32 {
+    for i in -2..2i32 {
+        for j in -2..2i32 {
             let model_idx = if (i + j) % 2 == 0 {
                 cube_model_idx
             } else {

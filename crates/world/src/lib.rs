@@ -226,14 +226,14 @@ impl World {
     pub fn get_drawable(
         &self,
         phys: &PhysicalIndex,
-        model: &GraphicsIndex,
+        gfx: &GraphicsIndex,
     ) -> Result<Drawable, WorldError> {
         let physical_facet = self
             .facets
             .physical(*phys)
             .ok_or(WorldError::NoSuchPhys(*phys))?;
         Ok(Drawable {
-            gfx: *model,
+            gfx: *gfx,
             pos: physical_facet.position,
             angles: physical_facet.angles,
             scale: physical_facet.scale,

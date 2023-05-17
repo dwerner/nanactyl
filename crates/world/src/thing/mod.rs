@@ -115,6 +115,7 @@ impl GraphicsFacet {
         }
     }
 
+    /// Convert a model into a linestrip mesh
     pub fn into_debug_mesh(self) -> Self {
         Self {
             gfx: self
@@ -126,18 +127,6 @@ impl GraphicsFacet {
     pub fn with_debug_mesh(debug_mesh: DebugMesh) -> Self {
         Self {
             gfx: Graphic::DebugMesh(debug_mesh),
-        }
-    }
-
-    pub fn line_strip(vertices: Vec<Vertex>, color: Vec4) -> Self {
-        Self {
-            gfx: Graphic::new_debug_mesh(vertices, vec![], color, Primitive::LineStrip),
-        }
-    }
-
-    pub fn line_list(vertices: Vec<Vertex>, color: Vec4) -> Self {
-        Self {
-            gfx: Graphic::new_debug_mesh(vertices, vec![], color, Primitive::LineStrip),
         }
     }
 }
@@ -193,7 +182,7 @@ impl Shape {
     }
 
     pub fn into_debug_mesh(&self, color: Vec4) -> DebugMesh {
-        let vertices = match self {
+        let (vertices, indices) = match self {
             Shape::Cuboid {
                 width,
                 height,
@@ -203,40 +192,41 @@ impl Shape {
             Shape::Sphere { radius } => generate_sphere(*radius, 10),
             Shape::Capsule { radius, height } => generate_capsule(*radius, *height, 10),
         };
-        DebugMesh::new(vertices, color)
+        DebugMesh::line_list(vertices, indices, color)
     }
 }
 
-fn generate_cuboid(width: f32, height: f32, depth: f32) -> Vec<Vertex> {
+fn generate_cuboid(width: f32, height: f32, depth: f32) -> (Vec<Vertex>, Vec<u32>) {
     let w = width / 2.0;
     let h = height / 2.0;
     let d = depth / 2.0;
 
-    vec![
+    let vertices = vec![
         // Bottom square
-        Vertex::pos_only(-w, -h, -d),
-        Vertex::pos_only(w, -h, -d),
-        Vertex::pos_only(w, -h, d),
-        Vertex::pos_only(-w, -h, d),
+        Vertex::pos(-w, -h, -d),
+        Vertex::pos(w, -h, -d),
+        Vertex::pos(w, -h, d),
+        Vertex::pos(-w, -h, d),
         // Top square
-        Vertex::pos_only(-w, h, -d),
-        Vertex::pos_only(w, h, -d),
-        Vertex::pos_only(w, h, d),
-        Vertex::pos_only(-w, h, d),
-        // Vertical lines
-        Vertex::pos_only(-w, -h, -d),
-        Vertex::pos_only(-w, h, -d),
-        Vertex::pos_only(w, -h, -d),
-        Vertex::pos_only(w, h, -d),
-        Vertex::pos_only(w, -h, d),
-        Vertex::pos_only(w, h, d),
-        Vertex::pos_only(-w, -h, d),
-        Vertex::pos_only(-w, h, d),
-    ]
+        Vertex::pos(-w, h, -d),
+        Vertex::pos(w, h, -d),
+        Vertex::pos(w, h, d),
+        Vertex::pos(-w, h, d),
+    ];
+
+    let indices = vec![
+        // Bottom square
+        0, 1, 1, 2, 2, 3, 3, 0, // Top square
+        4, 5, 5, 6, 6, 7, 7, 4, // Vertical lines
+        0, 4, 1, 5, 2, 6, 3, 7,
+    ];
+
+    (vertices, indices)
 }
 
-pub fn generate_sphere(radius: f32, segments: usize) -> Vec<Vertex> {
-    let mut result = Vec::new();
+pub fn generate_sphere(radius: f32, segments: usize) -> (Vec<Vertex>, Vec<u32>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
 
     for i in 0..segments {
         for j in 0..segments {
@@ -258,16 +248,25 @@ pub fn generate_sphere(radius: f32, segments: usize) -> Vec<Vertex> {
             let y3 = radius * phi2.cos();
             let z3 = radius * theta1.cos() * phi2.sin();
 
-            result.push(Vertex::pos_only(x1, y1, z1));
-            result.push(Vertex::pos_only(x2, y2, z2));
-            result.push(Vertex::pos_only(x3, y3, z3));
+            let idx1 = (vertices.len() + 0) as u32;
+            let idx2 = (vertices.len() + 1) as u32;
+            let idx3 = (vertices.len() + 2) as u32;
+
+            vertices.push(Vertex::pos(x1, y1, z1));
+            vertices.push(Vertex::pos(x2, y2, z2));
+            vertices.push(Vertex::pos(x3, y3, z3));
+
+            indices.push(idx1);
+            indices.push(idx2);
+            indices.push(idx3);
         }
     }
-    result
+    (vertices, indices)
 }
 
-pub fn generate_cylinder(radius: f32, height: f32, segments: usize) -> Vec<Vertex> {
-    let mut result = Vec::new();
+pub fn generate_cylinder(radius: f32, height: f32, segments: usize) -> (Vec<Vertex>, Vec<u32>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
 
     for i in 0..segments {
         let theta1 = (i as f32) * 2.0 * std::f32::consts::PI / (segments as f32);
@@ -289,37 +288,68 @@ pub fn generate_cylinder(radius: f32, height: f32, segments: usize) -> Vec<Verte
         let y4 = height / 2.0;
         let z4 = radius * theta2.cos();
 
-        result.push(Vertex::pos_only(x1, y1, z1));
-        result.push(Vertex::pos_only(x2, y2, z2));
-        result.push(Vertex::pos_only(x3, y3, z3));
-        result.push(Vertex::pos_only(x4, y4, z4));
+        let idx1 = (vertices.len() + 0) as u32;
+        let idx2 = (vertices.len() + 1) as u32;
+        let idx3 = (vertices.len() + 2) as u32;
+        let idx4 = (vertices.len() + 3) as u32;
+
+        vertices.push(Vertex::pos(x1, y1, z1));
+        vertices.push(Vertex::pos(x2, y2, z2));
+        vertices.push(Vertex::pos(x3, y3, z3));
+        vertices.push(Vertex::pos(x4, y4, z4));
+
+        // Triangles for the side
+        indices.push(idx1);
+        indices.push(idx2);
+        indices.push(idx3);
+
+        indices.push(idx3);
+        indices.push(idx2);
+        indices.push(idx4);
+
+        // Optionally, add code to generate the top and bottom cap of the
+        // cylinder
     }
 
-    result
+    (vertices, indices)
 }
 
-fn generate_capsule(radius: f32, height: f32, segments: usize) -> Vec<Vertex> {
-    let mut result = Vec::new();
+pub fn generate_capsule(radius: f32, height: f32, segments: usize) -> (Vec<Vertex>, Vec<u32>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
 
     // Generate top hemisphere (sphere)
-    let mut top_hemisphere = generate_sphere(radius, segments);
+    let (mut top_hemisphere, mut top_indices) = generate_sphere(radius, segments);
     for vertex in &mut top_hemisphere {
         vertex.pos[1] += height / 2.0;
     }
-    result.append(&mut top_hemisphere);
+    vertices.append(&mut top_hemisphere);
+    indices.append(&mut top_indices);
 
     // Generate bottom hemisphere (sphere)
-    let mut bottom_hemisphere = generate_sphere(radius, segments);
+    let (mut bottom_hemisphere, mut bottom_indices) = generate_sphere(radius, segments);
     for vertex in &mut bottom_hemisphere {
         vertex.pos[1] -= height / 2.0;
     }
-    result.append(&mut bottom_hemisphere);
+    // Offset the indices of the bottom hemisphere by the number of vertices in the
+    // top hemisphere
+    for index in &mut bottom_indices {
+        *index += top_hemisphere.len() as u32;
+    }
+    vertices.append(&mut bottom_hemisphere);
+    indices.append(&mut bottom_indices);
 
     // Generate cylinder
-    let mut cylinder = generate_cylinder(radius, height, segments);
-    result.append(&mut cylinder);
+    let (mut cylinder, mut cylinder_indices) = generate_cylinder(radius, height, segments);
+    // Offset the indices of the cylinder by the number of vertices in the top and
+    // bottom hemispheres
+    for index in &mut cylinder_indices {
+        *index += (top_hemisphere.len() + bottom_hemisphere.len()) as u32;
+    }
+    vertices.append(&mut cylinder);
+    indices.append(&mut cylinder_indices);
 
-    result
+    (vertices, indices)
 }
 
 #[derive(Clone)]

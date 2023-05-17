@@ -102,10 +102,10 @@ pub struct DebugMesh {
 }
 
 impl DebugMesh {
-    pub fn new(vertices: Vec<Vertex>, color: Vec4) -> Self {
+    pub fn line_list(vertices: Vec<Vertex>, indices: Vec<u32>, color: Vec4) -> Self {
         Self {
             vertices,
-            indices: vec![0],
+            indices,
             color,
             primitive: Primitive::LineList,
         }
@@ -374,11 +374,11 @@ pub struct Vertex {
 }
 
 impl Vertex {
-    pub fn pos_only(x: f32, y: f32, z: f32) -> Self {
+    pub fn pos(x: f32, y: f32, z: f32) -> Self {
         Vertex {
             pos: [x, y, z, 1.0],
             uv: [0.0, 0.0],
-            normal: [0.0, 0.0, 0.0],
+            normal: [0.4, 1.0, 1.0],
         }
     }
     pub fn new(v: (f32, f32, f32, f32), vt: (f32, f32, f32), vn: (f32, f32, f32)) -> Self {

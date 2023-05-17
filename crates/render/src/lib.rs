@@ -100,8 +100,8 @@ impl RenderState {
                 ThingType::Camera { phys, camera } => world
                     .get_camera_drawable(phys, camera)
                     .map_err(SceneError::World)?,
-                ThingType::GraphicsObject { phys, model } => {
-                    world.get_drawable(phys, model).map_err(SceneError::World)?
+                ThingType::GraphicsObject { phys, model: gfx } => {
+                    world.get_drawable(phys, gfx).map_err(SceneError::World)?
                 }
             };
             drawables.push(model_ref);

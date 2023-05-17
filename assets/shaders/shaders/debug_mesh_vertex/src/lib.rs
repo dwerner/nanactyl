@@ -3,7 +3,7 @@
 #![deny(warnings)]
 
 use shader_objects::{PushConstants, UniformBuffer};
-use spirv_std::glam::{Mat3, Mat4, Vec2, Vec4};
+use spirv_std::glam::{Vec2, Vec4};
 use spirv_std::spirv;
 
 #[spirv(vertex)]
@@ -18,8 +18,9 @@ pub fn vertex_main(
     #[spirv(position)] o_pos: &mut Vec4,
 ) {
     let mat = push_constants.model_mat;
-    *o_normal = Mat4::from_mat3(Mat3::from_mat4(mat)).inverse().transpose() * normal;
+    *o_normal = normal;
+    // Mat4::from_mat3(Mat3::from_mat4(mat)).inverse().transpose() * normal;
+
     *o_uv = uv;
-    // skybox shouldn't move with the model matrix
     *o_pos = ubo.proj * mat * Vec4::new(pos.x, pos.y, pos.z, pos.w);
 }

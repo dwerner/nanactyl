@@ -18,7 +18,7 @@ use rapier3d::prelude::{
     ColliderBuilder, ColliderHandle, ColliderSet, RigidBodyBuilder, RigidBodySet,
 };
 use world::thing::{
-    GraphicsFacet, GraphicsIndex, PhysicalFacet, PhysicalIndex, Shape, EULER_ROT_ORDER,
+    GraphicsFacet, GraphicsIndex, PhysicalFacet, PhysicalIndex, Shape, Thing, EULER_ROT_ORDER,
 };
 use world::{Identity, World, WorldError};
 
@@ -29,8 +29,7 @@ struct WorldUpdatePluginState {
     rigid_bodies: RigidBodySet,
     colliders: ColliderSet,
     vehicle_controller: Option<DynamicRayCastVehicleController>,
-    collider_handles: HashMap<PhysicalIndex, ColliderHandle>,
-    graphics: HashMap<GraphicsIndex, PhysicalIndex>,
+    collider_handles: HashMap<Identity, ColliderHandle>,
 }
 
 // Hang any state for this plugin off a private static within.
@@ -51,7 +50,6 @@ impl PluginState for WorldUpdatePluginState {
             // multibody_joints: MultibodyJointSet::new(),
             vehicle_controller: None,
             collider_handles: HashMap::new(),
-            graphics: HashMap::new(),
         })
     }
 
@@ -76,6 +74,7 @@ impl PluginState for WorldUpdatePluginState {
     }
 
     fn unload(&mut self, _world: &mut Self::State) {
+        // TODO unloading things that were put into the world on load
         info!(self.logger, "unloaded");
     }
 }
@@ -121,16 +120,21 @@ impl WorldUpdatePluginState {
             let collider_handle =
                 self.colliders
                     .insert_with_parent(collider, handle, &mut self.rigid_bodies);
-            self.collider_handles.insert(phys_index, collider_handle);
+            //self.collider_handles.insert(phys_index, collider_handle);
         }
     }
 
     // Create ground collider
     fn setup_ground_collider(&mut self, world: &mut World) {
-        let ground_size = 5.0;
-        let ground_height = 0.1;
+        let ground_size = 10.0;
+        let ground_height = 1.0;
+        let ground_y_offset = 1.0;
 
-        let rigid_body = RigidBodyBuilder::fixed().translation(vector![0.0, -ground_height, 0.0]);
+        let rigid_body = RigidBodyBuilder::fixed().translation(vector![
+            0.0,
+            -ground_height - ground_y_offset,
+            0.0
+        ]);
         let floor_handle = self.rigid_bodies.insert(rigid_body);
         let collider = ColliderBuilder::cuboid(ground_size, ground_height, ground_size);
         let collider_handle =
@@ -140,22 +144,22 @@ impl WorldUpdatePluginState {
         // TODO: try out adding a debug mesh
         let ground_phys = PhysicalFacet::new(
             0.0,
-            -ground_height,
+            -ground_height - ground_y_offset,
             0.0,
             5.0,
-            Shape::cuboid(10.0, 1.0, 10.0),
+            Shape::cuboid(ground_size, ground_height, ground_size),
         );
         let debug_mesh = ground_phys
             .shape
             .into_debug_mesh(Vec4::new(1.0, 1.0, 0.0, 1.0));
         let graphics = GraphicsFacet::with_debug_mesh(debug_mesh);
         let gfx_index = world.add_graphics(graphics);
-
         let ground_phys_index = world.add_physical(ground_phys);
-
-        self.collider_handles
-            .insert(ground_phys_index, collider_handle);
-        self.graphics.insert(gfx_index, ground_phys_index);
+        let thing_id = world
+            .add_thing(Thing::model(ground_phys_index, gfx_index))
+            .unwrap();
+        println!("ground collider is thing_id: {:?}", thing_id);
+        self.collider_handles.insert(thing_id, collider_handle);
     }
 }
 

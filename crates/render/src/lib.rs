@@ -11,8 +11,7 @@ use async_lock::Mutex;
 use logger::{info, warn, LogLevel, Logger};
 use platform::WinPtr;
 use plugin_self::PluginState;
-use world::thing::{CameraFacet, GraphicsFacet, GraphicsIndex, PhysicalFacet, ThingType};
-use world::{Drawable, World};
+use world::World;
 
 #[derive(thiserror::Error, Debug)]
 pub enum RenderStateError {
@@ -84,13 +83,8 @@ impl RenderState {
 
     pub fn update_render_scene(&mut self, world: &World) -> Result<(), SceneError> {
         // TODO Fix hardcoded cameras.
-        let c1 = world
-            .get_camera_facet(0u32.into())
-            .map_err(SceneError::World)?;
-
-        let c2 = world
-            .get_camera_facet(1u32.into())
-            .map_err(SceneError::World)?;
+        let c1 = world.player(0u32.into()).map_err(SceneError::World)?;
+        let c2 = world.player(1u32.into()).map_err(SceneError::World)?;
 
         let cameras = vec![c1, c2];
 

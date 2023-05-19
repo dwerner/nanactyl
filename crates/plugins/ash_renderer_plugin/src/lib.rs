@@ -30,16 +30,20 @@ use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, Pipeline, Shader, ShaderStage, ShaderStages,
     VertexInputAssembly, VulkanError,
 };
-use world::thing::{GraphicsFacet, GraphicsIndex, EULER_ROT_ORDER};
+use world::thing::{GfxIndex, GraphicsFacet, EULER_ROT_ORDER};
 
 use crate::device::DeviceWrapper;
 use crate::types::DescriptorSetLayoutBinding;
 
+// Prevent the renderer from rebuilding more than once every N ms.
+const PIPELINE_REBUILD_DELAY_MILLIS: u64 = 250;
+
 /// Renderer struct owning the descriptor pool, pipelines and descriptions.
 struct Renderer {
     descriptor_pool: vk::DescriptorPool,
-    pipelines: HashMap<GraphicsIndex, Pipeline>,
+    pipelines: HashMap<GfxIndex, Pipeline>,
     logger: Logger,
+    last_pipeline_rebuild: Instant,
 }
 
 #[repr(C)]
@@ -283,6 +287,11 @@ impl Renderer {
     // TODO: build pipeline and bindings from more rich introspection of assets.
     fn rebuild_pipelines(&mut self, base: &mut VulkanBase) -> Result<(), VulkanError> {
         let logger = self.logger.sub("rebuild_pipelines");
+        if Instant::now().duration_since(self.last_pipeline_rebuild)
+            < Duration::from_secs(PIPELINE_REBUILD_DELAY_MILLIS)
+        {
+            info!(logger, "pipeline rebuild too soon, skipping");
+        }
         if !self.pipelines.is_empty() {
             info!(logger, "destroying {} pipelines", self.pipelines.len());
             unsafe {
@@ -300,6 +309,12 @@ impl Renderer {
         }
 
         // For now we are creating a pipeline per model.
+        // TODO: programmatically compose descriptor set and shader bindings from the
+        // shaders themselves:
+        // - do they have a uniform buffer?
+        // - do they have a texture/sampler etc?
+        // - compose the shaders into a pipeline and determine stages from reflected
+        //   entry points
         for (graphics_index, (handle, _uploaded_instant)) in base.tracked_graphics.iter() {
             info!(
                 logger,
@@ -318,6 +333,7 @@ impl Renderer {
                 )?
             };
 
+            // todo: take a list of shaders instead, and compose a descriptor set from them
             let desc_set_layout =
                 base.create_descriptor_set_layout(&handle.vertex_shader, &handle.fragment_shader)?;
 
@@ -361,7 +377,7 @@ impl Renderer {
                 vk::ShaderStageFlags::FRAGMENT,
             )?;
 
-            let topology = primitive_to_vk_topology(handle.primitive);
+            let topology = handle.primitive_topology();
             let mut vertex_input_assembly = VertexInputAssembly::new(topology);
 
             vertex_input_assembly.add_binding_description::<Vertex>(0, vk::VertexInputRate::VERTEX);
@@ -468,7 +484,7 @@ impl Presenter for VulkanRenderPluginState {
         }
     }
 
-    fn tracked_graphics(&mut self, index: GraphicsIndex) -> Option<Instant> {
+    fn tracked_graphics(&mut self, index: GfxIndex) -> Option<Instant> {
         self.base
             .as_ref()?
             .tracked_graphics
@@ -478,7 +494,7 @@ impl Presenter for VulkanRenderPluginState {
 
     fn upload_graphics(
         &mut self,
-        graphics: &[(GraphicsIndex, &GraphicsFacet)],
+        graphics: &[(GfxIndex, &GraphicsFacet)],
     ) -> Result<(), RenderStateError> {
         let logger = self.logger.sub("upload_graphic");
 
@@ -588,7 +604,7 @@ struct VulkanBase {
     maybe_debug_utils_loader: Option<ash::extensions::ext::DebugUtils>,
     maybe_debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
 
-    tracked_graphics: HashMap<GraphicsIndex, (GraphicsHandle, Instant)>,
+    tracked_graphics: HashMap<GfxIndex, (GraphicsHandle, Instant)>,
 
     framebuffers: Vec<vk::Framebuffer>,
     render_pass: vk::RenderPass,
@@ -603,9 +619,9 @@ struct VulkanBase {
 impl VulkanBase {
     fn upload_graphics(
         &mut self,
-        upload_queue: &[(GraphicsIndex, &GraphicsFacet)],
+        upload_queue: &[(GfxIndex, &GraphicsFacet)],
         logger: &Logger,
-    ) -> Vec<(GraphicsIndex, GraphicsHandle)> {
+    ) -> Vec<(GfxIndex, GraphicsHandle)> {
         let logger = logger.sub("upload_graphics");
 
         if upload_queue.is_empty() {
@@ -717,6 +733,7 @@ impl VulkanBase {
             descriptor_pool,
             pipelines: HashMap::new(),
             logger,
+            last_pipeline_rebuild: Instant::now() - Duration::from_secs(60),
         };
         renderer.rebuild_pipelines(self)?;
         Ok(renderer)
@@ -1097,7 +1114,7 @@ impl VulkanBase {
         Ok(framebuffers)
     }
     /// Track a model reference for cleanup when VulkanBase is dropped.
-    fn track_uploaded_graphic(&mut self, index: GraphicsIndex, handle: GraphicsHandle) {
+    fn track_uploaded_graphic(&mut self, index: GfxIndex, handle: GraphicsHandle) {
         debug!(self.logger, "Tracking model {:?}", index);
         if let Some((existing_model, _instant)) = self
             .tracked_graphics
@@ -1803,7 +1820,7 @@ impl PluginState for VulkanRenderPluginState {
         info!(logger, "set base");
     }
 
-    fn update(&mut self, state: &mut Self::State, dt: &Duration) {
+    fn update(&mut self, state: &mut Self::State, _dt: &Duration) {
         // Call render, buffers are updated etc
         if let Some(renderer) = self.renderer.as_mut() {
             state.updates += 1;
@@ -1856,15 +1873,6 @@ fn merge_vertex_and_fragment_bindings<'a>(
     }
 
     merged.into_iter().map(|(_, binding)| binding)
-}
-
-fn primitive_to_vk_topology(primitive: Primitive) -> vk::PrimitiveTopology {
-    match primitive {
-        Primitive::PointList => vk::PrimitiveTopology::POINT_LIST,
-        Primitive::LineList => vk::PrimitiveTopology::LINE_LIST,
-        Primitive::LineStrip => vk::PrimitiveTopology::LINE_STRIP,
-        Primitive::TriangleList => vk::PrimitiveTopology::TRIANGLE_LIST,
-    }
 }
 
 fn primitive_to_vk_polygon_mode(primitive: Primitive) -> vk::PolygonMode {

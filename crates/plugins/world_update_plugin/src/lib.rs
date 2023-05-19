@@ -17,10 +17,10 @@ use rapier3d::na::{self as nalgebra, point, vector, Vector};
 use rapier3d::prelude::{
     ColliderBuilder, ColliderHandle, ColliderSet, RigidBodyBuilder, RigidBodySet,
 };
-use world::thing::{
-    GraphicsFacet, GraphicsIndex, PhysicalFacet, PhysicalIndex, Shape, Thing, EULER_ROT_ORDER,
-};
-use world::{Identity, World, WorldError};
+use world::archetypes::index::PlayerIndex;
+use world::archetypes::Archetype;
+use world::thing::{PhysicalFacet, Shape, Thing, EULER_ROT_ORDER};
+use world::{World, WorldError};
 
 /// Internal plugin state. The lifespan is load->update->unload and dropped
 /// after unload.
@@ -29,7 +29,7 @@ struct WorldUpdatePluginState {
     rigid_bodies: RigidBodySet,
     colliders: ColliderSet,
     vehicle_controller: Option<DynamicRayCastVehicleController>,
-    collider_handles: HashMap<Identity, ColliderHandle>,
+    collider_handles: HashMap<PlayerIndex, ColliderHandle>,
 }
 
 // Hang any state for this plugin off a private static within.
@@ -109,7 +109,7 @@ impl WorldUpdatePluginState {
     // create colliders for all objects that have a phyiscal facet
     fn setup_object_colliders(&mut self, world: &mut World) {
         let rad = 0.1;
-        for (phys_index, physical) in world.facets.iter_physical_mut() {
+        for physical in world.players.iter_mut() {
             let x = physical.position.x;
             let y = physical.position.y;
             let z = physical.position.z;
@@ -117,6 +117,8 @@ impl WorldUpdatePluginState {
             let rigid_body = RigidBodyBuilder::dynamic().translation(vector![x, y, z]);
             let handle = self.rigid_bodies.insert(rigid_body);
             let collider = ColliderBuilder::cuboid(rad, rad, rad);
+            let shape = collider.shape.clone();
+
             let collider_handle =
                 self.colliders
                     .insert_with_parent(collider, handle, &mut self.rigid_bodies);
@@ -152,9 +154,10 @@ impl WorldUpdatePluginState {
         let debug_mesh = ground_phys
             .shape
             .into_debug_mesh(Vec4::new(1.0, 1.0, 0.0, 1.0));
-        let graphics = GraphicsFacet::with_debug_mesh(debug_mesh);
-        let gfx_index = world.add_graphics(graphics);
+        let graphics = Graphic::DebugMesh(debug_mesh);
         let ground_phys_index = world.add_physical(ground_phys);
+
+        // THE thing. This is an entity/ game object. It exists within the world graph.
         let thing_id = world
             .add_thing(Thing::model(ground_phys_index, gfx_index))
             .unwrap();
@@ -219,22 +222,9 @@ impl<'a> WorldExt<'a> {
     fn move_camera_based_on_controller_state(
         &mut self,
         controller: &InputState,
-        thing_id: Identity,
+        thing_id: PlayerIndex,
     ) -> Result<(), WorldError> {
-        let (phys_idx, cam_idx) = self.inner.camera_facet_indices(thing_id)?;
-
-        let mut cam = self
-            .inner
-            .facets
-            .camera_mut(cam_idx)
-            .ok_or_else(|| WorldError::NoSuchCamera(cam_idx))?
-            .clone();
-
-        let pcam = self
-            .inner
-            .facets
-            .physical_mut(phys_idx)
-            .ok_or_else(|| WorldError::NoSuchCamera(cam_idx))?;
+        let mut player = self.inner.player(thing_id)?;
 
         // TODO: move the get_camera_facet method up into World, and use that here.
         // kludge! this relies on the first two phys facets being the cameras 0,1
@@ -249,26 +239,32 @@ impl<'a> WorldExt<'a> {
         // The crux here is to push changes into World from bouncing it off the physics
         // sim, but update the simulation with positions at certain points
 
-        let rot = Mat4::from_euler(EULER_ROT_ORDER, pcam.angles.x, pcam.angles.y, pcam.angles.z);
+        let rot = Mat4::from_euler(
+            EULER_ROT_ORDER,
+            player.angles.x,
+            player.angles.y,
+            player.angles.z,
+        );
         let forward = rot.transform_vector3(Vec3::new(0.0, 0.0, 1.0));
         if controller.is_button_pressed(Button::Down) {
-            let transform = cam.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
-            pcam.linear_velocity_intention += transform.transform_vector3(forward);
+            let transform = *player.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
+            *player.linear_velocity_intention += transform.transform_vector3(forward);
         } else if controller.is_button_pressed(Button::Up) {
-            let transform = cam.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));
-            pcam.linear_velocity_intention += transform.transform_vector3(forward);
+            let transform =
+                *player.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));
+            *player.linear_velocity_intention += transform.transform_vector3(forward);
         } else {
-            pcam.linear_velocity_intention = Vec3::ZERO;
+            *player.linear_velocity_intention = Vec3::ZERO;
         }
 
         if controller.is_button_pressed(Button::Left) {
-            pcam.angular_velocity_intention.y = -1.0 * speed;
+            player.angular_velocity_intention.y = -1.0 * speed;
         } else if controller.is_button_pressed(Button::Right) {
-            pcam.angular_velocity_intention.y = speed;
+            player.angular_velocity_intention.y = speed;
         } else {
-            pcam.angular_velocity_intention.y = 0.0;
+            player.angular_velocity_intention.y = 0.0;
         }
-        cam.update_view_matrix(pcam);
+        player.update_view_matrix();
 
         Ok(())
     }

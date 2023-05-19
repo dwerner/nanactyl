@@ -1,5 +1,6 @@
 //! Implements a world and entity system for the engine to mutate and render.
 
+pub mod archetypes;
 pub mod thing;
 
 use std::io;
@@ -8,14 +9,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use archetypes::graphics::GfxArchetype;
+use archetypes::index::{GfxIndex, PlayerIndex};
+use archetypes::player::{PlayerArchetype, PlayerRef};
+use archetypes::Archetype;
 use async_lock::{Mutex, MutexGuardArc};
+use gfx::{DebugMesh, Graphic, Model};
 pub use glam::{Mat4, Quat, Vec3};
+use graphrox::Graph;
 use input::wire::InputState;
 use logger::{LogLevel, Logger};
 use network::{Connection, RpcError};
 use thing::{
-    CameraFacet, CameraIndex, GraphicsFacet, GraphicsIndex, HealthFacet, HealthIndex,
-    PhysicalFacet, PhysicalIndex, Thing, ThingType,
+    CameraFacet, CameraIndex, GraphicsFacet, HealthFacet, HealthIndex, PhysicalFacet, PhysicalIndex,
 };
 
 #[repr(C)]
@@ -67,30 +73,6 @@ impl AssetLoaderStateAndWorldLock {
     }
 }
 
-/// Identity of a game object. Used to look up game objects (`Thing`s) within a
-/// `World`.
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Identity(u32);
-impl From<u32> for Identity {
-    fn from(value: u32) -> Self {
-        Self(value)
-    }
-}
-impl From<usize> for Identity {
-    fn from(value: usize) -> Self {
-        Self(value as u32)
-    }
-}
-impl From<Identity> for usize {
-    fn from(value: Identity) -> Self {
-        value.0 as usize
-    }
-}
-
-pub trait Identifyable {
-    fn identify(&self) -> Identity;
-}
-
 // TODO implement the rest of the facets
 // the main idea here is to construct contiguous areas in memory for different
 // facets this is a premature optimization for the Thing/Facet system in general
@@ -117,14 +99,14 @@ impl WorldFacets {
         self.cameras.get_mut(index.0 as usize)
     }
 
-    pub fn gfx_iter(&self) -> impl Iterator<Item = (GraphicsIndex, &GraphicsFacet)> {
+    pub fn gfx_iter(&self) -> impl Iterator<Item = (GfxIndex, &GraphicsFacet)> {
         self.graphics
             .iter()
             .enumerate()
             .map(|(index, facet)| (index.into(), facet))
     }
 
-    pub fn model(&self, index: GraphicsIndex) -> Option<&GraphicsFacet> {
+    pub fn model(&self, index: GfxIndex) -> Option<&GraphicsFacet> {
         self.graphics.get(index.0 as usize)
     }
 
@@ -171,21 +153,25 @@ pub enum WorldError {
     NoSuchCamera(CameraIndex),
 
     #[error("no camera found in scene")]
-    NoCameraFound,
+    PlayerNotFound,
 
     #[error("thing with id {0:?} not found in scene")]
-    ThingNotFound(Identity),
+    ThingNotFound(PlayerIndex),
 
     #[error("no phys facet at index {0:?}")]
     NoSuchPhys(PhysicalIndex),
 }
 
 pub struct World {
-    pub maybe_camera: Option<Identity>,
+    pub maybe_camera: Option<PlayerIndex>,
 
     /// All entities
-    pub things: Vec<Thing>,
-    pub facets: WorldFacets,
+    // pub things: Vec<Thing>,
+    // pub facets: WorldFacets,
+
+    // TODO: multiple archetypes.
+    pub players: PlayerArchetype,
+    pub gfx: GfxArchetype,
 
     pub stats: Stats,
     pub config: Config,
@@ -197,6 +183,8 @@ pub struct World {
     pub server_controller_state: Option<InputState>,
 
     pub logger: Logger,
+
+    pub graph: Graph,
 }
 
 pub struct Stats {
@@ -214,7 +202,7 @@ pub struct Config {
 /// Intended to represent a model (uploaded to the GPU once) with instance
 /// information. Should attach to a game object or similar.
 pub struct Drawable {
-    pub gfx: GraphicsIndex,
+    pub gfx: GfxIndex,
     pub pos: Vec3,
     pub angles: Vec3,
     pub scale: f32,
@@ -223,47 +211,47 @@ pub struct Drawable {
 impl World {
     pub const SIM_TICK_DELAY: Duration = Duration::from_millis(8);
 
-    pub fn get_drawable(
-        &self,
-        phys: &PhysicalIndex,
-        gfx: &GraphicsIndex,
-    ) -> Result<Drawable, WorldError> {
-        let physical_facet = self
-            .facets
-            .physical(*phys)
-            .ok_or(WorldError::NoSuchPhys(*phys))?;
-        Ok(Drawable {
-            gfx: *gfx,
-            pos: physical_facet.position,
-            angles: physical_facet.angles,
-            scale: physical_facet.scale,
-        })
-    }
+    // pub fn get_drawable(
+    //     &self,
+    //     phys: &PhysicalIndex,
+    //     gfx: &GraphicsIndex,
+    // ) -> Result<Drawable, WorldError> {
+    //     let physical_facet = self
+    //         .facets
+    //         .physical(*phys)
+    //         .ok_or(WorldError::NoSuchPhys(*phys))?;
+    //     Ok(Drawable {
+    //         gfx: *gfx,
+    //         pos: physical_facet.position,
+    //         angles: physical_facet.angles,
+    //         scale: physical_facet.scale,
+    //     })
+    // }
 
-    pub fn get_camera_drawable(
-        &self,
-        phys: &PhysicalIndex,
-        camera: &CameraIndex,
-    ) -> Result<Drawable, WorldError> {
-        let phys = self
-            .facets
-            .physical(*phys)
-            .ok_or(WorldError::NoSuchPhys(*phys))?;
-        let cam = self
-            .facets
-            .camera(*camera)
-            .ok_or(WorldError::NoSuchCamera(*camera))?;
-        let right = cam.right(phys);
-        let forward = cam.forward(phys);
-        let pos = phys.position + Vec3::new(right.x + forward.x, -2.0, right.z + forward.z);
-        let angles = Vec3::new(0.0, phys.angles.y - 1.57, 0.0);
-        Ok(Drawable {
-            gfx: cam.associated_graphics.unwrap(),
-            pos,
-            angles,
-            scale: phys.scale,
-        })
-    }
+    // pub fn get_camera_drawable(
+    //     &self,
+    //     phys: &PhysicalIndex,
+    //     camera: &CameraIndex,
+    // ) -> Result<Drawable, WorldError> {
+    //     let phys = self
+    //         .facets
+    //         .physical(*phys)
+    //         .ok_or(WorldError::NoSuchPhys(*phys))?;
+    //     let cam = self
+    //         .facets
+    //         .camera(*camera)
+    //         .ok_or(WorldError::NoSuchCamera(*camera))?;
+    //     let right = cam.right(phys);
+    //     let forward = cam.forward(phys);
+    //     let pos = phys.position + Vec3::new(right.x + forward.x, -2.0, right.z +
+    // forward.z);     let angles = Vec3::new(0.0, phys.angles.y - 1.57, 0.0);
+    //     Ok(Drawable {
+    //         gfx: cam.associated_graphics.unwrap(),
+    //         pos,
+    //         angles,
+    //         scale: phys.scale,
+    //     })
+    // }
 
     /// Create a new client or server binding. Currently, in server mode, this
     /// waits for a client to connect before continuing.
@@ -281,55 +269,25 @@ impl World {
                 last_tick: Instant::now(),
             },
             maybe_camera: None,
-            things: vec![],
-            facets: WorldFacets::default(),
+            // things: vec![],
+            // facets: WorldFacets::default(),
+            players: PlayerArchetype::new(),
+            gfx: GfxArchetype::new(),
+
             connection: None,
             client_controller_state: None,
             server_controller_state: None,
             logger: logger.sub("world"),
+
+            // we'll represent the relationship between game objects as an undirected graph.
+            graph: Graph::new_undirected(),
         }
     }
 
-    pub fn get_camera_facet(
-        &self,
-        cam_id: Identity,
-    ) -> Result<(PhysicalFacet, CameraFacet), WorldError> {
-        // TODO fix hardcoded locations of cameras that rely on
-        // camera 0 and 1 being the first 2 things added to the world.
-        let camera = self
-            .thing_as_ref(cam_id)
-            .ok_or_else(|| WorldError::ThingNotFound(cam_id))?;
-
-        let (phys_facet, camera_facet) = match camera.facets {
-            ThingType::Camera { phys, camera } => {
-                let world_facets = &self.facets;
-                let camera = world_facets
-                    .camera(camera)
-                    .ok_or(WorldError::NoCameraFound)?;
-                let phys = world_facets
-                    .physical(phys)
-                    .ok_or(WorldError::NoCameraFound)?;
-                (phys.clone(), camera.clone())
-            }
-            _ => return Err(WorldError::NoCameraFound),
-        };
-        Ok((phys_facet, camera_facet))
-    }
-
-    pub fn camera_facet_indices(
-        &self,
-        cam_id: Identity,
-    ) -> Result<(PhysicalIndex, CameraIndex), WorldError> {
-        // TODO fix hardcoded locations of cameras that rely on
-        // camera 0 and 1 being the first 2 things added to the world.
-        let camera = self
-            .thing_as_ref(cam_id)
-            .ok_or_else(|| WorldError::ThingNotFound(cam_id))?;
-
-        Ok(match camera.facets {
-            ThingType::Camera { phys, camera } => (phys, camera),
-            _ => return Err(WorldError::NoCameraFound),
-        })
+    pub fn player(&mut self, player_id: PlayerIndex) -> Result<PlayerRef, WorldError> {
+        self.players
+            .get_mut(player_id)
+            .ok_or(WorldError::PlayerNotFound)
     }
 
     pub fn set_client_controller_state(&mut self, state: InputState) {
@@ -344,64 +302,62 @@ impl World {
         self.config.maybe_server_addr.is_none()
     }
 
-    pub fn add_thing(&mut self, thing: Thing) -> Result<Identity, WorldError> {
-        let id = self.things.len();
-        if id > std::u32::MAX as usize {
-            println!("too many objects, id: {}", id);
-            return Err(WorldError::TooManyObjects);
-        }
-        self.things.push(thing);
-        Ok(id.into())
+    pub fn add_debug_mesh(&mut self, mesh: DebugMesh) -> GfxIndex {
+        self.gfx.add(Graphic::DebugMesh(mesh))
     }
 
-    pub fn add_camera(&mut self, camera: CameraFacet) -> CameraIndex {
-        let cameras = &mut self.facets.cameras;
-        let idx = cameras.len();
-        cameras.push(camera);
-        idx.into()
+    pub fn add_model(&mut self, model: Model) -> GfxIndex {
+        self.gfx.add(Graphic::Model(model))
     }
 
-    // Transform should be used as the offset of drawing from the physical facet
-    pub fn add_graphics(&mut self, model: GraphicsFacet) -> GraphicsIndex {
-        let graphics = &mut self.facets.graphics;
-        let idx = graphics.len();
-        graphics.push(model);
-        idx.into()
-    }
+    // pub fn add_thing(&mut self, thing: Thing) -> Result<Identity, WorldError> {
+    //     let id = self.things.len();
+    //     if id > std::u32::MAX as usize {
+    //         println!("too many objects, id: {}", id);
+    //         return Err(WorldError::TooManyObjects);
+    //     }
+    //     self.things.push(thing);
+    //     Ok(id.into())
+    // }
 
-    pub fn add_physical(&mut self, phys: PhysicalFacet) -> PhysicalIndex {
-        let physical = &mut self.facets.physical;
-        let idx = physical.len();
-        physical.push(phys);
-        idx.into()
-    }
+    // pub fn add_camera(&mut self, camera: CameraFacet) -> CameraIndex {
+    //     let cameras = &mut self.facets.cameras;
+    //     let idx = cameras.len();
+    //     cameras.push(camera);
+    //     idx.into()
+    // }
 
-    pub fn maybe_tick(&mut self, _dt: &Duration) {}
+    // pub fn add_physical(&mut self, phys: PhysicalFacet) -> PhysicalIndex {
+    //     let physical = &mut self.facets.physical;
+    //     let idx = physical.len();
+    //     physical.push(phys);
+    //     idx.into()
+    // }
 
-    pub fn things(&self) -> &[Thing] {
-        &self.things
-    }
+    // pub fn things(&self) -> &[Thing] {
+    //     &self.things
+    // }
 
-    pub fn things_mut(&mut self) -> &mut [Thing] {
-        &mut self.things
-    }
+    // pub fn things_mut(&mut self) -> &mut [Thing] {
+    //     &mut self.things
+    // }
 
-    pub fn thing_as_ref(&self, id: Identity) -> Option<&Thing> {
-        let id: usize = id.into();
-        self.things.get(id)
-    }
+    // pub fn thing_as_ref(&self, id: Identity) -> Option<&Thing> {
+    //     let id: usize = id.into();
+    //     self.things.get(id)
+    // }
 
-    pub fn thing_as_mut(&mut self, id: Identity) -> Option<&mut Thing> {
-        let id: usize = id.into();
-        self.things.get_mut(id)
-    }
+    // pub fn thing_as_mut(&mut self, id: Identity) -> Option<&mut Thing> {
+    //     let id: usize = id.into();
+    //     self.things.get_mut(id)
+    // }
 
-    pub fn clear(&mut self) {
-        let facets = &mut self.facets;
-        self.things.clear();
-        facets.cameras.clear();
-        facets.health.clear();
-        facets.graphics.clear();
-        facets.physical.clear();
-    }
+    // pub fn clear(&mut self) {
+    //     let facets = &mut self.facets;
+    //     self.things.clear();
+    //     facets.cameras.clear();
+    //     facets.health.clear();
+    //     facets.graphics.clear();
+    //     facets.physical.clear();
+    // }
 }

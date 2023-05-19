@@ -341,7 +341,7 @@ pub mod wire {
     mod tests {
 
         use logger::debug;
-        use world::thing::{GraphicsIndex, PhysicalIndex};
+        use world::thing::{GfxIndex, PhysicalIndex};
 
         use super::*;
 
@@ -350,7 +350,7 @@ pub mod wire {
             let values = (0..NUM_UPDATES_PER_MSG)
                 .map(|i| {
                     let physical = PhysicalIndex::from(i);
-                    let model = GraphicsIndex::from(i);
+                    let model = GfxIndex::from(i);
                     let model = Thing::model(physical, model);
                     let wt: WireThing = (&model).into();
                     let wpos = WirePosition(i as f32, i as f32, i as f32);

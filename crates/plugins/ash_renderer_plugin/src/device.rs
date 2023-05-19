@@ -538,8 +538,11 @@ pub struct GraphicsHandle {
     pub diffuse_map: Option<Texture>,
     // pub specular_map: Option<Texture>,
     // pub bump_map: Option<Texture>,
+
+    // TODO: list of shaders, or a stages object?
     pub vertex_shader: Arc<Shader>,
     pub fragment_shader: Arc<Shader>,
+
     pub primitive: Primitive,
 }
 
@@ -577,6 +580,15 @@ impl GraphicsHandle {
         // self.bump_map
         //     .as_ref()
         //     .map(|map| map.deallocate(&base.device));
+    }
+
+    pub fn primitive_topology(&self) -> vk::PrimitiveTopology {
+        match self.primitive {
+            Primitive::PointList => vk::PrimitiveTopology::POINT_LIST,
+            Primitive::LineList => vk::PrimitiveTopology::LINE_LIST,
+            Primitive::LineStrip => vk::PrimitiveTopology::LINE_STRIP,
+            Primitive::TriangleList => vk::PrimitiveTopology::TRIANGLE_LIST,
+        }
     }
 }
 // TODO cleanup pass

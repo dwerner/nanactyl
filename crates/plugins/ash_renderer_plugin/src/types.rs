@@ -1,6 +1,7 @@
 use std::ffi::{CString, NulError};
 use std::fs::File;
 use std::io::{self, BufReader, Cursor, Read};
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -346,17 +347,23 @@ impl Pipeline {
 
     /// Deallocate PipelineDesc's resources on the GPU.
     pub fn deallocate(&self, device: &ash::Device) {
+        self.uniform_buffer.deallocate(device);
+
         unsafe {
-            self.uniform_buffer.deallocate(device);
             device.destroy_pipeline_layout(self.layout, None);
-            for shader_module in self.shader_stages.modules.iter() {
-                device.destroy_shader_module(*shader_module, None);
-            }
-            if let Some(sampler) = self.maybe_diffuse_sampler {
+        }
+
+        self.shader_stages.deallocate(device);
+
+        if let Some(sampler) = self.maybe_diffuse_sampler {
+            unsafe {
                 device.destroy_sampler(sampler, None);
             }
-            // device.destroy_sampler(self.specular_sampler, None);
-            // device.destroy_sampler(self.bump_sampler, None);
+        }
+
+        // device.destroy_sampler(self.specular_sampler, None);
+        // device.destroy_sampler(self.bump_sampler, None);
+        unsafe {
             device.destroy_descriptor_set_layout(self.desc_set_layout, None);
         }
     }
@@ -366,6 +373,7 @@ impl Pipeline {
     }
 }
 
+/// Describes a shader entry point, enclosing the bindings.
 #[derive(Debug)]
 pub struct EntryPoint {
     name: String,
@@ -373,11 +381,25 @@ pub struct EntryPoint {
     descriptor_set_layout_bindings: Vec<DescriptorSetLayoutBinding>,
     push_constant_ranges: Vec<vk::PushConstantRange>,
 }
+
 impl EntryPoint {
+    /// Get the name of the entry point
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Get the stage flags of the entry point, as determined from the entry
+    /// point's execution model
+    pub fn stage_flags(&self) -> vk::ShaderStageFlags {
+        self.stage_flags
+    }
+
+    /// Get the descriptor set layout bindings of the entry point
     pub fn desc_set_layout_bindings(&self) -> &[DescriptorSetLayoutBinding] {
         &self.descriptor_set_layout_bindings
     }
 
+    /// Get the push constant ranges of the entry point
     pub fn push_constant_ranges(&self) -> &[vk::PushConstantRange] {
         &self.push_constant_ranges
     }
@@ -389,10 +411,68 @@ pub struct Shader {
     entry_points: Vec<EntryPoint>,
 }
 
+/// TODO: combine with Shader? we want to define a set of stages for a
+/// given pipeline, which may even have compute or whatever stages.
+pub struct ShaderStage {
+    module: vk::ShaderModule,
+    entry_point_name: CString,
+    stage: vk::ShaderStageFlags,
+    flags: vk::PipelineShaderStageCreateFlags,
+}
+
+impl ShaderStage {
+    pub fn new(
+        module: vk::ShaderModule,
+        entry_point_name: String,
+        stage: vk::ShaderStageFlags,
+        flags: vk::PipelineShaderStageCreateFlags,
+    ) -> Result<Self, VulkanError> {
+        Ok(Self {
+            module,
+            entry_point_name: CString::new(entry_point_name)
+                .map_err(VulkanError::InvalidCString)?,
+            stage,
+            flags,
+        })
+    }
+
+    pub fn create_info(&self) -> vk::PipelineShaderStageCreateInfo {
+        *vk::PipelineShaderStageCreateInfo::builder()
+            .module(self.module)
+            .name(self.entry_point_name.as_c_str())
+            .stage(self.stage)
+            .flags(self.flags)
+    }
+}
+
 impl Shader {
+    /// Create an ash::vk::ShaderModule from the SPIR-V shader data.
+    pub fn as_shader_module(&self, device: &ash::Device) -> Result<vk::ShaderModule, VulkanError> {
+        let mut cursor = Cursor::new(&self.data);
+        let code = ash::util::read_spv(&mut cursor).map_err(VulkanError::ShaderRead)?;
+        let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);
+        unsafe { device.create_shader_module(&create_info, None) }
+            .map_err(VulkanError::VkResultToDo)
+    }
+
+    pub fn entry_points(&self) -> &[EntryPoint] {
+        &self.entry_points
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Reload this shader from disk.
+    pub fn reload(&mut self) -> Result<(), VulkanError> {
+        let new = Self::read_spv(self.path.clone())?;
+        let _old = mem::replace(&mut *self, new);
+        Ok(())
+    }
+
     /// Read and reflect over a SPIR-V shader .spv file, storing data and
-    /// metadata for later use. Can be used to create an
-    /// ash::vk::ShaderModule with `as_shader_module`.
+    /// metadata for later use. Returns a `Shader` which can be used to create
+    /// an ash::vk::ShaderModule with `as_shader_module`.
     ///
     /// A shader doesn't know what stages are available, so you must specify
     /// when creating a pipeline.
@@ -457,23 +537,6 @@ impl Shader {
             path,
             entry_points,
         })
-    }
-
-    /// Create an ash::vk::ShaderModule from the SPIR-V shader data.
-    pub fn as_shader_module(&self, device: &ash::Device) -> Result<vk::ShaderModule, VulkanError> {
-        let mut cursor = Cursor::new(&self.data);
-        let code = ash::util::read_spv(&mut cursor).map_err(VulkanError::ShaderRead)?;
-        let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);
-        unsafe { device.create_shader_module(&create_info, None) }
-            .map_err(VulkanError::VkResultToDo)
-    }
-
-    pub fn entry_points(&self) -> &[EntryPoint] {
-        &self.entry_points
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
     }
 }
 
@@ -546,38 +609,10 @@ impl ShaderStages {
         self.shader_stage_defs.push(shader_stage);
         Ok(())
     }
-}
 
-/// TODO: Maybe chain together instead of leaving disparate.
-
-pub struct ShaderStage {
-    module: vk::ShaderModule,
-    entry_point_name: CString,
-    stage: vk::ShaderStageFlags,
-    flags: vk::PipelineShaderStageCreateFlags,
-}
-
-impl ShaderStage {
-    pub fn new(
-        module: vk::ShaderModule,
-        entry_point_name: String,
-        stage: vk::ShaderStageFlags,
-        flags: vk::PipelineShaderStageCreateFlags,
-    ) -> Result<Self, VulkanError> {
-        Ok(Self {
-            module,
-            entry_point_name: CString::new(entry_point_name)
-                .map_err(VulkanError::InvalidCString)?,
-            stage,
-            flags,
-        })
-    }
-
-    pub fn create_info(&self) -> vk::PipelineShaderStageCreateInfo {
-        *vk::PipelineShaderStageCreateInfo::builder()
-            .module(self.module)
-            .name(self.entry_point_name.as_c_str())
-            .stage(self.stage)
-            .flags(self.flags)
+    pub fn deallocate(&self, device: &ash::Device) {
+        for shader_module in self.modules.iter() {
+            unsafe { device.destroy_shader_module(*shader_module, None) };
+        }
     }
 }

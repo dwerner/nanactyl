@@ -1,7 +1,7 @@
-use std::time::Duration;
-
 use gfx::{DebugMesh, Graphic, Model, Primitive, Vertex};
 use glam::{EulerRot, Mat4, Vec3, Vec4};
+
+use crate::archetypes::index::GfxIndex;
 
 pub const EULER_ROT_ORDER: EulerRot = EulerRot::XYZ;
 
@@ -15,10 +15,6 @@ pub struct HealthIndex(pub(crate) u32);
 /// Index to address a camera.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct CameraIndex(pub(crate) u32);
-
-/// Index to address a graphic.
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct GraphicsIndex(pub(crate) u32);
 
 impl From<u16> for CameraIndex {
     fn from(value: u16) -> Self {
@@ -56,24 +52,6 @@ impl From<PhysicalIndex> for u32 {
     }
 }
 
-impl From<u16> for GraphicsIndex {
-    fn from(value: u16) -> Self {
-        Self(value as u32)
-    }
-}
-
-impl From<GraphicsIndex> for u16 {
-    fn from(value: GraphicsIndex) -> Self {
-        value.0 as u16
-    }
-}
-
-impl From<u32> for GraphicsIndex {
-    fn from(value: u32) -> Self {
-        Self(value)
-    }
-}
-
 impl From<u32> for HealthIndex {
     fn from(value: u32) -> Self {
         Self(value)
@@ -87,12 +65,6 @@ impl From<usize> for CameraIndex {
 }
 
 impl From<usize> for PhysicalIndex {
-    fn from(value: usize) -> Self {
-        Self(value as u32)
-    }
-}
-
-impl From<usize> for GraphicsIndex {
     fn from(value: usize) -> Self {
         Self(value as u32)
     }
@@ -419,7 +391,7 @@ impl std::fmt::Debug for PhysicalFacet {
 pub struct CameraFacet {
     pub view: Mat4,
     pub perspective: Mat4,
-    pub associated_graphics: Option<GraphicsIndex>,
+    pub associated_graphics: Option<GfxIndex>,
 }
 
 #[derive(Debug)]
@@ -432,72 +404,7 @@ pub enum Direction {
     Backward,
 }
 
-impl CameraFacet {
-    pub fn new(phys: &PhysicalFacet) -> Self {
-        let mut c = CameraFacet {
-            view: Mat4::IDENTITY,
-            // TODO fix default perspective values
-            perspective: Mat4::perspective_lh(
-                1.7,    //aspect
-                0.75,   //fovy
-                0.1,    // near
-                1000.0, //far
-            ),
-            associated_graphics: None,
-        };
-        c.update_view_matrix(phys);
-        c
-    }
-
-    pub fn set_associated_model(&mut self, gfx: GraphicsIndex) {
-        self.associated_graphics = Some(gfx);
-    }
-
-    pub fn set_perspective(&mut self, fov: f32, aspect: f32, near: f32, far: f32) {
-        self.perspective = Mat4::perspective_lh(aspect, fov, near, far);
-    }
-
-    pub fn forward(&self, phys: &PhysicalFacet) -> Vec3 {
-        let rx = phys.angles.x;
-        let ry = phys.angles.y;
-        let vec = {
-            let x = -rx.cos() * ry.sin();
-            let y = rx.sin();
-            let z = rx.cos() * ry.cos();
-            Vec3::new(x, y, z)
-        };
-        vec.normalize()
-    }
-
-    pub fn right(&self, phys: &PhysicalFacet) -> Vec3 {
-        let y = Vec3::new(1.0, 0.0, 0.0);
-        let forward = self.forward(phys);
-        let cross = y.cross(forward);
-        cross.normalize()
-    }
-
-    pub fn up(&self, phys: &PhysicalFacet) -> Vec3 {
-        let x = Vec3::new(0.0, 1.0, 0.0);
-        x.cross(self.forward(phys)).normalize()
-    }
-
-    pub fn update(&mut self, dt: &Duration, phys: &mut PhysicalFacet) {
-        let amount = (dt.as_millis() as f64 / 100.0) as f32;
-        phys.position += phys.linear_velocity_intention * amount;
-        self.update_view_matrix(phys);
-    }
-
-    pub fn update_view_matrix(&mut self, phys: &PhysicalFacet) {
-        let rot = Mat4::from_euler(
-            EULER_ROT_ORDER,
-            phys.angular_velocity_intention.x,
-            phys.angular_velocity_intention.y,
-            0.0,
-        );
-        let trans = Mat4::from_translation(phys.position);
-        self.view = trans * rot;
-    }
-}
+impl CameraFacet {}
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub enum ThingType {
@@ -507,7 +414,7 @@ pub enum ThingType {
     },
     GraphicsObject {
         phys: PhysicalIndex,
-        model: GraphicsIndex,
+        model: GfxIndex,
     },
 }
 
@@ -517,7 +424,7 @@ pub struct Thing {
 }
 
 impl Thing {
-    pub fn model(phys: PhysicalIndex, model: GraphicsIndex) -> Self {
+    pub fn model(phys: PhysicalIndex, model: GfxIndex) -> Self {
         Thing {
             facets: ThingType::GraphicsObject { phys, model },
         }

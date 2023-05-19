@@ -13,5 +13,6 @@ plugin_self = { path = "../plugin_self" }
 # workspace deps
 async-lock = { workspace = true }
 glam = { workspace = true }
+graphrox = { workspace = true }
 thiserror= { workspace = true }
 serde = { workspace = true }

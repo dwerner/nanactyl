@@ -16,3 +16,4 @@ glam = { workspace = true }
 graphrox = { workspace = true }
 thiserror= { workspace = true }
 serde = { workspace = true }
+paste = { workspace = true }

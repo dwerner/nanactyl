@@ -103,7 +103,7 @@ impl GraphicsFacet {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HealthFacet {
     pub hp: u32,
 }
@@ -124,7 +124,7 @@ impl HealthFacet {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Shape {
     Cuboid { width: f32, height: f32, depth: f32 },
     Cylinder { radius: f32, height: f32 },

@@ -62,7 +62,7 @@ cstr = "0.2.10"
 duct = "0.13.6"
 futures-lite = "1.12.0"
 function_name = "0.3"
-glam = { version = "0.22", default-features = false, features = ["libm", "bytemuck"] }
+glam = { version = "0.24", default-features = false, features = ["libm", "bytemuck", "serde"] }
 graphrox = "1.2.0"
 histogram = "0.6.9" # lock in 0.6.9 for now
 image = "0.24.3"
@@ -70,6 +70,7 @@ libloading = "0.7"
 num-traits = { version = "0.2.14", default-features = false, features = ["libm"] }
 rapier3d = "0.17.2"
 raw-window-handle = "0.4.2" # lock on 0.4.2 for now
+paste = "1.0.6"
 serde = { version = "1", features = ["derive"]}
 serde_yaml = "0.9"
 sdl2 = { version = "0.35.2", features = ["raw-window-handle", "bundled"] }

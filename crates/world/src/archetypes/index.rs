@@ -22,7 +22,7 @@ impl From<PlayerIndex> for usize {
 }
 
 /// Index to address a graphic.
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GfxIndex(pub(crate) u32);
 impl From<u16> for GfxIndex {
     fn from(value: u16) -> Self {

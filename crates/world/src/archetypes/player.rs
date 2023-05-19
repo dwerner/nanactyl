@@ -149,6 +149,34 @@ pub struct PlayerIterator<'a> {
     shape: IterMut<'a, Shape>,
 }
 
+impl<'a> Iterator for PlayerIterator<'a> {
+    type Item = PlayerRef<'a>;
+    fn next(&mut self) -> Option<PlayerRef<'a>> {
+        let position = self.position.next()?;
+        let angles = self.angles.next()?;
+        let scale = self.scale.next()?;
+        let linear_velocity_intention = self.linear_velocity_intention.next()?;
+        let angular_velocity_intention = self.angular_velocity_intention.next()?;
+        let view = self.view.next()?;
+        let perspective = self.perspective.next()?;
+        let gfx = self.gfx.next()?;
+        let health = self.health.next()?;
+        let shape = self.shape.next()?;
+        Some(PlayerRef {
+            health,
+            shape,
+            position,
+            angles,
+            scale,
+            linear_velocity_intention,
+            angular_velocity_intention,
+            view,
+            perspective,
+            gfx,
+        })
+    }
+}
+
 impl<'a> PlayerRef<'a> {
     pub fn set_perspective(&mut self, fov: f32, aspect: f32, near: f32, far: f32) {
         *self.perspective = Mat4::perspective_lh(aspect, fov, near, far);
@@ -193,34 +221,6 @@ impl<'a> PlayerRef<'a> {
         );
         let trans = Mat4::from_translation(*self.position);
         *self.view = trans * rot;
-    }
-}
-
-impl<'a> Iterator for PlayerIterator<'a> {
-    type Item = PlayerRef<'a>;
-    fn next(&mut self) -> Option<PlayerRef<'a>> {
-        let position = self.position.next()?;
-        let angles = self.angles.next()?;
-        let scale = self.scale.next()?;
-        let linear_velocity_intention = self.linear_velocity_intention.next()?;
-        let angular_velocity_intention = self.angular_velocity_intention.next()?;
-        let view = self.view.next()?;
-        let perspective = self.perspective.next()?;
-        let gfx = self.gfx.next()?;
-        let health = self.health.next()?;
-        let shape = self.shape.next()?;
-        Some(PlayerRef {
-            health,
-            shape,
-            position,
-            angles,
-            scale,
-            linear_velocity_intention,
-            angular_velocity_intention,
-            view,
-            perspective,
-            gfx,
-        })
     }
 }
 
@@ -311,6 +311,14 @@ impl Archetype for PlayerArchetype {
     }
 
     fn despawn(&mut self, index: Self::Index) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    fn builder(&self) -> Self::Builder {
+        todo!()
+    }
+
+    fn set_default_builder(&mut self, builder: Self::Builder) {
         todo!()
     }
 }

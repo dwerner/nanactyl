@@ -310,7 +310,7 @@ impl Archetype for PlayerArchetype {
         }
     }
 
-    fn despawn(&mut self, index: Self::Index) -> Result<(), Self::Error> {
+    fn despawn(&mut self, _index: Self::Index) -> Result<(), Self::Error> {
         todo!()
     }
 
@@ -318,7 +318,7 @@ impl Archetype for PlayerArchetype {
         todo!()
     }
 
-    fn set_default_builder(&mut self, builder: Self::Builder) {
+    fn set_default_builder(&mut self, _builder: Self::Builder) {
         todo!()
     }
 }

@@ -24,7 +24,7 @@
 ///
 /// e.g.
 /// ```
-/// def_archetype_boilerplate! {
+/// def_archetype! {
 ///    Named,
 ///    name: String
 /// }
@@ -52,6 +52,7 @@ macro_rules! def_archetype {
                 /// Default builder for this archetype
                 default_builder: Option<[<$base_name Builder>]>,
                 len: usize,
+                despawned: std::collections::HashSet<u32>,
                 $(
                     pub $field : Vec<$type>,
                 )*
@@ -63,6 +64,12 @@ macro_rules! def_archetype {
             impl From<u32> for [<$base_name Index>] {
                 fn from(value: u32) -> Self {
                     Self(value)
+                }
+            }
+
+            impl From<[<$base_name Index>]> for u32 {
+                fn from(value: [<$base_name Index>]) -> Self {
+                    value.0
                 }
             }
 
@@ -90,6 +97,7 @@ macro_rules! def_archetype {
                     Self {
                         len: 0,
                         default_builder: Default::default(),
+                        despawned: std::collections::HashSet::new(),
                         $(
                             $field : Vec::new(),
                         )*
@@ -109,8 +117,9 @@ macro_rules! def_archetype {
                 $(
                     #[doc = "Set the `" $field "` field in this builder."]
                     #[allow(dead_code)]
-                    pub fn [<set_ $field>](&mut self, $field: $type) {
+                    pub fn [<set_ $field>](&mut self, $field: $type) -> &mut Self {
                         self.$field = Some($field);
+                        self
                     }
                 )*
             }
@@ -123,9 +132,10 @@ macro_rules! def_archetype {
                 )*
             }
 
-
             #[doc = "`" [<$base_name Ref>] "` iterator over entities within `" [<$base_name Archetype>] "`."]
             pub struct [<$base_name Iterator>]<'a> {
+                despawned: &'a std::collections::HashSet<u32>,
+                current_index: u32,
                 $(
                     $field : core::slice::IterMut<'a, $type>,
                 )*
@@ -134,11 +144,20 @@ macro_rules! def_archetype {
             impl<'a> Iterator for [<$base_name Iterator>]<'a> {
                 type Item = [<$base_name Ref>]<'a>;
                 fn next(&mut self) -> Option<Self::Item> {
-                    Some([<$base_name Ref>] {
+                    // skip despawned entities.
+                    while self.despawned.contains(&self.current_index) {
+                        $(
+                            let _ = self.$field.next()?;
+                        )*
+                        self.current_index += 1;
+                    }
+                    let n = Some([<$base_name Ref>] {
                         $(
                             $field : self.$field.next()?,
                         )*
-                    })
+                    });
+                    self.current_index += 1;
+                    n
                 }
             }
 
@@ -157,6 +176,8 @@ macro_rules! def_archetype {
                 #[doc = "Returns an iterator over the entities within `" [<$base_name Archetype>] "`."]
                 fn iter_mut(&mut self) -> Self::IterMut<'_> {
                     [<$base_name Iterator>] {
+                        despawned: &self.despawned,
+                        current_index: 0u32,
                         $(
                             $field: self.$field.iter_mut(),
                         )*
@@ -165,7 +186,10 @@ macro_rules! def_archetype {
 
                 #[doc = "Get a reference to an entity within `" [<$base_name Archetype>] "`."]
                 fn get_mut(&mut self, index: Self::Index) -> Option<Self::ItemRef<'_>> {
-                    let index: usize = index.into();
+                    if self.despawned.contains(&index.into()) {
+                        return None;
+                    }
+                    let index:usize = index.into();
                     Some([<$base_name Ref>] {
                         $(
                             $field: self.$field.get_mut(index)?,
@@ -192,6 +216,7 @@ macro_rules! def_archetype {
                     self.default_builder = Some(builder);
                 }
 
+                #[doc = "Spawn an entity within `" [<$base_name Archetype>] "`. Returns the index of the entity within the archetype."]
                 fn spawn(&mut self, builder: Self::Builder) -> Result<Self::Index, Self::Error> {
                     let result = match builder {
                         Self::Builder {
@@ -210,9 +235,12 @@ macro_rules! def_archetype {
                     result
                 }
 
-                fn despawn(&mut self, _index: Self::Index) -> Result<(), Self::Error> {
+                #[doc = "Despawn an entity within `" [<$base_name Archetype>] "`."]
+                fn despawn(&mut self, index: Self::Index) -> Result<(), Self::Error> {
                     // Needs to be filled based on the actual logic of despawning.
-                    unimplemented!()
+                    self.despawned.insert(index.0);
+                    self.len -= 1;
+                    Ok(())
                 }
             }
         }
@@ -234,6 +262,8 @@ macro_rules! def_ref_and_iter {
 
             #[doc = "`" [<$base_name Ref>] "` iterator over entities within and archetype implementing an iterator with this type."]
             pub struct [<$base_name Iterator>]<'a> {
+                despawned: &'a std::collections::HashSet<u32>,
+                current_index: u32,
                 $(
                     $field : core::slice::IterMut<'a, $type>,
                 )*
@@ -242,11 +272,20 @@ macro_rules! def_ref_and_iter {
             impl<'a> Iterator for [<$base_name Iterator>]<'a> {
                 type Item = [<$base_name Ref>]<'a>;
                 fn next(&mut self) -> Option<Self::Item> {
-                    Some([<$base_name Ref>] {
+                    // skip despawned entities.
+                    while self.despawned.contains(&self.current_index) {
+                        $(
+                            let _ = self.$field.next()?;
+                        )*
+                        self.current_index += 1;
+                    }
+                    let n = Some([<$base_name Ref>] {
                         $(
                             $field : self.$field.next()?,
                         )*
-                    })
+                    });
+                    self.current_index += 1;
+                    n
                 }
             }
         }
@@ -264,6 +303,8 @@ macro_rules! impl_archetype_ref_iter {
                 #[allow(dead_code)]
                 pub fn [<$base_name:snake _iter_mut>](&mut self) -> [<$base_name Iterator>]<'_> {
                     [<$base_name Iterator>] {
+                        despawned: &self.despawned,
+                        current_index: 0u32,
                         $(
                             $field: self.$field.iter_mut(),
                         )*
@@ -440,5 +481,20 @@ mod test {
             err_str,
             "BlobArchetype builder is incomplete BlobBuilder { a_field: None }"
         );
+    }
+
+    #[test]
+    fn test_despawn() {
+        let mut blob_archetype: BlobArchetype = BlobArchetype::default();
+        let mut builder = blob_archetype.builder();
+        builder.set_a_field(42).set_b_field(22).set_c_field(33);
+        let _index = blob_archetype.spawn(builder.clone()).unwrap();
+        let index = blob_archetype.spawn(builder.clone()).unwrap();
+        blob_archetype.despawn(index).unwrap();
+        assert_eq!(blob_archetype.len(), BlobIndex::from(1u32));
+        assert_eq!(blob_archetype.despawned.len(), 1);
+        assert!(blob_archetype.get_mut(index).is_none());
+        let i: Vec<BlobRef> = blob_archetype.iter_mut().collect();
+        assert_eq!(i.len(), 1);
     }
 }

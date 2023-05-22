@@ -1,7 +1,8 @@
 //! Implements a world and entity system for the engine to mutate and render.
 
 pub mod archetypes;
-pub mod thing;
+pub mod graphics;
+pub mod health;
 
 use std::io;
 use std::net::SocketAddr;
@@ -9,20 +10,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use archetypes::graphics::GfxArchetype;
-use archetypes::index::{GfxIndex, PlayerIndex};
 use archetypes::player::{PlayerArchetype, PlayerRef};
 use archetypes::Archetype;
 use async_lock::{Mutex, MutexGuardArc};
 use gfx::{DebugMesh, Graphic, Model};
 pub use glam::{Mat4, Quat, Vec3};
+use graphics::{GfxIndex, GraphicsManager};
 use graphrox::Graph;
+use health::HealthFacet;
 use input::wire::InputState;
 use logger::{LogLevel, Logger};
 use network::{Connection, RpcError};
-use thing::{
-    CameraFacet, CameraIndex, GraphicsFacet, HealthFacet, HealthIndex, PhysicalFacet, PhysicalIndex,
-};
 
 #[repr(C)]
 pub struct WorldLockAndControllerState {
@@ -73,65 +71,6 @@ impl AssetLoaderStateAndWorldLock {
     }
 }
 
-// TODO implement the rest of the facets
-// the main idea here is to construct contiguous areas in memory for different
-// facets this is a premature optimization for the Thing/Facet system in general
-// to avoid losing cache coherency whilst traversing a series of objects.
-// Probably we want to integrate concurrency safety here.
-#[derive(Default)]
-pub struct WorldFacets {
-    cameras: Vec<CameraFacet>,
-    graphics: Vec<GraphicsFacet>,
-    pub physical: Vec<PhysicalFacet>,
-    health: Vec<HealthFacet>,
-}
-
-impl WorldFacets {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn camera(&self, index: CameraIndex) -> Option<&CameraFacet> {
-        self.cameras.get(index.0 as usize)
-    }
-
-    pub fn camera_mut(&mut self, index: CameraIndex) -> Option<&mut CameraFacet> {
-        self.cameras.get_mut(index.0 as usize)
-    }
-
-    pub fn gfx_iter(&self) -> impl Iterator<Item = (GfxIndex, &GraphicsFacet)> {
-        self.graphics
-            .iter()
-            .enumerate()
-            .map(|(index, facet)| (index.into(), facet))
-    }
-
-    pub fn model(&self, index: GfxIndex) -> Option<&GraphicsFacet> {
-        self.graphics.get(index.0 as usize)
-    }
-
-    pub fn physical(&self, index: PhysicalIndex) -> Option<&PhysicalFacet> {
-        self.physical.get(index.0 as usize)
-    }
-
-    pub fn physical_mut(&mut self, index: PhysicalIndex) -> Option<&mut PhysicalFacet> {
-        self.physical.get_mut(index.0 as usize)
-    }
-
-    pub fn iter_physical_mut(
-        &mut self,
-    ) -> impl Iterator<Item = (PhysicalIndex, &mut PhysicalFacet)> {
-        self.physical
-            .iter_mut()
-            .enumerate()
-            .map(|(index, facet)| (index.into(), facet))
-    }
-
-    pub fn health(&self, index: HealthIndex) -> Option<&HealthFacet> {
-        self.health.get(index.0 as usize)
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum WorldError {
     #[error("Too many objects added to world")]
@@ -150,20 +89,20 @@ pub enum WorldError {
     UpdateFromBytes(RpcError),
 
     #[error("no camera facet at index {0:?}")]
-    NoSuchCamera(CameraIndex),
+    NoSuchCamera(u32),
 
     #[error("no camera found in scene")]
     PlayerNotFound,
 
     #[error("thing with id {0:?} not found in scene")]
-    ThingNotFound(PlayerIndex),
+    ThingNotFound(u32),
 
     #[error("no phys facet at index {0:?}")]
-    NoSuchPhys(PhysicalIndex),
+    NoSuchPhys(u32),
 }
 
 pub struct World {
-    pub maybe_camera: Option<PlayerIndex>,
+    pub maybe_camera: Option<u32>,
 
     /// All entities
     // pub things: Vec<Thing>,
@@ -171,7 +110,7 @@ pub struct World {
 
     // TODO: multiple archetypes.
     pub players: PlayerArchetype,
-    pub gfx: GfxArchetype,
+    pub graphics: GraphicsManager,
 
     pub stats: Stats,
     pub config: Config,
@@ -269,10 +208,8 @@ impl World {
                 last_tick: Instant::now(),
             },
             maybe_camera: None,
-            // things: vec![],
-            // facets: WorldFacets::default(),
-            players: PlayerArchetype::new(),
-            gfx: GfxArchetype::new(),
+            players: PlayerArchetype::default(),
+            graphics: GraphicsManager::new(),
 
             connection: None,
             client_controller_state: None,
@@ -284,7 +221,7 @@ impl World {
         }
     }
 
-    pub fn player(&mut self, player_id: PlayerIndex) -> Result<PlayerRef, WorldError> {
+    pub fn player(&mut self, player_id: u32) -> Result<PlayerRef, WorldError> {
         self.players
             .get_mut(player_id)
             .ok_or(WorldError::PlayerNotFound)
@@ -307,7 +244,7 @@ impl World {
     }
 
     pub fn add_model(&mut self, model: Model) -> GfxIndex {
-        self.gfx.add(Graphic::Model(model))
+        self.graphics.add(Graphic::Model(model))
     }
 
     // pub fn add_thing(&mut self, thing: Thing) -> Result<Identity, WorldError> {

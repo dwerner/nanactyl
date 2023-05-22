@@ -182,6 +182,7 @@ pub trait GpuNeeds {
 /// A drawable object.
 ///
 /// Add new variants here.
+#[derive(Debug, Clone)]
 pub enum Graphic {
     /// A model, with a texture and shaders.
     Model(Model),
@@ -365,7 +366,7 @@ fn load_image(stem: &str, base_path: &Path) -> Result<Image, LoadError> {
 
 // TODO: consider a more efficient layout and reusable storage for vertices
 // We want to copy less often.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 #[repr(C)]
 pub struct Vertex {
     pub pos: [f32; 4],
@@ -390,7 +391,7 @@ impl Vertex {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,

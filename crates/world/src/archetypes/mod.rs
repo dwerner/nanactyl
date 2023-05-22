@@ -1,15 +1,18 @@
-pub mod graphics;
-pub mod index;
+use std::sync::atomic::AtomicU32;
+
 pub mod macros;
 pub mod player;
 
 // TODO pub mod net;
 
+const NEXT_ENTITY: AtomicU32 = AtomicU32::new(0);
+
+pub fn next_entity() -> u32 {
+    NEXT_ENTITY.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Every archetype needs the same basic interface:
 pub trait Archetype {
-    /// The index type for this archetype.
-    type Index: From<usize>;
-
     /// A reference to an item in the archetype.
     type ItemRef<'a>: 'a
     where
@@ -26,19 +29,16 @@ pub trait Archetype {
     /// The error type returned by this archetype.
     type Error;
 
-    /// Return the last index of the archetype.
-    fn len(&self) -> Self::Index;
-
     /// Iterate over all items in the archetype
     fn iter_mut(&mut self) -> Self::IterMut<'_>;
 
     /// Get a single mutable reference to an item in the archetype.
-    fn get_mut(&mut self, index: Self::Index) -> Option<Self::ItemRef<'_>>;
+    fn get_mut(&mut self, entity: u32) -> Option<Self::ItemRef<'_>>;
 
     /// Spawn an entity into the archetype, parameterized by the builder.
-    fn spawn(&mut self, builder: Self::Builder) -> Result<Self::Index, Self::Error>;
+    fn spawn(&mut self, entity: u32, builder: Self::Builder) -> Result<(), Self::Error>;
 
-    fn despawn(&mut self, index: Self::Index) -> Result<(), Self::Error>;
+    fn despawn(&mut self, entity: u32) -> Result<(), Self::Error>;
 
     /// Return a builder for creating entitites within this archetype.
     fn builder(&self) -> Self::Builder;

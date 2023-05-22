@@ -5,7 +5,7 @@ use gfx::{Graphic, Model};
 use logger::info;
 use world::archetypes::player::PlayerBuilder;
 use world::archetypes::Archetype;
-use world::thing::Shape;
+use world::health::Shape;
 use world::{AssetLoaderStateAndWorldLock, Vec3};
 
 // TODO:

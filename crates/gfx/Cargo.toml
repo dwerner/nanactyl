@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 obj-parser = { path = "../obj-parser" }
 
+serde = { workspace = true }
 thiserror = { workspace = true }
 image = { workspace = true }
 glam = { workspace = true }

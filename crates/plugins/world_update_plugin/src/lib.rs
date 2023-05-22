@@ -19,7 +19,7 @@ use rapier3d::prelude::{
 };
 use world::archetypes::index::PlayerIndex;
 use world::archetypes::Archetype;
-use world::thing::{PhysicalFacet, Shape, Thing, EULER_ROT_ORDER};
+use world::health::{PhysicalFacet, Shape, Thing, EULER_ROT_ORDER};
 use world::{World, WorldError};
 
 /// Internal plugin state. The lifespan is load->update->unload and dropped

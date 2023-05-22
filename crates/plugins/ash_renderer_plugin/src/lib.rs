@@ -30,7 +30,7 @@ use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, Pipeline, Shader, ShaderStage, ShaderStages,
     VertexInputAssembly, VulkanError,
 };
-use world::thing::{GfxIndex, GraphicsFacet, EULER_ROT_ORDER};
+use world::health::{GfxIndex, GraphicsFacet, EULER_ROT_ORDER};
 
 use crate::device::DeviceWrapper;
 use crate::types::DescriptorSetLayoutBinding;

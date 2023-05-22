@@ -56,7 +56,7 @@ async-lock = "2.5.0"
 async-io = "1.9.0"
 async-net = "1.7.0"
 async-trait = "0.1"
-bitvec = { version = "1.0.1" }
+bitvec = { version = "1.0.1", features = ["serde"] }
 bytemuck = { version = "1.12.1", features = ["derive", "extern_crate_std"] }
 cstr = "0.2.10"
 duct = "0.13.6"

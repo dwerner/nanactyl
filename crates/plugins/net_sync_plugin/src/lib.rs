@@ -18,7 +18,7 @@ use input::wire::InputState;
 use logger::{error, info, LogLevel};
 use network::{Connection, Message, RpcError, Typed, MAX_UNACKED_PACKETS, MSG_LEN, PAYLOAD_LEN};
 use wire::{WirePosition, WireThing, WorldUpdate};
-use world::thing::Thing;
+use world::health::Thing;
 use world::{Vec3, World, WorldError, WorldLockAndControllerState};
 
 const NUM_UPDATES_PER_MSG: u32 = 96;
@@ -234,7 +234,7 @@ async fn pump_connection_as_client(
 pub mod wire {
 
     use bytemuck::{Pod, Zeroable};
-    use world::thing::{self, Thing};
+    use world::health::{self, Thing};
 
     use super::*;
 
@@ -252,13 +252,13 @@ pub mod wire {
     impl From<&Thing> for WireThing {
         fn from(thing: &Thing) -> Self {
             match thing.facets {
-                thing::ThingType::Camera { phys, camera } => Self {
+                health::ThingType::Camera { phys, camera } => Self {
                     tag: 0,
                     phys: phys.into(),
                     facet: camera.into(),
                     _pad: 0,
                 },
-                thing::ThingType::GraphicsObject { phys, model } => Self {
+                health::ThingType::GraphicsObject { phys, model } => Self {
                     tag: 1,
                     phys: phys.into(),
                     facet: model.into(),
@@ -341,7 +341,7 @@ pub mod wire {
     mod tests {
 
         use logger::debug;
-        use world::thing::{GfxIndex, PhysicalIndex};
+        use world::health::{GfxIndex, PhysicalIndex};
 
         use super::*;
 

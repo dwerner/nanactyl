@@ -17,3 +17,5 @@ graphrox = { workspace = true }
 thiserror= { workspace = true }
 serde = { workspace = true }
 paste = { workspace = true }
+bitvec = { workspace = true }
+

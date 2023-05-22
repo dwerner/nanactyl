@@ -17,9 +17,7 @@ use rapier3d::na::{self as nalgebra, point, vector, Vector};
 use rapier3d::prelude::{
     ColliderBuilder, ColliderHandle, ColliderSet, RigidBodyBuilder, RigidBodySet,
 };
-use world::archetypes::index::PlayerIndex;
 use world::archetypes::Archetype;
-use world::health::{PhysicalFacet, Shape, Thing, EULER_ROT_ORDER};
 use world::{World, WorldError};
 
 /// Internal plugin state. The lifespan is load->update->unload and dropped
@@ -29,7 +27,7 @@ struct WorldUpdatePluginState {
     rigid_bodies: RigidBodySet,
     colliders: ColliderSet,
     vehicle_controller: Option<DynamicRayCastVehicleController>,
-    collider_handles: HashMap<PlayerIndex, ColliderHandle>,
+    collider_handles: HashMap<u32, ColliderHandle>,
 }
 
 // Hang any state for this plugin off a private static within.
@@ -109,10 +107,10 @@ impl WorldUpdatePluginState {
     // create colliders for all objects that have a phyiscal facet
     fn setup_object_colliders(&mut self, world: &mut World) {
         let rad = 0.1;
-        for physical in world.players.iter_mut() {
-            let x = physical.position.x;
-            let y = physical.position.y;
-            let z = physical.position.z;
+        for physical in world.players.physics_iter_mut() {
+            let x = physical.pos.x;
+            let y = physical.pos.y;
+            let z = physical.pos.z;
 
             let rigid_body = RigidBodyBuilder::dynamic().translation(vector![x, y, z]);
             let handle = self.rigid_bodies.insert(rigid_body);
@@ -144,7 +142,7 @@ impl WorldUpdatePluginState {
                 .insert_with_parent(collider, floor_handle, &mut self.rigid_bodies);
 
         // TODO: try out adding a debug mesh
-        let ground_phys = PhysicalFacet::new(
+        let ground_phys = StaticObject::new(
             0.0,
             -ground_height - ground_y_offset,
             0.0,
@@ -208,12 +206,12 @@ impl<'a> WorldExt<'a> {
                 self.move_camera_based_on_controller_state(&client_controller, 1u32.into())
                     .unwrap();
             }
-            for physical in self.inner.facets.physical.iter_mut() {
-                let linear = physical.linear_velocity_intention * action_scale;
-                physical.position += linear;
+            for physical in self.inner.players.physics_iter_mut() {
+                let linear = *physical.linear_velocity_intention * action_scale;
+                *physical.pos += linear;
 
-                let angular = physical.angular_velocity_intention * action_scale;
-                physical.angles += angular;
+                let angular = *physical.angular_velocity_intention * action_scale;
+                *physical.angles += angular;
             }
         }
         self.set_last_tick(Instant::now());

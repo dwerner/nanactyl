@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use archetypes::player::{PlayerArchetype, PlayerRef};
-use archetypes::Archetype;
+use archetypes::{Archetype, EntityArchetypes};
 use async_lock::{Mutex, MutexGuardArc};
 use gfx::{DebugMesh, Graphic, Model};
 pub use glam::{Mat4, Quat, Vec3};
@@ -105,11 +105,8 @@ pub struct World {
     pub maybe_camera: Option<u32>,
 
     /// All entities
-    // pub things: Vec<Thing>,
-    // pub facets: WorldFacets,
+    pub entities: EntityArchetypes,
 
-    // TODO: multiple archetypes.
-    pub players: PlayerArchetype,
     pub graphics: GraphicsManager,
 
     pub stats: Stats,
@@ -198,22 +195,26 @@ impl World {
     /// FIXME: make this /// independent of any connecting clients.
     pub fn new(maybe_server_addr: Option<SocketAddr>, logger: &Logger, net_disabled: bool) -> Self {
         Self {
+            maybe_camera: None,
+            connection: None,
+            client_controller_state: None,
+            server_controller_state: None,
+
             config: Config {
                 net_disabled,
                 maybe_server_addr,
             },
+
             stats: Stats {
                 updates: 0,
                 run_life: Duration::from_millis(0),
                 last_tick: Instant::now(),
             },
-            maybe_camera: None,
-            players: PlayerArchetype::default(),
+
+            entities: EntityArchetypes::default(),
+
             graphics: GraphicsManager::new(),
 
-            connection: None,
-            client_controller_state: None,
-            server_controller_state: None,
             logger: logger.sub("world"),
 
             // we'll represent the relationship between game objects as an undirected graph.
@@ -222,7 +223,7 @@ impl World {
     }
 
     pub fn player(&mut self, player_id: u32) -> Result<PlayerRef, WorldError> {
-        self.players
+        self.entities
             .get_mut(player_id)
             .ok_or(WorldError::PlayerNotFound)
     }
@@ -240,7 +241,7 @@ impl World {
     }
 
     pub fn add_debug_mesh(&mut self, mesh: DebugMesh) -> GfxIndex {
-        self.gfx.add(Graphic::DebugMesh(mesh))
+        self.graphics.add(Graphic::DebugMesh(mesh))
     }
 
     pub fn add_model(&mut self, model: Model) -> GfxIndex {

@@ -1,3 +1,65 @@
+//! Macros for defining archetypes, and associated types.
+//!
+//! Note that these are intended to be called only from within the `world`
+//! crate.
+
+/// Define a reference and iterator over a subset of fields in an archetype.
+#[macro_export]
+macro_rules! def_ref_and_iter {
+    ($base_name:ident, $($field:ident: $type:ty),*) => {
+        paste::paste! {
+            #[doc = "`" [<$base_name Ref>] "` a reference to fields within an archetype implementing an iterator with this type."]
+            #[doc = "Fields are `pub` for easy access."]
+            #[doc = "Fields contained within `" [<$base_name Ref>] "`:\n"]
+            $(#[doc = "- `" [< $field >] ": &'a mut " [<$type>]"`\n"])*
+            pub struct [<$base_name Ref>]<'a> {
+                pub entity_id: u32,
+                $(
+                    pub $field : &'a mut $type,
+                )*
+            }
+
+            #[doc = "`" [<$base_name Ref>] "` iterator over entities within and archetype implementing an iterator with this type."]
+            pub struct [<$base_name Iterator>]<'a> {
+                entities: &'a Vec<u32>,
+                despawned: &'a bitvec::prelude::BitVec,
+                current_index: usize,
+                $(
+                    $field : core::slice::IterMut<'a, $type>,
+                )*
+            }
+
+            impl<'a> Iterator for [<$base_name Iterator>]<'a> {
+                type Item = [<$base_name Ref>]<'a>;
+                fn next(&mut self) -> Option<Self::Item> {
+                    // skip despawned entities.
+                    // could this break cache locality for the iteration?
+                    let entity_id = *self.entities.get(self.current_index)?;
+                    loop {
+                        match self.despawned.get(self.current_index) {
+                            Some(bit) if *bit => {
+                                $(
+                                    let _ = self.$field.next()?;
+                                )*
+                                self.current_index += 1;
+                                continue;
+                            },
+                            _ => break                        }
+                    }
+                    let n = Some([<$base_name Ref>] {
+                        entity_id,
+                        $(
+                            $field : self.$field.next()?,
+                        )*
+                    });
+                    self.current_index += 1;
+                    n
+                }
+            }
+        }
+    };
+}
+
 /// Generate an archetype with the given fields.
 ///
 /// ```
@@ -51,39 +113,12 @@ macro_rules! def_archetype {
             pub struct [<$base_name Archetype>] {
                 /// Default builder for this archetype
                 default_builder: Option<[<$base_name Builder>]>,
-                despawned: bitvec::prelude::BitVec,
+                pub(crate) despawned: bitvec::prelude::BitVec,
                 next_index: usize,
-                entities: Vec<u32>,
+                pub(crate) entities: Vec<u32>,
                 $(
                     pub $field : Vec<$type>,
                 )*
-            }
-
-            #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-            pub struct [<$base_name Index>](u32);
-
-            impl From<u32> for [<$base_name Index>] {
-                fn from(value: u32) -> Self {
-                    Self(value)
-                }
-            }
-
-            impl From<[<$base_name Index>]> for u32 {
-                fn from(value: [<$base_name Index>]) -> Self {
-                    value.0
-                }
-            }
-
-            impl From<usize> for [<$base_name Index>] {
-                fn from(value: usize) -> Self {
-                    Self(value as u32)
-                }
-            }
-
-            impl From<[<$base_name Index>]> for usize {
-                fn from(value: [<$base_name Index>]) -> Self {
-                    value.0 as usize
-                }
             }
 
             #[doc = "Archetype `" [<$base_name Error>] "` error."]
@@ -128,53 +163,7 @@ macro_rules! def_archetype {
                 )*
             }
 
-            #[doc = "`" [<$base_name Ref>] "` - a reference to an entity within `" [<$base_name Archetype>] "`."]
-            #[doc = "Fields are `pub` for easy access."]
-            pub struct [<$base_name Ref>]<'a> {
-                /// The entity id for this reference.
-                pub entity_id: u32,
-                $(
-                    pub $field : &'a mut $type,
-                )*
-            }
-
-            #[doc = "`" [<$base_name Ref>] "` iterator over entities within `" [<$base_name Archetype>] "`."]
-            pub struct [<$base_name Iterator>]<'a> {
-                entities: &'a [u32],
-                despawned: &'a bitvec::prelude::BitVec,
-                current_index: usize,
-                $(
-                    $field : core::slice::IterMut<'a, $type>,
-                )*
-            }
-
-            impl<'a> Iterator for [<$base_name Iterator>]<'a> {
-                type Item = [<$base_name Ref>]<'a>;
-                fn next(&mut self) -> Option<Self::Item> {
-                    // skip despawned entities.
-                    let entity_id = *self.entities.get(self.current_index)?;
-                    loop{
-                        match self.despawned.get(self.current_index) {
-                            Some(bit) if *bit => {
-                                $(
-                                    let _ = self.$field.next()?;
-                                )*
-                                self.current_index += 1;
-                                continue;
-                            }
-                            _ => break
-                        }
-                    }
-                    let n = Some([<$base_name Ref>] {
-                        entity_id,
-                        $(
-                            $field : self.$field.next()?,
-                        )*
-                    });
-                    self.current_index += 1;
-                    n
-                }
-            }
+            crate::def_ref_and_iter! { $base_name, $($field : $type),* }
 
             impl crate::Archetype for [<$base_name Archetype>] {
                 type Error = [<$base_name Error>];
@@ -274,61 +263,6 @@ macro_rules! def_archetype {
     };
 }
 
-/// Define a reference and iterator over a subset of fields in an archetype.
-#[macro_export]
-macro_rules! def_ref_and_iter {
-    ($base_name:ident, $($field:ident: $type:ty),*) => {
-        paste::paste! {
-            #[doc = "`" [<$base_name Ref>] "` a reference to fields within an archetype implementing an iterator with this type."]
-            #[doc = "Fields are `pub` for easy access."]
-            pub struct [<$base_name Ref>]<'a> {
-                pub entity_id: u32,
-                $(
-                    pub $field : &'a mut $type,
-                )*
-            }
-
-            #[doc = "`" [<$base_name Ref>] "` iterator over entities within and archetype implementing an iterator with this type."]
-            pub struct [<$base_name Iterator>]<'a> {
-                entities: &'a Vec<u32>,
-                despawned: &'a bitvec::prelude::BitVec,
-                current_index: usize,
-                $(
-                    $field : core::slice::IterMut<'a, $type>,
-                )*
-            }
-
-            impl<'a> Iterator for [<$base_name Iterator>]<'a> {
-                type Item = [<$base_name Ref>]<'a>;
-                fn next(&mut self) -> Option<Self::Item> {
-                    // skip despawned entities.
-                    // could this break cache locality for the iteration?
-                    let entity_id = *self.entities.get(self.current_index)?;
-                    loop {
-                        match self.despawned.get(self.current_index) {
-                            Some(bit) if *bit => {
-                                $(
-                                    let _ = self.$field.next()?;
-                                )*
-                                self.current_index += 1;
-                                continue;
-                            },
-                            _ => break                        }
-                    }
-                    let n = Some([<$base_name Ref>] {
-                        entity_id,
-                        $(
-                            $field : self.$field.next()?,
-                        )*
-                    });
-                    self.current_index += 1;
-                    n
-                }
-            }
-        }
-    };
-}
-
 /// Implement an iterator method for an archetype with a type defined by
 /// `def_ref_and_iter`.
 #[macro_export]
@@ -385,7 +319,6 @@ mod test {
     // BlobRef,
     // BlobBuilder,
     // BlobIterator,
-    // BlobIndex,
     // BlobError
     def_archetype! {
         Blob,

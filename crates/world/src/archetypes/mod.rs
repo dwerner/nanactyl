@@ -1,7 +1,13 @@
 use std::sync::atomic::AtomicU32;
 
+use self::object::ObjectArchetype;
+use self::player::PlayerArchetype;
+use self::views::{CameraRef, DrawRef, PhysicsRef};
+
 pub mod macros;
+pub mod object;
 pub mod player;
+pub mod views;
 
 // TODO pub mod net;
 
@@ -47,4 +53,52 @@ pub trait Archetype {
     /// to set some fields once, and merely copy them to new entities, changing
     /// only the fields that you care about.
     fn set_default_builder(&mut self, builder: Self::Builder);
+}
+
+/// Entity storage for the game. This is a collection of archetypes, for which
+/// several ref types might be implemented for systems to iterate over the data
+/// of.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+pub struct EntityArchetypes {
+    players: PlayerArchetype,
+    objects: ObjectArchetype,
+}
+
+impl EntityArchetypes {
+    /// Spawn a player into the archetype, parameterized by the builder.
+    pub fn spawn_player(
+        &mut self,
+        entity: u32,
+        builder: player::PlayerBuilder,
+    ) -> Result<(), player::PlayerError> {
+        self.players.spawn(entity, builder)
+    }
+
+    /// Spawn an object into the archetype, parameterized by the builder.
+    pub fn spawn_object(
+        &mut self,
+        entity: u32,
+        builder: object::ObjectBuilder,
+    ) -> Result<(), object::ObjectError> {
+        self.objects.spawn(entity, builder)
+    }
+
+    /// Iterate over all archetypes and view of their physics.
+    pub fn physics_iter_mut(&mut self) -> impl Iterator<Item = PhysicsRef<'_>> {
+        self.players
+            .physics_iter_mut()
+            .chain(self.objects.physics_iter_mut())
+    }
+
+    /// Iterate over all archetypes and view of their drawables.
+    pub fn draw_iter_mut(&mut self) -> impl Iterator<Item = DrawRef<'_>> {
+        self.players
+            .draw_iter_mut()
+            .chain(self.objects.draw_iter_mut())
+    }
+
+    /// Iterate over all cameras in the archetype.
+    pub fn camera_iter_mut(&mut self) -> impl Iterator<Item = CameraRef<'_>> {
+        self.players.camera_iter_mut()
+    }
 }

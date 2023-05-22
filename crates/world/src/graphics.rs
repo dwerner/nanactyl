@@ -12,8 +12,10 @@ impl GraphicsManager {
         Self { gfx: Vec::new() }
     }
 
-    pub(crate) fn add(&self, model: Graphic) -> GfxIndex {
-        todo!("")
+    pub(crate) fn add(&mut self, gfx: Graphic) -> GfxIndex {
+        let index = self.gfx.len();
+        self.gfx.push(gfx);
+        GfxIndex(index)
     }
 }
 

@@ -9,14 +9,18 @@ use crate::health::HealthFacet;
 def_archetype! {
     Player,
     gfx: GfxIndex,
-    position: Vec3,
-    view: Mat4,
-    perspective: Mat4,
+
+    pos: Vec3,
     angles: Vec3,
     scale: f32,
+
+    view: Mat4,
+    perspective: Mat4,
+
     linear_velocity_intention: Vec3,
     angular_velocity_intention: Vec3,
     shape: Shape,
+
     health: HealthFacet
 }
 
@@ -25,7 +29,7 @@ impl PlayerBuilder {
     pub fn new(gfx: GfxIndex, pos: Vec3, shape: Shape) -> Self {
         Self {
             gfx: Some(gfx),
-            position: Some(pos),
+            pos: Some(pos),
             shape: Some(shape),
             ..Default::default()
         }
@@ -42,7 +46,7 @@ impl Default for PlayerBuilder {
         );
         PlayerBuilder {
             gfx: None,
-            position: Some(Vec3::ZERO),
+            pos: Some(Vec3::ZERO),
             view: Some(Mat4::IDENTITY),
             perspective: Some(perspective),
             angles: Some(Vec3::ZERO),
@@ -86,13 +90,13 @@ impl<'a> PlayerRef<'a> {
 
     pub fn update(&mut self, dt: &Duration) {
         let amount = (dt.as_millis() as f64 / 100.0) as f32;
-        *self.position += *self.linear_velocity_intention * amount;
+        *self.pos += *self.linear_velocity_intention * amount;
         self.update_view_matrix();
     }
 
     pub fn update_view_matrix(&mut self) {
         let rot = Mat4::from_euler(EULER_ROT_ORDER, self.angles.x, self.angles.y, 0.0);
-        let trans = Mat4::from_translation(*self.position);
+        let trans = Mat4::from_translation(*self.pos);
         *self.view = trans * rot;
     }
 }

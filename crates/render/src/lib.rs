@@ -11,6 +11,7 @@ use async_lock::Mutex;
 use logger::{info, warn, LogLevel, Logger};
 use platform::WinPtr;
 use plugin_self::PluginState;
+use world::graphics::GfxIndex;
 use world::World;
 
 #[derive(thiserror::Error, Debug)]
@@ -67,7 +68,7 @@ impl RenderState {
         Arc::new(Mutex::new(self))
     }
 
-    pub fn tracked_graphics(&mut self, index: GraphicsIndex) -> Option<Instant> {
+    pub fn tracked_graphics(&mut self, index: GfxIndex) -> Option<Instant> {
         self.render_plugin_state
             .as_mut()
             .map(|plugin| plugin.tracked_graphics(index))

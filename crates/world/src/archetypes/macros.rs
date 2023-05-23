@@ -52,6 +52,11 @@ macro_rules! def_archetype {
             #[doc = "- `" [<$base_name Builder>] "`\n"]
             #[doc = "- `" [<$base_name Iterator>] "`\n"]
             #[doc = "- `" [<$base_name Error>] "`\n"]
+            #[doc = "\nDerives:\n"]
+            #[doc = "- `Debug`\n"]
+            #[doc = "- `Clone`\n"]
+            #[doc = "- `serde::Serialize`\n"]
+            #[doc = "- `serde::Deserialize`\n"]
             #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
             pub struct [<$base_name Archetype>] {
                 /// Default builder for this archetype
@@ -213,10 +218,10 @@ macro_rules! def_archetype {
 macro_rules! def_slices {
     ($base_name:ident, $($field:ident: $type:ty),*) => {
         paste::paste! {
-            #[doc = "`" [<$base_name Slice>] "` a slice of values within this archetype."]
+            #[doc = "`" [<$base_name SliceMut>] "` a slice of values within this archetype."]
             #[doc = "Fields contained within `" [<$base_name Slices>] "`:\n"]
             $(#[doc = "- `" [< $field >] ": &'a mut " [<$type>]"`\n"])*
-            pub struct [<$base_name Slice>]<'a> {
+            pub struct [<$base_name SliceMut>]<'a> {
                 first_entity_id: u32,
                 len: usize,
                 entities: &'a [u32],
@@ -226,16 +231,16 @@ macro_rules! def_slices {
                 )*
             }
 
-            impl<'a> [<$base_name Slice>]<'a> {
-                #[doc = "Split this slice into two at the given index."]
-                pub fn split_at_mut(&'a mut self, mid: usize) -> ([<$base_name Slice>]<'a>, [<$base_name Slice>]<'a>) {
+            impl<'a> [<$base_name SliceMut>]<'a> {
+                #[doc = "Split this slice into two at the given index. Consumes the original slice."]
+                pub fn split_at_mut(self, mid: usize) -> ([<$base_name SliceMut>]<'a>, [<$base_name SliceMut>]<'a>) {
                     $(
                         let ([<$field _left>], [<$field _right>]) = self.$field.split_at_mut(mid);
                     )*
                     let (entities_left, entities_right) = self.entities.split_at(mid);
                     let (despawned_left, despawned_right) = self.despawned.split_at(mid);
                     (
-                        [<$base_name Slice>] {
+                        [<$base_name SliceMut>] {
                             entities: entities_left,
                             despawned: despawned_left,
                             first_entity_id: self.first_entity_id,
@@ -244,7 +249,7 @@ macro_rules! def_slices {
                                 $field: [<$field _left>],
                             )*
                         },
-                        [<$base_name Slice>] {
+                        [<$base_name SliceMut>] {
                             entities: entities_right,
                             despawned: despawned_right,
                             first_entity_id: mid as u32 + 1,
@@ -271,14 +276,13 @@ macro_rules! def_slices {
                             $field: self.$field.iter_mut(),
                         )*
                     }
-
                 }
             }
 
             impl [<$base_name Archetype>] {
                 #[doc = "Get a slice over the fields in this archetype."]
-                pub fn slice_mut(&mut self) -> [<$base_name Slice>] {
-                    [<$base_name Slice>] {
+                pub fn slice_mut(&mut self) -> [<$base_name SliceMut>] {
+                    [<$base_name SliceMut>] {
                         entities: &self.entities,
                         despawned: &self.despawned,
                         len: self.entities.len(),
@@ -304,10 +308,16 @@ macro_rules! def_ref_and_iter {
             #[doc = "Fields contained within `" [<$base_name Ref>] "`:\n"]
             $(#[doc = "- `" [< $field >] ": &'a mut " [<$type>]"`\n"])*
             pub struct [<$base_name Ref>]<'a> {
-                pub entity_id: u32,
+                entity_id: u32,
                 $(
                     pub $field : &'a mut $type,
                 )*
+            }
+
+            impl<'a> [<$base_name Ref>]<'a> {
+                pub fn entity_id(&self) -> u32 {
+                    self.entity_id
+                }
             }
 
             impl<'a> std::fmt::Debug for [<$base_name Ref>]<'a> {
@@ -407,6 +417,9 @@ macro_rules! impl_to_builder_for_ref {
 
 #[cfg(test)]
 mod test {
+    use std::time::Instant;
+
+    use core_executor::scoped::ScopedThreadAffineExecutor;
     use glam::{Mat4, Vec3};
 
     use crate::graphics::{GfxIndex, Shape};
@@ -582,36 +595,54 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_slices() {
+    #[smol_potat::test]
+    async fn test_slices() {
         let mut blob_archetype: BlobArchetype = BlobArchetype::default();
 
         let mut builder = blob_archetype.builder();
         builder.set_a_field(42).set_b_field(22).set_c_field(33);
         blob_archetype.set_default_builder(builder);
-        for e in 0..1000 {
+
+        const N: u32 = 1000;
+        for e in 0..N {
             let builder = blob_archetype.builder();
             blob_archetype.spawn(e, builder.clone()).unwrap();
         }
 
-        let mut blob_slice = blob_archetype.slice_mut();
+        let blob_slice = blob_archetype.slice_mut();
+        let (mut par_left, mut par_right) = blob_slice.split_at_mut(N as usize / 2);
 
-        let (mut par_left, mut par_right) = blob_slice.split_at_mut(500);
+        println!("parallel iteration begins {:?}", Instant::now());
+        std::thread::scope(|s| {
+            let mut core0 = ScopedThreadAffineExecutor::new(0, s);
+            let mut core1 = ScopedThreadAffineExecutor::new(1, s);
 
-        let scope = std::thread::scope(|s| {
-            s.spawn(|| {
+            let left = core0.spawner.spawn(async move {
+                let mut updated = 0usize;
                 for blob_ref in par_left.iter_mut() {
-                    *blob_ref.a_field = 1;
+                    *blob_ref.a_field += 1;
+                    updated += 1;
                 }
+                println!("left done {}", updated);
+                updated
             });
-            s.spawn(|| {
+            let right = core1.spawner.spawn(async move {
+                let mut updated = 0usize;
                 for blob_ref in par_right.iter_mut() {
-                    *blob_ref.a_field = 2;
+                    *blob_ref.a_field += 1;
+                    updated += 1;
                 }
+                println!("right done {}", updated);
+                updated
             });
-        });
+            let (left, right) =
+                futures_lite::future::block_on(futures_util::future::join(left, right));
 
-        assert_eq!(par_left.len(), 500);
-        assert_eq!(par_right.len(), 500);
+            assert_eq!(left.unwrap(), 500);
+            assert_eq!(right.unwrap(), 500);
+
+            println!("all done");
+        });
+        println!("parallel iteration complete {:?}", Instant::now());
     }
 }

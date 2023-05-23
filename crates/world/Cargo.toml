@@ -3,6 +3,10 @@ name = "world"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "slice_bench"
+src = "src/slice_bench.rs"
+
 [dependencies]
 gfx = { path = "../gfx" }
 network = { path = "../network" }
@@ -18,8 +22,9 @@ thiserror= { workspace = true }
 serde = { workspace = true }
 paste = { workspace = true }
 bitvec = { workspace = true }
+futures-util = { workspace = true }
+futures-lite = { workspace = true }
+core_executor = { path = "../core_executor" }
 
 [dev-dependencies]
-core_executor = { path = "../core_executor" }
 smol-potat = "1.1.2"
-futures-util = { workspace = true }

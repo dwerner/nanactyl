@@ -2,6 +2,10 @@
 //! async tasks on specific threads which are asked to maintain affinity to the
 //! cores they were started on.
 
+pub mod channel;
+mod enrich;
+pub mod scoped;
+
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -12,9 +16,6 @@ use async_executor::LocalExecutor;
 use async_oneshot::Closed;
 use enrich::CoreFuture;
 use futures_lite::{future, FutureExt, StreamExt};
-
-pub mod channel;
-mod enrich;
 
 /// ThreadPoolExecutor is a high-level struct that manages a set of
 /// ThreadAffineExecutors, one per core. It enables spawning tasks on specific
@@ -60,8 +61,6 @@ pub struct ThreadPoolExecutor {
 /// ThreadAffineExecutor represents an executor that runs on a specific core. It
 /// spawns an executor thread with the provided core_id and manages task
 /// execution on that core.
-///
-/// Alternative name: ThreadBoundExecutor
 pub struct ThreadAffineExecutor {
     _core_id: usize,
     pub spawner: ThreadAffineSpawner,
@@ -71,8 +70,6 @@ pub struct ThreadAffineExecutor {
 /// ThreadAffineSpawner is a handle to a ThreadAffineExecutor, which allows for
 /// spawning tasks on the associated core. It can be cloned and sent to other
 /// threads for relaying work to the underlying ThreadAffineExecutor.
-///
-/// Alternative name: ThreadBoundSpawner
 pub struct ThreadAffineSpawner {
     pub core_id: usize,
     tx: Sender<ExecutorTask>,
@@ -85,8 +82,6 @@ enum ExecutorTask {
     Exit,
     Task(PinnedTask),
 }
-
-// Implementations
 
 impl ThreadAffineExecutor {
     pub fn new(core_id: usize) -> Self {

@@ -3212,6 +3212,7 @@ dependencies = [
  "async-lock",
  "bitvec",
  "core_executor",
+ "futures-lite",
  "futures-util",
  "gfx",
  "glam",

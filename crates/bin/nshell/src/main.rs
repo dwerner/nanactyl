@@ -86,7 +86,7 @@ fn main() {
 
     let opts = CliOpts::load_with_overrides(&logger);
 
-    let mut executor = ThreadPoolExecutor::new(8);
+    let mut executor = ThreadPoolExecutor::new(std::thread::available_parallelism().unwrap().get());
 
     // FIXME: currently the server-side must be started first, and waits for a
     // client to connect here.

@@ -61,6 +61,7 @@ bytemuck = { version = "1.12.1", features = ["derive", "extern_crate_std"] }
 cstr = "0.2.10"
 duct = "0.13.6"
 futures-lite = "1.12.0"
+futures-util = "0.3.28"
 function_name = "0.3"
 glam = { version = "0.24", default-features = false, features = ["libm", "bytemuck", "serde"] }
 graphrox = "1.2.0"

@@ -3,63 +3,6 @@
 //! Note that these are intended to be called only from within the `world`
 //! crate.
 
-/// Define a reference and iterator over a subset of fields in an archetype.
-#[macro_export]
-macro_rules! def_ref_and_iter {
-    ($base_name:ident, $($field:ident: $type:ty),*) => {
-        paste::paste! {
-            #[doc = "`" [<$base_name Ref>] "` a reference to fields within an archetype implementing an iterator with this type."]
-            #[doc = "Fields are `pub` for easy access."]
-            #[doc = "Fields contained within `" [<$base_name Ref>] "`:\n"]
-            $(#[doc = "- `" [< $field >] ": &'a mut " [<$type>]"`\n"])*
-            pub struct [<$base_name Ref>]<'a> {
-                pub entity_id: u32,
-                $(
-                    pub $field : &'a mut $type,
-                )*
-            }
-
-            #[doc = "`" [<$base_name Ref>] "` iterator over entities within and archetype implementing an iterator with this type."]
-            pub struct [<$base_name Iterator>]<'a> {
-                entities: &'a Vec<u32>,
-                despawned: &'a bitvec::prelude::BitVec,
-                current_index: usize,
-                $(
-                    $field : core::slice::IterMut<'a, $type>,
-                )*
-            }
-
-            impl<'a> Iterator for [<$base_name Iterator>]<'a> {
-                type Item = [<$base_name Ref>]<'a>;
-                fn next(&mut self) -> Option<Self::Item> {
-                    // skip despawned entities.
-                    // could this break cache locality for the iteration?
-                    let entity_id = *self.entities.get(self.current_index)?;
-                    loop {
-                        match self.despawned.get(self.current_index) {
-                            Some(bit) if *bit => {
-                                $(
-                                    let _ = self.$field.next()?;
-                                )*
-                                self.current_index += 1;
-                                continue;
-                            },
-                            _ => break                        }
-                    }
-                    let n = Some([<$base_name Ref>] {
-                        entity_id,
-                        $(
-                            $field : self.$field.next()?,
-                        )*
-                    });
-                    self.current_index += 1;
-                    n
-                }
-            }
-        }
-    };
-}
-
 /// Generate an archetype with the given fields.
 ///
 /// ```
@@ -164,6 +107,7 @@ macro_rules! def_archetype {
             }
 
             crate::def_ref_and_iter! { $base_name, $($field : $type),* }
+            crate::def_slices! { $base_name, $($field : $type),* }
 
             impl crate::Archetype for [<$base_name Archetype>] {
                 type Error = [<$base_name Error>];
@@ -257,6 +201,161 @@ macro_rules! def_archetype {
                     let index = self.entities.iter().position(|&e| e == entity).ok_or_else(|| [<$base_name Error>]::EntityNotFound{entity})?;
                     self.despawned.set(index, true);
                     Ok(())
+                }
+            }
+        }
+    };
+}
+
+/// Define a slice type over an archetype's fields that can be split into
+/// chunks.
+#[macro_export]
+macro_rules! def_slices {
+    ($base_name:ident, $($field:ident: $type:ty),*) => {
+        paste::paste! {
+            #[doc = "`" [<$base_name Slice>] "` a slice of values within this archetype."]
+            #[doc = "Fields contained within `" [<$base_name Slices>] "`:\n"]
+            $(#[doc = "- `" [< $field >] ": &'a mut " [<$type>]"`\n"])*
+            pub struct [<$base_name Slice>]<'a> {
+                first_entity_id: u32,
+                len: usize,
+                entities: &'a [u32],
+                despawned: &'a bitvec::prelude::BitSlice,
+                $(
+                    pub $field : &'a mut [$type],
+                )*
+            }
+
+            impl<'a> [<$base_name Slice>]<'a> {
+                #[doc = "Split this slice into two at the given index."]
+                pub fn split_at_mut(&'a mut self, mid: usize) -> ([<$base_name Slice>]<'a>, [<$base_name Slice>]<'a>) {
+                    $(
+                        let ([<$field _left>], [<$field _right>]) = self.$field.split_at_mut(mid);
+                    )*
+                    let (entities_left, entities_right) = self.entities.split_at(mid);
+                    let (despawned_left, despawned_right) = self.despawned.split_at(mid);
+                    (
+                        [<$base_name Slice>] {
+                            entities: entities_left,
+                            despawned: despawned_left,
+                            first_entity_id: self.first_entity_id,
+                            len: mid - self.first_entity_id as usize,
+                            $(
+                                $field: [<$field _left>],
+                            )*
+                        },
+                        [<$base_name Slice>] {
+                            entities: entities_right,
+                            despawned: despawned_right,
+                            first_entity_id: mid as u32 + 1,
+                            len: self.len - mid,
+                            $(
+                                $field: [<$field _right>],
+                            )*
+                        }
+                    )
+                }
+
+                #[doc = "Get the number of entities in this slice."]
+                pub fn len(&self) -> usize {
+                    self.len
+                }
+
+                #[doc = "Get a mutable iterator over the entities in this slice."]
+                pub fn iter_mut(&mut self) -> [<$base_name Iterator>] {
+                    [<$base_name Iterator>] {
+                        entities: self.entities,
+                        despawned: self.despawned,
+                        current_index: 0usize,
+                        $(
+                            $field: self.$field.iter_mut(),
+                        )*
+                    }
+
+                }
+            }
+
+            impl [<$base_name Archetype>] {
+                #[doc = "Get a slice over the fields in this archetype."]
+                pub fn slice_mut(&mut self) -> [<$base_name Slice>] {
+                    [<$base_name Slice>] {
+                        entities: &self.entities,
+                        despawned: &self.despawned,
+                        len: self.entities.len(),
+                        first_entity_id: 0,
+                        $(
+                            $field: &mut self.$field,
+                        )*
+                    }
+                }
+            }
+
+        }
+    };
+}
+
+/// Define a reference and iterator over a subset of fields in an archetype.
+#[macro_export]
+macro_rules! def_ref_and_iter {
+    ($base_name:ident, $($field:ident: $type:ty),*) => {
+        paste::paste! {
+            #[doc = "`" [<$base_name Ref>] "` a reference to fields within an archetype implementing an iterator with this type."]
+            #[doc = "Fields are `pub` for easy access."]
+            #[doc = "Fields contained within `" [<$base_name Ref>] "`:\n"]
+            $(#[doc = "- `" [< $field >] ": &'a mut " [<$type>]"`\n"])*
+            pub struct [<$base_name Ref>]<'a> {
+                pub entity_id: u32,
+                $(
+                    pub $field : &'a mut $type,
+                )*
+            }
+
+            impl<'a> std::fmt::Debug for [<$base_name Ref>]<'a> {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.debug_struct(stringify!([<$base_name Ref>]))
+                        .field("entity_id", &self.entity_id)
+                        $(
+                            .field(stringify!($field), &self.$field)
+                        )*
+                        .finish()
+                }
+            }
+
+            #[doc = "`" [<$base_name Ref>] "` iterator over entities within and archetype implementing an iterator with this type."]
+            pub struct [<$base_name Iterator>]<'a> {
+                entities: &'a [u32],
+                despawned: &'a bitvec::prelude::BitSlice,
+                current_index: usize,
+                $(
+                    $field : core::slice::IterMut<'a, $type>,
+                )*
+            }
+
+            impl<'a> Iterator for [<$base_name Iterator>]<'a> {
+                type Item = [<$base_name Ref>]<'a>;
+                fn next(&mut self) -> Option<Self::Item> {
+                    // skip despawned entities.
+                    // could this break cache locality for the iteration?
+                    let entity_id = *self.entities.get(self.current_index)?;
+                    loop {
+                        match self.despawned.get(self.current_index) {
+                            Some(bit) if *bit => {
+                                $(
+                                    let _ = self.$field.next()?;
+                                )*
+                                self.current_index += 1;
+                                continue;
+                            },
+                            _ => break                        }
+                    }
+                    let n = Some([<$base_name Ref>] {
+                        entity_id,
+                        $(
+                            $field : self.$field.next()?,
+                        )*
+                    });
+                    self.current_index += 1;
+                    n
                 }
             }
         }
@@ -481,5 +580,38 @@ mod test {
             blob_archetype.entities.iter().position(|&e| e == 11),
             Some(0)
         );
+    }
+
+    #[test]
+    fn test_slices() {
+        let mut blob_archetype: BlobArchetype = BlobArchetype::default();
+
+        let mut builder = blob_archetype.builder();
+        builder.set_a_field(42).set_b_field(22).set_c_field(33);
+        blob_archetype.set_default_builder(builder);
+        for e in 0..1000 {
+            let builder = blob_archetype.builder();
+            blob_archetype.spawn(e, builder.clone()).unwrap();
+        }
+
+        let mut blob_slice = blob_archetype.slice_mut();
+
+        let (mut par_left, mut par_right) = blob_slice.split_at_mut(500);
+
+        let scope = std::thread::scope(|s| {
+            s.spawn(|| {
+                for blob_ref in par_left.iter_mut() {
+                    *blob_ref.a_field = 1;
+                }
+            });
+            s.spawn(|| {
+                for blob_ref in par_right.iter_mut() {
+                    *blob_ref.a_field = 2;
+                }
+            });
+        });
+
+        assert_eq!(par_left.len(), 500);
+        assert_eq!(par_right.len(), 500);
     }
 }

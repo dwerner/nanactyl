@@ -18,3 +18,18 @@ def_archetype! {
 
     health: HealthFacet
 }
+
+impl Default for ObjectBuilder {
+    fn default() -> Self {
+        ObjectBuilder {
+            gfx: None,
+            pos: Some(Vec3::ZERO),
+            angles: Some(Vec3::ZERO),
+            scale: Some(1.0),
+            linear_velocity_intention: Some(Vec3::ZERO),
+            angular_velocity_intention: Some(Vec3::ZERO),
+            shape: Some(Shape::cuboid(1.0, 1.0, 1.0)),
+            health: Some(HealthFacet::new(100)),
+        }
+    }
+}

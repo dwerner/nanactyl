@@ -101,4 +101,62 @@ impl EntityArchetypes {
     pub fn camera_iter_mut(&mut self) -> impl Iterator<Item = CameraRef<'_>> {
         self.players.camera_iter_mut()
     }
+
+    /// Iterate over all players in the archetype.
+    pub fn players_iter_mut(&mut self) -> impl Iterator<Item = player::PlayerRef<'_>> {
+        self.players.iter_mut()
+    }
+
+    /// Iterate over all objects in the archetype.
+    pub fn objects_iter_mut(&mut self) -> impl Iterator<Item = object::ObjectRef<'_>> {
+        self.objects.iter_mut()
+    }
+
+    /// Get a player ref.
+    pub fn get_player_mut(&mut self, entity: u32) -> Option<player::PlayerRef<'_>> {
+        self.players.get_mut(entity)
+    }
+
+    /// Get an object ref.
+    pub fn get_object_mut(&mut self, entity: u32) -> Option<object::ObjectRef<'_>> {
+        self.objects.get_mut(entity)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[smol_potat::test]
+    async fn par_iter_test() {
+        let mut executor = core_executor::ThreadPoolExecutor::new(8);
+        let mut archetypes = EntityArchetypes::default();
+
+        for i in 0..100 {
+            archetypes
+                .spawn_player(i, player::PlayerBuilder::default())
+                .unwrap();
+            for i in 0..10 {
+                archetypes
+                    .spawn_object(i, object::ObjectBuilder::default())
+                    .unwrap();
+            }
+        }
+
+        // let player_iter = archetypes.players_iter_mut();
+        // let object_iter = archetypes.objects_iter_mut();
+
+        // let player_updates = executor.spawn_on_core(0, async {
+        //     for player in player_iter {
+        //         println!("Player: {:?}", player);
+        //     }
+        // });
+        // let object_updates = executor.spawn_on_core(1, async {
+        //     for object in object_iter {
+        //         println!("Object: {:?}", object);
+        //     }
+        // });
+
+        // futures_util::future::join(player_updates, object_updates).await;
+    }
 }

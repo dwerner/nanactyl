@@ -13,7 +13,7 @@ world = { path = "../../world" }
 logger = { path = "../../logger" }
 
 smol = "1.2.5"
-futures-util = "0.3.23"
+futures-util = "0.3.28"
 serde = { version = "1.0.130", features = ["derive"] }
 structopt-yaml = "0.4.6"
 

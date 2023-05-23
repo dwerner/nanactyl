@@ -224,7 +224,7 @@ impl World {
 
     pub fn player(&mut self, player_id: u32) -> Result<PlayerRef, WorldError> {
         self.entities
-            .get_mut(player_id)
+            .get_player_mut(player_id)
             .ok_or(WorldError::PlayerNotFound)
     }
 

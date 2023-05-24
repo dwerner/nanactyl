@@ -7,3 +7,5 @@ callgrind.*
 */**/*~
 */**/*-autosave.kra
 */**.blend\d
+
+bench.png

@@ -5,6 +5,7 @@
 pub mod channel;
 mod enrich;
 pub mod scoped;
+pub mod scoped_future;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -16,6 +17,7 @@ use async_executor::LocalExecutor;
 use async_oneshot::Closed;
 use enrich::CoreFuture;
 use futures_lite::{future, FutureExt, StreamExt};
+use scoped_future::Scope;
 
 /// ThreadPoolExecutor is a high-level struct that manages a set of
 /// ThreadAffineExecutors, one per core. It enables spawning tasks on specific
@@ -137,7 +139,7 @@ impl Clone for ThreadAffineSpawner {
     }
 }
 
-impl ThreadPoolExecutor {
+impl<'s> ThreadPoolExecutor {
     /// Create a new ThreadPoolExecutor with the specified number of cores.
     pub fn new(cores: usize) -> Self {
         let thread_executors = (0..cores)
@@ -176,6 +178,41 @@ impl ThreadPoolExecutor {
         let spawner = &mut self.thread_executors[thread_index].spawner;
         let future = spawner.spawn(task);
         CoreFuture::new(spawner.core_id, future)
+    }
+
+    pub fn spawn_on_any_boxed<F>(
+        &mut self,
+        task: F,
+    ) -> CoreFuture<Pin<Box<dyn Future<Output = Result<F::Output, Closed>>>>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + Sync + 'static,
+    {
+        let thread_index =
+            self.next_thread.fetch_add(1, Ordering::Relaxed) % self.thread_executors.len();
+        let spawner = &mut self.thread_executors[thread_index].spawner;
+        let future = spawner.spawn(task);
+        CoreFuture::new(spawner.core_id, future.boxed())
+    }
+
+    /// block the current thread until spawned tasks are complete.
+    pub fn scope_and_block<'scope, T, R, F>(
+        &'s mut self,
+        f: F,
+    ) -> (R, Vec<Result<T, async_oneshot::Closed>>)
+    where
+        's: 'scope,
+        T: Send + Sync + 'static,
+        F: FnOnce(&mut Scope<'scope, T>) -> R,
+    {
+        let (stream, block_output) = unsafe {
+            let mut scope = Scope::create(self);
+            let op = f(&mut scope);
+            (scope, op)
+        };
+
+        let proc_outputs = future::block_on(stream.collect());
+        (block_output, proc_outputs)
     }
 }
 
@@ -233,7 +270,7 @@ impl ThreadAffineSpawner {
     pub fn spawn<F>(&mut self, task: F) -> impl Future<Output = Result<F::Output, Closed>>
     where
         F: Future + Send + 'static,
-        F::Output: std::fmt::Debug + Send + Sync + 'static,
+        F::Output: Send + Sync + 'static,
     {
         let (mut spawned_tx, spawned_rx) = async_oneshot::oneshot();
         self.tx

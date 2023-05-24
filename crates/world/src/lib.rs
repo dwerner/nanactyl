@@ -10,14 +10,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use archetypes::player::{PlayerArchetype, PlayerRef};
+use archetypes::player::PlayerRef;
 use archetypes::{Archetype, EntityArchetypes};
 use async_lock::{Mutex, MutexGuardArc};
 use gfx::{DebugMesh, Graphic, Model};
 pub use glam::{Mat4, Quat, Vec3};
 use graphics::{GfxIndex, GraphicsManager};
 use graphrox::Graph;
-use health::HealthFacet;
 use input::wire::InputState;
 use logger::{LogLevel, Logger};
 use network::{Connection, RpcError};

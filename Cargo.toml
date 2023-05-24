@@ -80,3 +80,7 @@ structopt = "0.3"
 tempdir = "0.3.7"
 thiserror = "1"
 zstd = "0.12.2"
+
+[profile.debug-with-opt]
+inherits = "dev"
+opt-level = 3

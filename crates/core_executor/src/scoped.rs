@@ -29,6 +29,16 @@ pub struct ScopedThreadAffineSpawner<'task> {
     tx: Sender<ScopedExecutorTask<'task>>,
     task_killers: Vec<channel::TaskShutdownHandle>,
 }
+
+impl<'task> Clone for ScopedThreadAffineSpawner<'task> {
+    fn clone(&self) -> Self {
+        Self {
+            core_id: self.core_id,
+            tx: self.tx.clone(),
+            task_killers: Vec::new(),
+        }
+    }
+}
 // Implementations
 
 impl<'scope> ScopedThreadAffineExecutor<'scope> {
@@ -111,6 +121,13 @@ impl<'scope> ScopedThreadPoolExecutor<'scope> {
             thread_executors,
             next_thread: AtomicUsize::new(0),
         }
+    }
+
+    pub fn spawners(&mut self) -> Vec<ScopedThreadAffineSpawner<'scope>> {
+        self.thread_executors
+            .iter_mut()
+            .map(|thread_executor| thread_executor.spawner.clone())
+            .collect()
     }
 
     pub fn spawn_on_core<F>(

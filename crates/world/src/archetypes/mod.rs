@@ -143,9 +143,11 @@ mod tests {
             }
         }
 
+        // This won't compile due to thread pool lifetimes. Work is on-going
+        // there.
+
         // let player_iter = archetypes.players_iter_mut();
         // let object_iter = archetypes.objects_iter_mut();
-
         // let player_updates = executor.spawn_on_core(0, async {
         //     for player in player_iter {
         //         println!("Player: {:?}", player);
@@ -156,7 +158,6 @@ mod tests {
         //         println!("Object: {:?}", object);
         //     }
         // });
-
         // futures_util::future::join(player_updates, object_updates).await;
     }
 }

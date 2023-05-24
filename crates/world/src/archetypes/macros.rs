@@ -3,6 +3,23 @@
 //! Note that these are intended to be called only from within the `world`
 //! crate.
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[repr(u8)]
+pub(crate) enum EntityState {
+    Spawned = 0,
+    Despawned,
+}
+
+impl EntityState {
+    pub fn is_spawned(&self) -> bool {
+        matches!(self, Self::Spawned)
+    }
+
+    pub fn is_despawned(&self) -> bool {
+        matches!(self, Self::Despawned)
+    }
+}
+
 /// Generate an archetype with the given fields.
 ///
 /// ```
@@ -61,13 +78,17 @@ macro_rules! def_archetype {
             pub struct [<$base_name Archetype>] {
                 /// Default builder for this archetype
                 default_builder: Option<[<$base_name Builder>]>,
-                pub(crate) despawned: bitvec::prelude::BitVec,
+
+                // TODO: rename to states
+                pub(crate) despawned: Vec<crate::archetypes::macros::EntityState>,
+
                 next_index: usize,
                 pub(crate) entities: Vec<u32>,
                 $(
                     pub $field : Vec<$type>,
                 )*
             }
+
 
             #[doc = "Archetype `" [<$base_name Error>] "` error."]
             #[derive(thiserror::Error, Debug)]
@@ -78,13 +99,27 @@ macro_rules! def_archetype {
                 EntityNotFound { entity: u32 },
             }
 
+            impl [<$base_name Archetype>] {
+                pub fn with_capacity(cap: usize) -> Self {
+                    Self {
+                        next_index: 0,
+                        default_builder: Default::default(),
+                        entities: Vec::new(),
+                        despawned: Vec::with_capacity(cap),
+                        $(
+                            $field : Vec::with_capacity(cap),
+                        )*
+                    }
+                }
+            }
+
             impl Default for [<$base_name Archetype>] {
                 fn default() -> Self {
                     Self {
                         next_index: 0,
                         default_builder: Default::default(),
                         entities: Vec::new(),
-                        despawned: bitvec::prelude::BitVec::new(),
+                        despawned: Vec::new(),
                         $(
                             $field : Vec::new(),
                         )*
@@ -136,7 +171,7 @@ macro_rules! def_archetype {
                 fn get_mut(&mut self, entity_id: u32) -> Option<Self::ItemRef<'_>> {
                     let index: usize = self.entities.iter().position(|&e| e == entity_id)?;
                     match self.despawned.get(index) {
-                        Some(b) if *b == true => return None,
+                        Some(b) if b.is_despawned() => return None,
                         _ => Some([<$base_name Ref>] {
                             entity_id,
                             $(
@@ -166,21 +201,6 @@ macro_rules! def_archetype {
 
                 #[doc = "Spawn an entity within `" [<$base_name Archetype>] "`."]
                 fn spawn(&mut self, entity: u32, builder: Self::Builder) -> Result<(), Self::Error> {
-                    // reuse a slot if possible. Next index is still pointing to the end of the contiguous list.'
-                    if let Some(empty_index) = self
-                            .despawned
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(idx, b)| {
-                                if *b == true { Some(idx) } else { None }
-                            }).next() {
-                        $(
-                            self.$field[empty_index] = builder.$field.clone().unwrap();
-                        )*
-                        self.entities[empty_index] = entity;
-                        self.despawned.set(empty_index, false);
-                        return Ok(());
-                    }
                     let result = match builder {
                         Self::Builder {
                             $(
@@ -191,7 +211,7 @@ macro_rules! def_archetype {
                                 self.$field.push($field);
                             )*
                             self.entities.push(entity);
-                            self.despawned.push(false);
+                            self.despawned.push(crate::archetypes::macros::EntityState::Spawned);
                             Ok(())
                         }
                         _ => Err(Self::Error::IncompleteBuilder { builder }),
@@ -204,7 +224,7 @@ macro_rules! def_archetype {
                 fn despawn(&mut self, entity: u32) -> Result<(), Self::Error> {
                     // Needs to be filled based on the actual logic of despawning.
                     let index = self.entities.iter().position(|&e| e == entity).ok_or_else(|| [<$base_name Error>]::EntityNotFound{entity})?;
-                    self.despawned.set(index, true);
+                    self.despawned[index] = crate::archetypes::macros::EntityState::Despawned;
                     Ok(())
                 }
             }
@@ -225,7 +245,7 @@ macro_rules! def_slices {
                 first_entity_id: u32,
                 len: usize,
                 entities: &'a [u32],
-                despawned: &'a bitvec::prelude::BitSlice,
+                despawned: &'a [crate::archetypes::macros::EntityState],
                 $(
                     pub $field : &'a mut [$type],
                 )*
@@ -244,7 +264,7 @@ macro_rules! def_slices {
                             entities: entities_left,
                             despawned: despawned_left,
                             first_entity_id: self.first_entity_id,
-                            len: mid - self.first_entity_id as usize,
+                            len: mid,
                             $(
                                 $field: [<$field _left>],
                             )*
@@ -334,7 +354,7 @@ macro_rules! def_ref_and_iter {
             #[doc = "`" [<$base_name Ref>] "` iterator over entities within and archetype implementing an iterator with this type."]
             pub struct [<$base_name Iterator>]<'a> {
                 entities: &'a [u32],
-                despawned: &'a bitvec::prelude::BitSlice,
+                despawned: &'a [crate::archetypes::macros::EntityState],
                 current_index: usize,
                 $(
                     $field : core::slice::IterMut<'a, $type>,
@@ -349,7 +369,7 @@ macro_rules! def_ref_and_iter {
                     let entity_id = *self.entities.get(self.current_index)?;
                     loop {
                         match self.despawned.get(self.current_index) {
-                            Some(bit) if *bit => {
+                            Some(bit) if bit.is_despawned() => {
                                 $(
                                     let _ = self.$field.next()?;
                                 )*

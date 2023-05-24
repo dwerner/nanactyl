@@ -21,7 +21,6 @@ graphrox = { workspace = true }
 thiserror= { workspace = true }
 serde = { workspace = true }
 paste = { workspace = true }
-bitvec = { workspace = true }
 futures-util = { workspace = true }
 futures-lite = { workspace = true }
 core_executor = { path = "../core_executor" }

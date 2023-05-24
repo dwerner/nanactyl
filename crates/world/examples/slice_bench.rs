@@ -101,22 +101,6 @@ fn main() {
             );
         }
 
-        {
-            let mut pool_exec = ThreadPoolExecutor::new(max_threads);
-            let mut slice_partitions = vec![player_archetype.slice_mut()];
-            for _ in 0..p {
-                slice_partitions = split_slices(slice_partitions);
-            }
-
-            for mut partition in slice_partitions {
-                pool_exec.spawn_on_any(async move {
-                    for mut player in partition.iter_mut() {
-                        update_player(&mut player);
-                    }
-                });
-            }
-        }
-
         let start = Instant::now();
         run_sync_workload(&mut player_archetype);
         println!(

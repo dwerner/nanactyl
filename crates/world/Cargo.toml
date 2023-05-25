@@ -13,6 +13,7 @@ network = { path = "../network" }
 input = { path = "../input" }
 logger = { path = "../logger" }
 plugin_self = { path = "../plugin_self" }
+core_executor = { path = "../core_executor" }
 
 # workspace deps
 async-lock = { workspace = true }
@@ -23,7 +24,7 @@ serde = { workspace = true }
 paste = { workspace = true }
 futures-util = { workspace = true }
 futures-lite = { workspace = true }
-core_executor = { path = "../core_executor" }
+hecs = { workspace = true }
 
 [dev-dependencies]
 smol-potat = "1.1.2"

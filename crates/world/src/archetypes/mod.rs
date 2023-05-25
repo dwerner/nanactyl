@@ -4,7 +4,6 @@ use self::object::ObjectArchetype;
 use self::player::PlayerArchetype;
 use self::views::{CameraRef, DrawRef, PhysicsRef};
 
-pub mod dynamic;
 pub mod macros;
 pub mod object;
 pub mod player;

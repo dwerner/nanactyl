@@ -1,6 +1,6 @@
 //! Implements a world and entity system for the engine to mutate and render.
 
-pub mod archetypes;
+pub mod components;
 pub mod graphics;
 pub mod health;
 
@@ -10,8 +10,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use archetypes::player::PlayerRef;
-use archetypes::{Archetype, EntityArchetypes};
 use async_lock::{Mutex, MutexGuardArc};
 use gfx::{DebugMesh, Graphic, Model};
 pub use glam::{Mat4, Quat, Vec3};
@@ -103,8 +101,7 @@ pub enum WorldError {
 pub struct World {
     pub maybe_camera: Option<u32>,
 
-    /// All entities
-    pub entities: EntityArchetypes,
+    pub hecs_world: hecs::World,
 
     pub graphics: GraphicsManager,
 
@@ -210,7 +207,7 @@ impl World {
                 last_tick: Instant::now(),
             },
 
-            entities: EntityArchetypes::default(),
+            hecs_world: hecs::World::new(),
 
             graphics: GraphicsManager::new(),
 
@@ -219,12 +216,6 @@ impl World {
             // we'll represent the relationship between game objects as an undirected graph.
             graph: Graph::new_undirected(),
         }
-    }
-
-    pub fn player(&mut self, player_id: u32) -> Result<PlayerRef, WorldError> {
-        self.entities
-            .get_player_mut(player_id)
-            .ok_or(WorldError::PlayerNotFound)
     }
 
     pub fn set_client_controller_state(&mut self, state: InputState) {

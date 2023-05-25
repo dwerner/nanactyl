@@ -9,3 +9,4 @@ callgrind.*
 */**.blend\d
 
 bench.png
+*_bench.svg

@@ -3,10 +3,6 @@ name = "world"
 version = "0.1.0"
 edition = "2021"
 
-[[example]]
-name = "slice_bench"
-src = "src/slice_bench.rs"
-
 [dependencies]
 gfx = { path = "../gfx" }
 network = { path = "../network" }

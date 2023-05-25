@@ -3,8 +3,6 @@ use std::time::{Duration, Instant};
 use core_executor::scoped::ScopedThreadPoolExecutor;
 use core_executor::ThreadPoolExecutor;
 use glam::{Mat4, Vec3};
-use hecs::{ArchetypeColumnMut, Bundle, Component, World};
-use world::archetypes::player;
 use world::graphics::{GfxIndex, Shape};
 use world::health::HealthFacet;
 
@@ -18,7 +16,6 @@ fn cpu_float() -> f32 {
     rand::random::<f32>() * rand::random::<f32>()
 }
 
-#[derive(Bundle)]
 struct Player {
     gfx: GfxIndex,
     pos: Vec3,
@@ -31,8 +28,8 @@ struct Player {
     shape: Shape,
     health: HealthFacet,
 }
-impl Default for Player {
-    fn default() -> Self {
+impl Player {
+    fn new() -> Self {
         let perspective = Mat4::perspective_lh(
             1.7,    //aspect
             0.75,   //fovy
@@ -40,7 +37,7 @@ impl Default for Player {
             1000.0, //far
         );
         Player {
-            gfx: GfxIndex(0),
+            gfx: GfxIndex::default(),
             pos: Vec3::ZERO,
             view: Mat4::IDENTITY,
             perspective,
@@ -89,17 +86,16 @@ enum Stage {
 fn main() {
     println!("running bench");
     let max_threads = 32;
-    let mut stages = Vec::new();
     let mut world = World::new();
-    for splits in [4] {
-        for n in [
-            100, 1000, 10_000, 100_000, 200_000, 500_000, 5_000_000, 10_000_000,
-        ] {
-            for e in 0..n {
+    let mut runs = Vec::new();
+    for num_entities in [100, 1000, 10_000, 100_000, 200_000] {
+        let mut stages = Vec::new();
+        for splits in [1, 2, 3, 4, 5] {
+            for e in 0..num_entities {
                 if e % 10000 == 0 {
                     //println!("creating entity {}", e);
                 }
-                world.spawn(Player::default());
+                world.spawn((Player::new(),));
             }
 
             /// TODO: move this kind of thing into the slice interface
@@ -115,7 +111,9 @@ fn main() {
             }
 
             {
+                println!("running threaded workload");
                 let mut archetypes = world.archetypes();
+                let _empty = archetypes.next().unwrap();
                 let arch = archetypes.next().unwrap();
                 let mut player_column = arch.get::<&mut Player>().unwrap();
 
@@ -144,140 +142,90 @@ fn main() {
                 });
                 stages.push(Stage::ScopedThread(Stats {
                     splits,
-                    entities: n,
+                    entities: num_entities,
                     microseconds: Instant::now().duration_since(scoped_start).as_micros() as u64,
                 }));
             }
 
             std::thread::sleep(Duration::from_millis(500));
 
-            let mut exec = ThreadPoolExecutor::new(32);
-
-            let start = Instant::now();
-            let mut archetypes = world.archetypes();
-            let arch = archetypes.next().unwrap();
-            let mut player_column = arch.get::<&mut Player>().unwrap();
-            let mid = player_column.len() / 2;
-            let (left, right) = player_column.split_at_mut(mid);
-            let mut slice_partitions = vec![left, right];
-            for _ in 1..splits {
-                slice_partitions = split_slices(slice_partitions);
-            }
-
-            let s = exec.scope_and_block(|scope| {
-                for partition in slice_partitions {
-                    scope.spawn(async move {
-                        for mut player in partition.iter_mut() {
-                            update_player(&mut player);
-                        }
-                        partition.len()
-                    });
+            {
+                println!("running async workload");
+                let mut exec = ThreadPoolExecutor::new(32);
+                let start = Instant::now();
+                let mut archetypes = world.archetypes();
+                let _empty = archetypes.next().unwrap();
+                let arch = archetypes.next().unwrap();
+                let mut player_column = arch.get::<&mut Player>().unwrap();
+                let mid = player_column.len() / 2;
+                let (left, right) = player_column.split_at_mut(mid);
+                let mut slice_partitions = vec![left, right];
+                for _ in 1..splits {
+                    slice_partitions = split_slices(slice_partitions);
                 }
-                42
-            });
-            stages.push(Stage::ScopedAsync(Stats {
-                splits,
-                entities: n,
-                microseconds: Instant::now().duration_since(start).as_micros() as u64,
-            }));
 
-            std::thread::sleep(Duration::from_millis(500));
+                let s = exec.scope_and_block(|scope| {
+                    for partition in slice_partitions {
+                        scope.spawn(async move {
+                            for mut player in partition.iter_mut() {
+                                update_player(&mut player);
+                            }
+                            partition.len()
+                        });
+                    }
+                    42
+                });
+                stages.push(Stage::ScopedAsync(Stats {
+                    splits,
+                    entities: num_entities,
+                    microseconds: Instant::now().duration_since(start).as_micros() as u64,
+                }));
+            }
+        }
 
+        std::thread::sleep(Duration::from_millis(500));
+        {
+            println!("running single threaded workload");
             let start = Instant::now();
             let mut archetypes = world.archetypes();
+            // the first archetype in the world is always empty
+            let _empty = archetypes.next().unwrap();
             let arch = archetypes.next().unwrap();
             let mut player_column = arch.get::<&mut Player>().unwrap();
             run_sync_workload(&mut *player_column);
 
             stages.push(Stage::Sync(Stats {
-                splits,
-                entities: n,
+                splits: 0,
+                entities: num_entities,
                 microseconds: Instant::now().duration_since(start).as_micros() as u64,
             }));
         }
+        runs.push(stages);
     }
 
-    for stage in stages.iter() {
-        match stage {
-            Stage::ScopedAsync(stats) => println!(
-                "scoped async workload with p = {} n = {} took {} microseconds",
-                stats.splits, stats.entities, stats.microseconds
-            ),
-            Stage::ScopedThread(stats) => println!(
-                "scoped thread workload with p = {} n = {} took {} microseconds",
-                stats.splits, stats.entities, stats.microseconds
-            ),
-            Stage::Sync(stats) => println!(
-                "sync workload with p = {} n = {} took {} microseconds",
-                stats.splits, stats.entities, stats.microseconds
-            ),
-        }
-    }
-
-    {
-        use plotters::prelude::*;
-        let root = BitMapBackend::new("bench.png", (1280, 1024)).into_drawing_area();
-        root.fill(&WHITE).unwrap();
-
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Workload", ("sans-serif", 50))
-            .margin(5)
-            .x_label_area_size(30)
-            .y_label_area_size(30)
-            .build_cartesian_2d(0..10_000_000, 0..1_100_000)
-            .unwrap();
-        chart.configure_mesh().draw().unwrap();
-
-        let sync_series = stages
-            .iter()
-            .filter_map(|stage| match stage {
-                Stage::Sync(stats) => Some((stats.entities as i32, stats.microseconds as i32)),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        chart
-            .draw_series(LineSeries::new(sync_series, &GREEN))
-            .unwrap()
-            .label("sync")
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &GREEN));
-
-        let async_scoped_series = stages
-            .iter()
-            .filter_map(|stage| match stage {
+    println!("stage, partitions, entities, time in micros");
+    for stages in runs.iter() {
+        for stage in stages.iter() {
+            match stage {
                 Stage::ScopedAsync(stats) => {
-                    Some((stats.entities as i32, stats.microseconds as i32))
+                    println!(
+                        "scoped-async,{},{},{}",
+                        stats.splits, stats.entities, stats.microseconds
+                    )
                 }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        chart
-            .draw_series(LineSeries::new(async_scoped_series, &BLUE))
-            .unwrap()
-            .label("async scoped")
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
-
-        let thread_scoped_series = stages
-            .iter()
-            .filter_map(|stage| match stage {
                 Stage::ScopedThread(stats) => {
-                    Some((stats.entities as i32, stats.microseconds as i32))
+                    println!(
+                        "scoped-thread, {},{},{}",
+                        stats.splits, stats.entities, stats.microseconds
+                    )
                 }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        chart
-            .draw_series(LineSeries::new(thread_scoped_series, &RED))
-            .unwrap()
-            .label("thread scoped")
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
-
-        chart
-            .configure_series_labels()
-            .background_style(&WHITE.mix(0.8))
-            .border_style(&BLACK)
-            .draw()
-            .unwrap();
-
-        root.present().unwrap();
+                Stage::Sync(stats) => {
+                    println!(
+                        "sync,{},{},{}",
+                        stats.splits, stats.entities, stats.microseconds
+                    )
+                }
+            }
+        }
     }
 }

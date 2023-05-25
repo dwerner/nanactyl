@@ -19,7 +19,7 @@ impl GraphicsManager {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GfxIndex(pub usize);
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

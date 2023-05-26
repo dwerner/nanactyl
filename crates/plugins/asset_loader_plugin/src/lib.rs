@@ -1,7 +1,8 @@
 use std::time::Duration;
 
-use gfx::Model;
+use gfx::{Graphic, Model};
 use logger::info;
+use world::bundles::{Player, StaticObject};
 use world::components::{Player, Spatial};
 use world::{AssetLoaderStateAndWorldLock, Vec3};
 
@@ -44,17 +45,14 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
         for j in -4..4i32 {
             let model_idx = if (i + j) % 2 == 0 { tank_gfx } else { cube_gfx };
             let (x, z) = (i as f32, j as f32);
-            let object_builder = PlayerBuilder::new(
+            let object = StaticObject::new(
+                world.root,
                 tank_gfx,
-                Vec3::new(x * 4.0, 2.0, z * 10.0),
-                Shape::cuboid(1.0, 1.0, 1.0),
+                Spatial::new_at(Vec3::new(x * 4.0, 2.0, z * 10.0)),
             );
-            object_builder.angles(Vec3::new(0.0, j as f32 * 4.0, 0.0));
-            object_builder.angular_velocity_intention(Vec3::new(0.0, 1.0, 0.0));
-            world
-                .players
-                .spawn(object_builder)
-                .expect("unable to spawn object");
+            object.spatial.angles = Vec3::new(0.0, j as f32 * 4.0, 0.0);
+            object.physics.angular_velocity = Vec3::new(0.0, 1.0, 0.0);
+            world.hecs_world.spawn(object);
         }
     }
 
@@ -65,7 +63,7 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     )
     .unwrap();
     let sky_phys = PhysicalFacet::new_cuboid(0.0, 0.0, 0.0, 200.0);
-    let graphics = GraphicsFacet::from_model(sky_model);
+    let graphics = Graphic::new_model(sky_model);
     let sky_model_idx = world.add_graphic(graphics);
     let sky_phys_idx = world.add_physical(sky_phys);
     let thing = Thing::model(sky_phys_idx, sky_model_idx);

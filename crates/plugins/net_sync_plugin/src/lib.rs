@@ -18,7 +18,6 @@ use input::wire::InputState;
 use logger::{error, info, LogLevel};
 use network::{Connection, Message, RpcError, Typed, MAX_UNACKED_PACKETS, MSG_LEN, PAYLOAD_LEN};
 use wire::{WirePosition, WireThing, WorldUpdate};
-use world::health::Thing;
 use world::{Vec3, World, WorldError, WorldLockAndControllerState};
 
 const NUM_UPDATES_PER_MSG: u32 = 96;
@@ -70,7 +69,9 @@ pub extern "C" fn load(state: &mut WorldLockAndControllerState) {
 pub extern "C" fn update(s: &mut WorldLockAndControllerState, _dt: &Duration) {
     let logger = s.logger.sub("net_sync_plugin-update");
     // TODO: fix sized net sync issue (try > NUM_UPDTES_PER_MSG items)
-    if s.world.is_server() && s.world.things.len() >= 96 {
+    if s.world.is_server() {
+        assert!(s.world.hecs_world.len() <= 96, "too many entities FIXME");
+
         match futures_lite::future::block_on(pump_connection_as_server(&mut s.world)) {
             Ok(controller_state) => {
                 // TODO: support N controllers, or just one per client?
@@ -234,7 +235,6 @@ async fn pump_connection_as_client(
 pub mod wire {
 
     use bytemuck::{Pod, Zeroable};
-    use world::health::{self, Thing};
 
     use super::*;
 
@@ -341,7 +341,6 @@ pub mod wire {
     mod tests {
 
         use logger::debug;
-        use world::health::{GfxIndex, PhysicalIndex};
 
         use super::*;
 

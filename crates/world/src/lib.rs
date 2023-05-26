@@ -105,8 +105,6 @@ pub enum WorldError {
 }
 
 pub struct World {
-    pub maybe_camera: Option<u32>,
-
     pub hecs_world: hecs::World,
 
     pub root: hecs::Entity,
@@ -141,48 +139,6 @@ pub struct Config {
 impl World {
     pub const SIM_TICK_DELAY: Duration = Duration::from_millis(8);
 
-    // pub fn get_drawable(
-    //     &self,
-    //     phys: &PhysicalIndex,
-    //     gfx: &GraphicsIndex,
-    // ) -> Result<Drawable, WorldError> {
-    //     let physical_facet = self
-    //         .facets
-    //         .physical(*phys)
-    //         .ok_or(WorldError::NoSuchPhys(*phys))?;
-    //     Ok(Drawable {
-    //         gfx: *gfx,
-    //         pos: physical_facet.position,
-    //         angles: physical_facet.angles,
-    //         scale: physical_facet.scale,
-    //     })
-    // }
-
-    // pub fn get_camera_drawable(
-    //     &self,
-    //     phys: &PhysicalIndex,
-    //     camera: &CameraIndex,
-    // ) -> Result<Drawable, WorldError> {
-    //     let phys = self
-    //         .facets
-    //         .physical(*phys)
-    //         .ok_or(WorldError::NoSuchPhys(*phys))?;
-    //     let cam = self
-    //         .facets
-    //         .camera(*camera)
-    //         .ok_or(WorldError::NoSuchCamera(*camera))?;
-    //     let right = cam.right(phys);
-    //     let forward = cam.forward(phys);
-    //     let pos = phys.position + Vec3::new(right.x + forward.x, -2.0, right.z +
-    // forward.z);     let angles = Vec3::new(0.0, phys.angles.y - 1.57, 0.0);
-    //     Ok(Drawable {
-    //         gfx: cam.associated_graphics.unwrap(),
-    //         pos,
-    //         angles,
-    //         scale: phys.scale,
-    //     })
-    // }
-
     /// Create a new client or server binding. Currently, in server mode, this
     /// waits for a client to connect before continuing.
     ///
@@ -191,7 +147,6 @@ impl World {
         let mut hecs_world = hecs::World::new();
         let root_entity = hecs_world.spawn((WorldTransform::default(),));
         Self {
-            maybe_camera: None,
             connection: None,
 
             players: Vec::new(),
@@ -252,5 +207,13 @@ impl World {
     pub fn player(&self, index: usize) -> Option<Entity> {
         let entity = self.players.get(index)?;
         Some(*entity)
+    }
+
+    pub fn camera(&self) -> Option<Entity> {
+        if self.is_server() {
+            self.players.get(0).copied()
+        } else {
+            self.players.get(1).copied()
+        }
     }
 }

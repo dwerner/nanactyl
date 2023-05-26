@@ -13,8 +13,7 @@ use logger::{info, warn, LogLevel, Logger};
 use platform::WinPtr;
 use plugin_self::PluginState;
 use world::components::GraphicPrefab;
-use world::graphics::GfxIndex;
-use world::World;
+use world::{Entity, World};
 
 #[derive(thiserror::Error, Debug)]
 pub enum RenderStateError {
@@ -40,7 +39,8 @@ pub struct RenderState<'w> {
     pub enable_validation_layer: bool,
     pub logger: Logger,
 
-    pub world: &'w World,
+    // TODO: consider where this borrow is going to come from, post-refactoring archetypes
+    pub world: Option<&'w World>,
 
     /// Internal plugin state held by RenderState. Must be cleared between each
     /// update to the plugin, and unload called.
@@ -63,7 +63,7 @@ impl<'w> RenderState<'w> {
             render_plugin_state: None,
             enable_validation_layer,
             logger: LogLevel::Info.logger(),
-            world,
+            world: todo!("see TODO on world borrow"),
         }
     }
 
@@ -75,21 +75,20 @@ impl<'w> RenderState<'w> {
     /// Does not yet handle updates to models.
     pub fn upload_untracked_graphics_prefabs(&mut self, world: &World) {
         for (entity, graphic) in world.hecs_world.query::<&GraphicPrefab>().iter() {
-            let index = GfxIndex(entity);
             match self.render_plugin_state.as_mut() {
                 Some(plugin) => {
-                    if let Some(uploaded_at) = plugin.tracked_graphics(index) {
+                    if let Some(uploaded_at) = plugin.tracked_graphics(entity) {
                         info!(
                             self.logger,
                             "graphic {:?} already tracked for {}ms",
-                            index,
+                            entity,
                             Instant::now().duration_since(uploaded_at).as_millis()
                         );
                     } else {
-                        info!(self.logger, "uploading graphic {:?}", index);
+                        info!(self.logger, "uploading graphic {:?}", entity);
 
                         plugin
-                            .upload_graphics(&[(index, &graphic.gfx)])
+                            .upload_graphics(&[(entity, &graphic.gfx)])
                             .expect("unable to upload graphics");
                     }
                 }
@@ -103,17 +102,14 @@ impl<'w> RenderState<'w> {
 
 /// Basic trait for calling into rendering functionality.
 pub trait Presenter {
-    fn present(&mut self, scene: &World);
+    fn present(&mut self, scene: &RenderState);
     fn update_resources(&mut self);
     fn deallocate(&mut self);
 
     /// Query for a tracked drawable.
-    fn tracked_graphics(&self, index: GfxIndex) -> Option<Instant>;
+    fn tracked_graphics(&self, entity: Entity) -> Option<Instant>;
 
-    fn upload_graphics(
-        &mut self,
-        graphics: &[(GfxIndex, &Graphic)],
-    ) -> Result<(), RenderStateError>;
+    fn upload_graphics(&mut self, graphics: &[(Entity, &Graphic)]) -> Result<(), RenderStateError>;
 }
 
 /// A trait for the loader side to call into the renderer side.

@@ -1,5 +1,4 @@
 //! Plugin: `tui_renderer_plugin`
-//! Implements a plugin for prototyping Vulkan rendering (using ash) for the
 //! engine.
 //!
 //! As parts of this are solidified, they can be moved into the crates/render
@@ -19,18 +18,20 @@ use std::time::{Duration, Instant};
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry};
 use device::GraphicsHandle;
-use gfx::{DiffuseColor, GpuNeeds, Primitive, Vertex};
+use gfx::{DiffuseColor, GpuNeeds, Graphic, Primitive, Vertex};
 use glam::{Mat4, Vec3};
 use logger::{debug, info, Logger};
 use platform::WinPtr;
 use plugin_self::{impl_plugin_state_field, PluginState};
-use render::{Presenter, RenderPluginState, RenderScene, RenderState, RenderStateError};
+use render::{Presenter, RenderPluginState, RenderState, RenderStateError};
 use shader_objects::{PushConstants, UniformBuffer};
 use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, Pipeline, Shader, ShaderStage, ShaderStages,
     VertexInputAssembly, VulkanError,
 };
-use world::health::{GfxIndex, GraphicsFacet, EULER_ROT_ORDER};
+use world::components::{Drawable, Spatial};
+use world::graphics::EULER_ROT_ORDER;
+use world::Entity;
 
 use crate::device::DeviceWrapper;
 use crate::types::DescriptorSetLayoutBinding;
@@ -41,7 +42,7 @@ const PIPELINE_REBUILD_DELAY_MILLIS: u64 = 250;
 /// Renderer struct owning the descriptor pool, pipelines and descriptions.
 struct Renderer {
     descriptor_pool: vk::DescriptorPool,
-    pipelines: HashMap<GfxIndex, Pipeline>,
+    pipelines: HashMap<Entity, Pipeline>,
     logger: Logger,
     last_pipeline_rebuild: Instant,
 }
@@ -63,7 +64,11 @@ impl VulkanDebug {
 }
 
 impl Renderer {
-    fn present(&mut self, base: &mut VulkanBase, scene: &RenderScene) -> Result<(), VulkanError> {
+    fn present(
+        &mut self,
+        base: &mut VulkanBase,
+        render_state: &RenderState,
+    ) -> Result<(), VulkanError> {
         if base.flag_recreate_swapchain {
             base.recreate_swapchain()?;
         }
@@ -133,7 +138,7 @@ impl Renderer {
             vk::SubpassContents::INLINE,
         );
 
-        let (phys_cam, _camera) = &scene.cameras[scene.active_camera];
+        let (phys_cam, _camera) = &render_state.cameras[render_state.active_camera];
 
         let scale = Mat4::from_scale(Vec3::new(0.5, 0.5, 0.5));
         let rotation = Mat4::from_euler(
@@ -197,14 +202,26 @@ impl Renderer {
                 0,
                 vk::IndexType::UINT32,
             );
-            for drawable in scene.drawables.iter().filter(|p| p.gfx == *gfx_index) {
+            for (drawable, spatial) in render_state
+                .world
+                .hecs_world
+                .query::<(&Drawable, &Spatial)>()
+                .iter()
+                .filter_map(|(entity, (drawable, spatial))| {
+                    if drawable.gfx == *gfx_index {
+                        Some((drawable, spatial))
+                    } else {
+                        None
+                    }
+                })
+            {
                 // create a matrix for translating to the given position.
                 let scale = Mat4::from_scale(drawable.scale * Vec3::ONE);
-                let translation = Mat4::from_translation(-drawable.pos);
+                let translation = Mat4::from_translation(-spatial.pos);
                 let rot = Mat4::from_euler(
                     EULER_ROT_ORDER,
-                    drawable.angles.x,
-                    drawable.angles.y,
+                    spatial.angles.x,
+                    spatial.angles.y,
                     1.57 * 2.0, //-drawable.angles.z,
                 );
 
@@ -462,10 +479,10 @@ impl Renderer {
 }
 
 impl Presenter for VulkanRenderPluginState {
-    fn present(&mut self, scene: &RenderScene) {
+    fn present(&mut self, render_state: &RenderState) {
         if let Some(renderer) = &mut self.renderer {
             renderer
-                .present(self.base.as_mut().unwrap(), scene)
+                .present(self.base.as_mut().unwrap(), render_state)
                 .unwrap();
         }
     }
@@ -484,18 +501,15 @@ impl Presenter for VulkanRenderPluginState {
         }
     }
 
-    fn tracked_graphics(&self, index: GfxIndex) -> Option<Instant> {
+    fn tracked_graphics(&self, entity: Entity) -> Option<Instant> {
         self.base
             .as_ref()?
             .tracked_graphics
-            .get(&index)
+            .get(&entity)
             .map(|(_, tracked_instant)| *tracked_instant)
     }
 
-    fn upload_graphics(
-        &mut self,
-        graphics: &[(GfxIndex, &Graphic)],
-    ) -> Result<(), RenderStateError> {
+    fn upload_graphics(&mut self, graphics: &[(Entity, &Graphic)]) -> Result<(), RenderStateError> {
         let logger = self.logger.sub("upload_graphic");
 
         let (base, renderer) = self
@@ -604,7 +618,7 @@ struct VulkanBase {
     maybe_debug_utils_loader: Option<ash::extensions::ext::DebugUtils>,
     maybe_debug_call_back: Option<vk::DebugUtilsMessengerEXT>,
 
-    tracked_graphics: HashMap<GfxIndex, (GraphicsHandle, Instant)>,
+    tracked_graphics: HashMap<Entity, (GraphicsHandle, Instant)>,
 
     framebuffers: Vec<vk::Framebuffer>,
     render_pass: vk::RenderPass,
@@ -619,9 +633,9 @@ struct VulkanBase {
 impl VulkanBase {
     fn upload_graphics(
         &mut self,
-        upload_queue: &[(GfxIndex, &Graphic)],
+        upload_queue: &[(Entity, &Graphic)],
         logger: &Logger,
-    ) -> Vec<(GfxIndex, GraphicsHandle)> {
+    ) -> Vec<(Entity, GraphicsHandle)> {
         let logger = logger.sub("upload_graphics");
 
         if upload_queue.is_empty() {
@@ -646,7 +660,7 @@ impl VulkanBase {
             w.wait_for_fence(fence).unwrap();
             w.begin_command_buffer(command_buffer).unwrap();
 
-            let diffuse_map = match graphic.gfx.diffuse_color() {
+            let diffuse_map = match graphic.diffuse_color() {
                 Some(DiffuseColor::Texture(texture)) => Some(w.cmd_upload_image(
                     texture,
                     device_memory_properties,
@@ -680,7 +694,7 @@ impl VulkanBase {
                 .allocate_and_init_buffer(
                     vk::BufferUsageFlags::VERTEX_BUFFER,
                     device_memory_properties,
-                    graphic.gfx.vertices(),
+                    graphic.vertices(),
                 )
                 .unwrap();
 
@@ -688,16 +702,16 @@ impl VulkanBase {
                 .allocate_and_init_buffer(
                     vk::BufferUsageFlags::INDEX_BUFFER,
                     device_memory_properties,
-                    graphic.gfx.indices(),
+                    graphic.indices(),
                 )
                 .unwrap();
 
             // reflect over shaders and determine descriptor sets
             let vertex_shader =
-                Shader::read_spv(graphic.gfx.vertex_shader_path().to_path_buf()).unwrap();
+                Shader::read_spv(graphic.vertex_shader_path().to_path_buf()).unwrap();
 
             let fragment_shader =
-                Shader::read_spv(graphic.gfx.fragment_shader_path().to_path_buf()).unwrap();
+                Shader::read_spv(graphic.fragment_shader_path().to_path_buf()).unwrap();
 
             let handle = GraphicsHandle::new(
                 diffuse_map,
@@ -705,7 +719,7 @@ impl VulkanBase {
                 index_buffer,
                 vertex_shader,
                 fragment_shader,
-                graphic.gfx.primitive(),
+                graphic.primitive(),
             );
             completed_uploads.push((*index, handle));
         }
@@ -1114,13 +1128,13 @@ impl VulkanBase {
         Ok(framebuffers)
     }
     /// Track a model reference for cleanup when VulkanBase is dropped.
-    fn track_uploaded_graphic(&mut self, index: GfxIndex, handle: GraphicsHandle) {
-        debug!(self.logger, "Tracking model {:?}", index);
+    fn track_uploaded_graphic(&mut self, entity: Entity, handle: GraphicsHandle) {
+        debug!(self.logger, "Tracking model {:?}", entity);
         if let Some((existing_model, _instant)) = self
             .tracked_graphics
-            .insert(index, (handle, Instant::now()))
+            .insert(entity, (handle, Instant::now()))
         {
-            debug!(self.logger, "Deallocating existing model {:?}", index);
+            debug!(self.logger, "Deallocating existing model {:?}", entity);
             existing_model.deallocate(self);
         }
     }
@@ -1793,7 +1807,7 @@ pub struct VulkanRenderPluginState {
 }
 
 impl PluginState for VulkanRenderPluginState {
-    type State = RenderState;
+    type State = RenderState<'static>;
 
     fn new() -> Box<Self> {
         Box::new(VulkanRenderPluginState::default())
@@ -1825,7 +1839,7 @@ impl PluginState for VulkanRenderPluginState {
         if let Some(renderer) = self.renderer.as_mut() {
             state.updates += 1;
             renderer
-                .present(self.base.as_mut().unwrap(), &state.scene)
+                .present(self.base.as_mut().unwrap(), &state)
                 .unwrap();
         }
     }

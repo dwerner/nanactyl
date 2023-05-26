@@ -26,9 +26,8 @@ impl StaticObject {
                 scale: 1.0,
             },
             physics: DynamicPhysics {
-                velocity: Vec3::ZERO,
-                acceleration: Vec3::ZERO,
                 mass: 1.0,
+                ..Default::default()
             },
             parent: RelativeTransform {
                 parent,
@@ -67,19 +66,16 @@ impl Player {
         Player {
             spatial,
             camera: Camera {
-                fov: 0.75,
-                near: 0.1,
-                far: 1000.0,
-                perspective,
+                projection: perspective,
+                ..Default::default()
             },
             drawable: Drawable {
                 gfx: gfx_prefab,
                 scale: 1.0,
             },
             physics: DynamicPhysics {
-                velocity: Vec3::ZERO,
-                acceleration: Vec3::ZERO,
                 mass: 1.0,
+                ..Default::default()
             },
             parent: RelativeTransform {
                 parent,
@@ -89,8 +85,7 @@ impl Player {
                 world_matrix: Mat4::IDENTITY,
             },
             control: Control {
-                linear_intention: Vec3::ZERO,
-                angular_intention: Vec3::ZERO,
+                ..Default::default()
             },
         }
     }

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use glam::{vec3, vec4, Mat4, Vec3, Vec4};
+use glam::{vec3, vec4, Mat4, Vec3};
 use input::wire::InputState;
 use input::Button;
 use logger::{info, LogLevel, Logger};
@@ -109,7 +109,8 @@ impl WorldUpdatePluginState {
     // create colliders for all objects that have a phyiscal facet
     fn setup_object_colliders(&mut self, world: &mut World) {
         let rad = 0.1;
-        for (entity, (spatial, physical)) in world
+        // TODO: use physics object to set up properties of colliders
+        for (entity, (spatial, physics)) in world
             .hecs_world
             .query::<(&Spatial, &DynamicPhysics)>()
             .iter()
@@ -121,12 +122,14 @@ impl WorldUpdatePluginState {
             let rigid_body = RigidBodyBuilder::dynamic().translation(vector![x, y, z]);
             let handle = self.rigid_bodies.insert(rigid_body);
             let collider = ColliderBuilder::cuboid(rad, rad, rad);
+
+            // TODO; use shape to generate debug mesh
             let shape = collider.shape.clone();
 
             let collider_handle =
                 self.colliders
                     .insert_with_parent(collider, handle, &mut self.rigid_bodies);
-            //self.collider_handles.insert(phys_index, collider_handle);
+            self.collider_handles.insert(entity, collider_handle);
         }
     }
 
@@ -233,7 +236,7 @@ impl<'a> WorldExt<'a> {
         controller: &InputState,
         entity: Entity,
     ) -> Result<(), WorldError> {
-        let player = self
+        let mut player = self
             .world
             .hecs_world
             .get::<&mut Player>(entity)
@@ -260,24 +263,27 @@ impl<'a> WorldExt<'a> {
         );
         let forward = rot.transform_vector3(Vec3::new(0.0, 0.0, 1.0));
         if controller.is_button_pressed(Button::Down) {
-            let transform = *player.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
+            let transform = player.camera.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
             player.control.linear_intention += transform.transform_vector3(forward);
         } else if controller.is_button_pressed(Button::Up) {
             let transform =
-                *player.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));
+                player.camera.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));
             player.control.linear_intention += transform.transform_vector3(forward);
         } else {
             player.control.linear_intention = Vec3::ZERO;
         }
 
         if controller.is_button_pressed(Button::Left) {
-            player.angular_velocity_intention.y = -1.0 * speed;
+            player.control.angular_intention.y = -1.0 * speed;
         } else if controller.is_button_pressed(Button::Right) {
-            player.angular_velocity_intention.y = speed;
+            player.control.angular_intention.y = speed;
         } else {
-            player.angular_velocity_intention.y = 0.0;
+            player.control.angular_intention.y = 0.0;
         }
-        player.update_view_matrix();
+
+        todo!("consider moving methods to player?");
+        let camera = &mut player.camera;
+        camera.update_view_matrix(&player.spatial, &player.physics);
 
         Ok(())
     }

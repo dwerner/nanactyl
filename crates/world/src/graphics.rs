@@ -1,12 +1,7 @@
 use gfx::{DebugMesh, Vertex};
 use glam::{EulerRot, Vec4};
-use hecs::Entity;
 
 pub const EULER_ROT_ORDER: EulerRot = EulerRot::XYZ;
-/// Not an archetype, but just an indexed blob of graphics.
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct GfxIndex(pub Entity);
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Shape {

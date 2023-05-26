@@ -1,16 +1,61 @@
+use std::time::Duration;
+
 use gfx::Graphic;
 use glam::{Mat4, Vec3};
 use hecs::Entity;
 
-use crate::graphics::Shape;
+use crate::graphics::{Shape, EULER_ROT_ORDER};
 
 /// A component representing a camera.
 #[derive(Debug, Default)]
 pub struct Camera {
-    pub fov: f32,
-    pub near: f32,
-    pub far: f32,
-    pub perspective: Mat4,
+    pub projection: Mat4,
+    pub view: Mat4,
+    pub occlusion_culling: bool,
+}
+
+impl Camera {
+    // Problematic because multiple components make up the properties of the camera,
+    // including position, matrices, etc.
+    pub fn new(spatial: &Spatial, physics: &DynamicPhysics) -> Self {
+        let mut camera = Camera {
+            view: Mat4::IDENTITY,
+
+            // TODO fix default perspective values
+            projection: Mat4::perspective_lh(
+                1.7,    //aspect
+                0.75,   //fovy
+                0.1,    // near
+                1000.0, //far
+            ),
+
+            // because it's not supported yet
+            occlusion_culling: false,
+        };
+        camera.update_view_matrix(spatial, physics);
+        camera
+    }
+
+    pub fn update(&mut self, dt: &Duration, spatial: &mut Spatial, physics: &DynamicPhysics) {
+        let amount = (dt.as_millis() as f64 / 100.0) as f32;
+        spatial.pos += physics.linear_velocity * amount;
+        self.update_view_matrix(spatial, physics);
+    }
+
+    pub fn update_view_matrix(&mut self, spatial: &Spatial, physics: &DynamicPhysics) {
+        let rot = Mat4::from_euler(
+            EULER_ROT_ORDER,
+            physics.angular_velocity.x,
+            physics.angular_velocity.y,
+            0.0,
+        );
+        let trans = Mat4::from_translation(spatial.pos);
+        self.view = trans * rot;
+    }
+
+    pub fn set_perspective(&mut self, fov: f32, aspect: f32, near: f32, far: f32) {
+        self.projection = Mat4::perspective_lh(aspect, fov, near, far);
+    }
 }
 
 /// A component representing a control. Should encapsulate action intention.
@@ -27,6 +72,32 @@ pub struct Spatial {
     pub angles: Vec3,
     pub scale: f32,
     // pub rotation: Mat4,
+}
+
+impl Spatial {
+    pub fn forward(&self) -> Vec3 {
+        let rx = self.angles.x;
+        let ry = self.angles.y;
+        let vec = {
+            let x = -rx.cos() * ry.sin();
+            let y = rx.sin();
+            let z = rx.cos() * ry.cos();
+            Vec3::new(x, y, z)
+        };
+        vec.normalize()
+    }
+
+    pub fn right(&self) -> Vec3 {
+        let y = Vec3::new(1.0, 0.0, 0.0);
+        let forward = self.forward();
+        let cross = y.cross(forward);
+        cross.normalize()
+    }
+
+    pub fn up(&self) -> Vec3 {
+        let x = Vec3::new(0.0, 1.0, 0.0);
+        x.cross(self.forward()).normalize()
+    }
 }
 
 impl Spatial {
@@ -62,8 +133,10 @@ impl GraphicPrefab {
 /// TODO: revisit this and store handles for physics lookups?
 #[derive(Debug, Default)]
 pub struct DynamicPhysics {
-    pub velocity: Vec3,
-    pub acceleration: Vec3,
+    pub linear_velocity: Vec3,
+    pub linear_acceleration: Vec3,
+    pub angular_velocity: Vec3,
+    pub angular_acceleration: Vec3,
     pub mass: f32,
 }
 
@@ -111,15 +184,13 @@ mod tests {
             gfx: Graphic::ParticleSystem,
         },));
 
-        let mut player = Player::new(root_transform, gfx_prefab, Spatial::default());
-        player.camera.far = 42.0;
+        let player = Player::new(root_transform, gfx_prefab, Spatial::default());
         let _player_id = world.spawn(player);
 
         let entity = {
             let mut query = world.query::<(&Camera, &Spatial)>();
             let (entity, (camera, pos)) = query.iter().next().unwrap();
             println!("{:?}", entity);
-            assert_eq!(camera.far, 42.0);
 
             let mut nodes = world.query::<&Player>();
             for node in nodes.iter() {

@@ -1,11 +1,8 @@
-use std::process::id;
 use std::time::Duration;
 
-use gfx::{Graphic, Model};
+use gfx::Model;
 use logger::info;
-use world::archetypes::player::PlayerBuilder;
-use world::archetypes::Archetype;
-use world::health::Shape;
+use world::components::{Player, Spatial};
 use world::{AssetLoaderStateAndWorldLock, Vec3};
 
 // TODO:
@@ -37,8 +34,8 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
     for (x, z) in [(10.0, 10.0), (-10.0, -10.0)].into_iter() {
         info!(logger, "adding player camera object at {}, {}", x, z);
         let pos = Vec3::new(x, 0.0, z);
-        let tank = PlayerBuilder::new(tank_gfx, pos, Shape::cuboid(1.0, 1.0, 1.0));
-        let tank_id = world.players.spawn(tank).expect("unable to spawn tank");
+        let tank = Player::new(world.root, tank_gfx, Spatial::new_at(pos));
+        let tank_id = world.add_player(tank).expect("unable to spawn tank");
         info!(logger, "added tank: {:?}", tank_id)
     }
 

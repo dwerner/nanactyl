@@ -484,7 +484,7 @@ impl Presenter for VulkanRenderPluginState {
         }
     }
 
-    fn tracked_graphics(&mut self, index: GfxIndex) -> Option<Instant> {
+    fn tracked_graphics(&self, index: GfxIndex) -> Option<Instant> {
         self.base
             .as_ref()?
             .tracked_graphics
@@ -494,7 +494,7 @@ impl Presenter for VulkanRenderPluginState {
 
     fn upload_graphics(
         &mut self,
-        graphics: &[(GfxIndex, &GraphicsFacet)],
+        graphics: &[(GfxIndex, &Graphic)],
     ) -> Result<(), RenderStateError> {
         let logger = self.logger.sub("upload_graphic");
 
@@ -619,7 +619,7 @@ struct VulkanBase {
 impl VulkanBase {
     fn upload_graphics(
         &mut self,
-        upload_queue: &[(GfxIndex, &GraphicsFacet)],
+        upload_queue: &[(GfxIndex, &Graphic)],
         logger: &Logger,
     ) -> Vec<(GfxIndex, GraphicsHandle)> {
         let logger = logger.sub("upload_graphics");

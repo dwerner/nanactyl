@@ -1,5 +1,6 @@
 //! Implements a world and entity system for the engine to mutate and render.
 
+pub mod bundles;
 pub mod components;
 pub mod graphics;
 pub mod health;
@@ -11,10 +12,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_lock::{Mutex, MutexGuardArc};
+use bundles::Player;
+use components::{GraphicPrefab, WorldTransform};
 use gfx::{DebugMesh, Graphic, Model};
 pub use glam::{Mat4, Quat, Vec3};
-use graphics::{GfxIndex, GraphicsManager};
 use graphrox::Graph;
+pub use hecs::Entity;
 use input::wire::InputState;
 use logger::{LogLevel, Logger};
 use network::{Connection, RpcError};
@@ -96,6 +99,9 @@ pub enum WorldError {
 
     #[error("no phys facet at index {0:?}")]
     NoSuchPhys(u32),
+
+    #[error("component error {0:?}")]
+    Component(hecs::ComponentError),
 }
 
 pub struct World {
@@ -103,7 +109,7 @@ pub struct World {
 
     pub hecs_world: hecs::World,
 
-    pub graphics: GraphicsManager,
+    pub root: hecs::Entity,
 
     pub stats: Stats,
     pub config: Config,
@@ -111,6 +117,8 @@ pub struct World {
     // TODO: support more than one connection, for servers
     // TODO: move into networking related struct
     pub connection: Option<Box<dyn Connection + Send + Sync + 'static>>,
+
+    players: Vec<Entity>,
     pub client_controller_state: Option<InputState>,
     pub server_controller_state: Option<InputState>,
 
@@ -128,16 +136,6 @@ pub struct Stats {
 pub struct Config {
     pub net_disabled: bool,
     pub maybe_server_addr: Option<SocketAddr>,
-}
-
-/// Reference to a graphics object and for now positional and orientation data.
-/// Intended to represent a model (uploaded to the GPU once) with instance
-/// information. Should attach to a game object or similar.
-pub struct Drawable {
-    pub gfx: GfxIndex,
-    pub pos: Vec3,
-    pub angles: Vec3,
-    pub scale: f32,
 }
 
 impl World {
@@ -190,9 +188,13 @@ impl World {
     ///
     /// FIXME: make this /// independent of any connecting clients.
     pub fn new(maybe_server_addr: Option<SocketAddr>, logger: &Logger, net_disabled: bool) -> Self {
+        let mut hecs_world = hecs::World::new();
+        let root_entity = hecs_world.spawn((WorldTransform::default(),));
         Self {
             maybe_camera: None,
             connection: None,
+
+            players: Vec::new(),
             client_controller_state: None,
             server_controller_state: None,
 
@@ -207,9 +209,8 @@ impl World {
                 last_tick: Instant::now(),
             },
 
-            hecs_world: hecs::World::new(),
-
-            graphics: GraphicsManager::new(),
+            hecs_world,
+            root: root_entity,
 
             logger: logger.sub("world"),
 
@@ -230,62 +231,26 @@ impl World {
         self.config.maybe_server_addr.is_none()
     }
 
-    pub fn add_debug_mesh(&mut self, mesh: DebugMesh) -> GfxIndex {
-        self.graphics.add(Graphic::DebugMesh(mesh))
+    pub fn add_debug_mesh(&mut self, mesh: DebugMesh) -> Entity {
+        self.hecs_world.spawn((GraphicPrefab {
+            gfx: Graphic::DebugMesh(mesh),
+        },))
     }
 
-    pub fn add_model(&mut self, model: Model) -> GfxIndex {
-        self.graphics.add(Graphic::Model(model))
+    pub fn add_model(&mut self, model: Model) -> Entity {
+        self.hecs_world.spawn((GraphicPrefab {
+            gfx: Graphic::Model(model),
+        },))
     }
 
-    // pub fn add_thing(&mut self, thing: Thing) -> Result<Identity, WorldError> {
-    //     let id = self.things.len();
-    //     if id > std::u32::MAX as usize {
-    //         println!("too many objects, id: {}", id);
-    //         return Err(WorldError::TooManyObjects);
-    //     }
-    //     self.things.push(thing);
-    //     Ok(id.into())
-    // }
+    pub fn add_player(&mut self, player: Player) -> Entity {
+        let player = self.hecs_world.spawn(player);
+        self.players.push(player);
+        player
+    }
 
-    // pub fn add_camera(&mut self, camera: CameraFacet) -> CameraIndex {
-    //     let cameras = &mut self.facets.cameras;
-    //     let idx = cameras.len();
-    //     cameras.push(camera);
-    //     idx.into()
-    // }
-
-    // pub fn add_physical(&mut self, phys: PhysicalFacet) -> PhysicalIndex {
-    //     let physical = &mut self.facets.physical;
-    //     let idx = physical.len();
-    //     physical.push(phys);
-    //     idx.into()
-    // }
-
-    // pub fn things(&self) -> &[Thing] {
-    //     &self.things
-    // }
-
-    // pub fn things_mut(&mut self) -> &mut [Thing] {
-    //     &mut self.things
-    // }
-
-    // pub fn thing_as_ref(&self, id: Identity) -> Option<&Thing> {
-    //     let id: usize = id.into();
-    //     self.things.get(id)
-    // }
-
-    // pub fn thing_as_mut(&mut self, id: Identity) -> Option<&mut Thing> {
-    //     let id: usize = id.into();
-    //     self.things.get_mut(id)
-    // }
-
-    // pub fn clear(&mut self) {
-    //     let facets = &mut self.facets;
-    //     self.things.clear();
-    //     facets.cameras.clear();
-    //     facets.health.clear();
-    //     facets.graphics.clear();
-    //     facets.physical.clear();
-    // }
+    pub fn player(&self, index: usize) -> Option<Entity> {
+        let entity = self.players.get(index)?;
+        Some(*entity)
+    }
 }

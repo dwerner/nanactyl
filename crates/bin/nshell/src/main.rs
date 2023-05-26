@@ -165,7 +165,7 @@ fn main() {
             render_state
                 .lock()
                 .await
-                .upload_untracked_graphics(&*world.lock().await);
+                .upload_untracked_graphics_prefabs(&*world.lock().await);
         }
 
         let mut frame = 0u64;
@@ -239,7 +239,7 @@ fn main() {
                 // TODO: stop copying state around.
                 let state = &mut *render_state.lock().await;
                 let world = &*world.as_ref().lock().await;
-                state.upload_untracked_graphics(world);
+                state.upload_untracked_graphics_prefabs(world);
                 state.update_render_scene(world).unwrap();
             }
 

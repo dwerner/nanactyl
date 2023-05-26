@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use glam::{Mat4, Vec3, Vec4};
+use glam::{vec3, vec4, Mat4, Vec3, Vec4};
 use input::wire::InputState;
 use input::Button;
 use logger::{info, LogLevel, Logger};
@@ -17,8 +17,10 @@ use rapier3d::na::{self as nalgebra, point, vector, Vector};
 use rapier3d::prelude::{
     ColliderBuilder, ColliderHandle, ColliderSet, RigidBodyBuilder, RigidBodySet,
 };
-use world::archetypes::Archetype;
-use world::{World, WorldError};
+use world::bundles::{Player, StaticObject};
+use world::components::{Control, DynamicPhysics, Spatial};
+use world::graphics::{Shape, EULER_ROT_ORDER};
+use world::{Entity, World, WorldError};
 
 /// Internal plugin state. The lifespan is load->update->unload and dropped
 /// after unload.
@@ -27,7 +29,7 @@ struct WorldUpdatePluginState {
     rigid_bodies: RigidBodySet,
     colliders: ColliderSet,
     vehicle_controller: Option<DynamicRayCastVehicleController>,
-    collider_handles: HashMap<u32, ColliderHandle>,
+    collider_handles: HashMap<world::Entity, ColliderHandle>,
 }
 
 // Hang any state for this plugin off a private static within.
@@ -107,10 +109,14 @@ impl WorldUpdatePluginState {
     // create colliders for all objects that have a phyiscal facet
     fn setup_object_colliders(&mut self, world: &mut World) {
         let rad = 0.1;
-        for physical in world.players.physics_iter_mut() {
-            let x = physical.pos.x;
-            let y = physical.pos.y;
-            let z = physical.pos.z;
+        for (entity, (spatial, physical)) in world
+            .hecs_world
+            .query::<(&Spatial, &DynamicPhysics)>()
+            .iter()
+        {
+            let x = spatial.pos.x;
+            let y = spatial.pos.y;
+            let z = spatial.pos.z;
 
             let rigid_body = RigidBodyBuilder::dynamic().translation(vector![x, y, z]);
             let handle = self.rigid_bodies.insert(rigid_body);
@@ -141,77 +147,82 @@ impl WorldUpdatePluginState {
             self.colliders
                 .insert_with_parent(collider, floor_handle, &mut self.rigid_bodies);
 
+        let shape = Shape::cuboid(ground_size, ground_height, ground_size);
+        let gfx = world.add_debug_mesh(shape.into_debug_mesh(vec4(1.0, 1.0, 0.0, 1.0)));
+
         // TODO: try out adding a debug mesh
         let ground_phys = StaticObject::new(
-            0.0,
-            -ground_height - ground_y_offset,
-            0.0,
-            5.0,
-            Shape::cuboid(ground_size, ground_height, ground_size),
+            world.root,
+            gfx,
+            Spatial::new_at(vec3(0.0, -ground_height - ground_y_offset, 0.0)),
         );
-        let debug_mesh = ground_phys
-            .shape
-            .into_debug_mesh(Vec4::new(1.0, 1.0, 0.0, 1.0));
-        let graphics = Graphic::DebugMesh(debug_mesh);
-        let ground_phys_index = world.add_physical(ground_phys);
 
-        // THE thing. This is an entity/ game object. It exists within the world graph.
-        let thing_id = world
-            .add_thing(Thing::model(ground_phys_index, gfx_index))
-            .unwrap();
-        println!("ground collider is thing_id: {:?}", thing_id);
-        self.collider_handles.insert(thing_id, collider_handle);
+        let entity = world.hecs_world.spawn(ground_phys);
+        self.collider_handles.insert(entity, collider_handle);
     }
 }
 
 /// A helper struct for accessing the world state in the plugin.
 struct WorldExt<'a> {
-    inner: &'a mut World,
+    world: &'a mut World,
 }
 
 // TODO: lift non-dymanic stuff into World
 impl<'a> WorldExt<'a> {
-    fn new(inner: &'a mut World) -> Self {
-        WorldExt { inner }
+    fn new(world: &'a mut World) -> Self {
+        WorldExt { world }
     }
 
     fn is_server(&self) -> bool {
-        self.inner.is_server()
+        self.world.is_server()
     }
 
     fn update_stats(&mut self, dt: &Duration) {
-        self.inner.stats.run_life += *dt;
-        self.inner.stats.updates += 1;
+        self.world.stats.run_life += *dt;
+        self.world.stats.updates += 1;
     }
 
     fn duration_since_last_tick(&self) -> Duration {
         let now = Instant::now();
-        let since_last_tick = now.duration_since(self.inner.stats.last_tick);
+        let since_last_tick = now.duration_since(self.world.stats.last_tick);
         since_last_tick
     }
 
     fn set_last_tick(&mut self, now: Instant) {
-        self.inner.stats.last_tick = now;
+        self.world.stats.last_tick = now;
     }
 
     fn step_physical(&mut self) {
         let since_last_tick = self.duration_since_last_tick();
         let action_scale = since_last_tick.as_micros() as f32 / 1000.0 / 1000.0;
         if since_last_tick > World::SIM_TICK_DELAY {
-            if let Some(server_controller) = self.inner.server_controller_state {
-                self.move_camera_based_on_controller_state(&server_controller, 0u32.into())
-                    .unwrap();
+            //
+            // TODO: deal with hardcoded players
+            //
+            if let Some(server_controller) = self.world.server_controller_state {
+                self.move_camera_based_on_controller_state(
+                    &server_controller,
+                    self.world.player(0).unwrap(),
+                )
+                .unwrap();
             }
-            if let Some(client_controller) = self.inner.client_controller_state {
-                self.move_camera_based_on_controller_state(&client_controller, 1u32.into())
-                    .unwrap();
+            if let Some(client_controller) = self.world.client_controller_state {
+                self.move_camera_based_on_controller_state(
+                    &client_controller,
+                    self.world.player(1).unwrap(),
+                );
             }
-            for physical in self.inner.players.physics_iter_mut() {
-                let linear = *physical.linear_velocity_intention * action_scale;
-                *physical.pos += linear;
+            for (_entity, (control, spatial)) in self
+                .world
+                .hecs_world
+                .query::<(&Control, &mut Spatial)>()
+                .iter()
+            {
+                let linear = control.linear_intention * action_scale;
+                spatial.pos += linear;
 
-                let angular = *physical.angular_velocity_intention * action_scale;
-                *physical.angles += angular;
+                let angular = control.angular_intention * action_scale;
+                spatial.angles += angular;
             }
         }
         self.set_last_tick(Instant::now());
@@ -220,9 +231,13 @@ impl<'a> WorldExt<'a> {
     fn move_camera_based_on_controller_state(
         &mut self,
         controller: &InputState,
-        thing_id: PlayerIndex,
+        entity: Entity,
     ) -> Result<(), WorldError> {
-        let mut player = self.inner.player(thing_id)?;
+        let player = self
+            .world
+            .hecs_world
+            .get::<&mut Player>(entity)
+            .map_err(WorldError::Component)?;
 
         // TODO: move the get_camera_facet method up into World, and use that here.
         // kludge! this relies on the first two phys facets being the cameras 0,1
@@ -239,20 +254,20 @@ impl<'a> WorldExt<'a> {
 
         let rot = Mat4::from_euler(
             EULER_ROT_ORDER,
-            player.angles.x,
-            player.angles.y,
-            player.angles.z,
+            player.spatial.angles.x,
+            player.spatial.angles.y,
+            player.spatial.angles.z,
         );
         let forward = rot.transform_vector3(Vec3::new(0.0, 0.0, 1.0));
         if controller.is_button_pressed(Button::Down) {
             let transform = *player.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
-            *player.linear_velocity_intention += transform.transform_vector3(forward);
+            player.control.linear_intention += transform.transform_vector3(forward);
         } else if controller.is_button_pressed(Button::Up) {
             let transform =
                 *player.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));
-            *player.linear_velocity_intention += transform.transform_vector3(forward);
+            player.control.linear_intention += transform.transform_vector3(forward);
         } else {
-            *player.linear_velocity_intention = Vec3::ZERO;
+            player.control.linear_intention = Vec3::ZERO;
         }
 
         if controller.is_button_pressed(Button::Left) {

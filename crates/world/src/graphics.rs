@@ -1,26 +1,12 @@
-use gfx::{DebugMesh, Graphic, Vertex};
+use gfx::{DebugMesh, Vertex};
 use glam::{EulerRot, Vec4};
+use hecs::Entity;
 
 pub const EULER_ROT_ORDER: EulerRot = EulerRot::XYZ;
 /// Not an archetype, but just an indexed blob of graphics.
-pub struct GraphicsManager {
-    pub gfx: Vec<Graphic>,
-}
 
-impl GraphicsManager {
-    pub fn new() -> Self {
-        Self { gfx: Vec::new() }
-    }
-
-    pub(crate) fn add(&mut self, gfx: Graphic) -> GfxIndex {
-        let index = self.gfx.len();
-        self.gfx.push(gfx);
-        GfxIndex(index)
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct GfxIndex(pub usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GfxIndex(pub Entity);
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Shape {
@@ -28,6 +14,16 @@ pub enum Shape {
     Cylinder { radius: f32, height: f32 },
     Capsule { radius: f32, height: f32 },
     Sphere { radius: f32 },
+}
+
+impl Default for Shape {
+    fn default() -> Self {
+        Shape::Cuboid {
+            width: 1.0,
+            height: 1.0,
+            depth: 1.0,
+        }
+    }
 }
 
 impl Shape {

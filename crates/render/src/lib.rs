@@ -8,9 +8,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_lock::Mutex;
+use gfx::Graphic;
 use logger::{info, warn, LogLevel, Logger};
 use platform::WinPtr;
 use plugin_self::PluginState;
+use world::components::GraphicPrefab;
 use world::graphics::GfxIndex;
 use world::World;
 
@@ -32,13 +34,13 @@ pub enum SceneError {
 
 /// "Declarative" style api attempt - don't expose any renderer details/buffers,
 /// instead have RenderState track them
-pub struct RenderState {
+pub struct RenderState<'w> {
     pub updates: u64,
     pub win_ptr: WinPtr,
     pub enable_validation_layer: bool,
     pub logger: Logger,
 
-    pub scene: RenderScene,
+    pub world: &'w World,
 
     /// Internal plugin state held by RenderState. Must be cleared between each
     /// update to the plugin, and unload called.
@@ -48,19 +50,20 @@ pub struct RenderState {
     pub render_plugin_state: Option<Box<dyn RenderPluginState<State = Self> + Send + Sync>>,
 }
 
-impl RenderState {
-    pub fn new(win_ptr: WinPtr, enable_validation_layer: bool, is_server: bool) -> Self {
+impl<'w> RenderState<'w> {
+    pub fn new(
+        win_ptr: WinPtr,
+        enable_validation_layer: bool,
+        is_server: bool,
+        world: &'w World,
+    ) -> Self {
         Self {
             updates: 0,
             win_ptr,
             render_plugin_state: None,
             enable_validation_layer,
-            scene: RenderScene {
-                active_camera: if is_server { 0 } else { 1 },
-                cameras: vec![],
-                drawables: vec![],
-            },
             logger: LogLevel::Info.logger(),
+            world,
         }
     }
 
@@ -68,73 +71,30 @@ impl RenderState {
         Arc::new(Mutex::new(self))
     }
 
-    pub fn tracked_graphics(&mut self, index: GfxIndex) -> Option<Instant> {
-        self.render_plugin_state
-            .as_mut()
-            .map(|plugin| plugin.tracked_graphics(index))
-            .flatten()
-    }
-
-    pub fn update_scene(&mut self, scene: RenderScene) -> Result<(), SceneError> {
-        // TODO: remove this copying and indirection from RenderState
-        self.scene.drawables = scene.drawables;
-        self.scene.cameras = scene.cameras;
-        Ok(())
-    }
-
-    pub fn update_render_scene(&mut self, world: &World) -> Result<(), SceneError> {
-        // TODO Fix hardcoded cameras.
-        let c1 = world.player(0u32.into()).map_err(SceneError::World)?;
-        let c2 = world.player(1u32.into()).map_err(SceneError::World)?;
-
-        let cameras = vec![c1, c2];
-
-        let mut drawables = vec![];
-        for (_id, thing) in world.things().iter().enumerate() {
-            let model_ref = match &thing.facets {
-                ThingType::Camera { phys, camera } => world
-                    .get_camera_drawable(phys, camera)
-                    .map_err(SceneError::World)?,
-                ThingType::GraphicsObject { phys, model: gfx } => {
-                    world.get_drawable(phys, gfx).map_err(SceneError::World)?
-                }
-            };
-            drawables.push(model_ref);
-        }
-        let active_camera = if world.is_server() { 0 } else { 1 };
-        let scene = RenderScene {
-            active_camera,
-            cameras,
-            drawables,
-        };
-        self.update_scene(scene)?;
-        Ok(())
-    }
-
     /// Search through the world for models that need to be uploaded, and do so.
     /// Does not yet handle updates to models.
-    pub fn upload_untracked_graphics(&mut self, world: &World) {
-        let drawables: Vec<_> = world.facets.gfx_iter().collect();
-        // This needs to move to somewhere that owns the assets...
-        for (index, graphic) in drawables {
-            if let Some(_uploaded) = self.tracked_graphics(index) {
-                // TODO: handle model updates
-                // model already uploaded
-                // } else if self.queued_model(index) {
-                //     // model already queued for upload
-            } else {
-                info!(self.logger, "uploading graphic {:?}", index);
-                match self.render_plugin_state.as_mut() {
-                    // for now upload one at a time, with a barrier between each.
-                    // we can also upload all at once, but this currently easier to debug.
-                    Some(render_plugin_state) => {
-                        render_plugin_state
-                            .upload_graphics(&[(index, graphic)])
-                            .expect("should upload graphic");
+    pub fn upload_untracked_graphics_prefabs(&mut self, world: &World) {
+        for (entity, graphic) in world.hecs_world.query::<&GraphicPrefab>().iter() {
+            let index = GfxIndex(entity);
+            match self.render_plugin_state.as_mut() {
+                Some(plugin) => {
+                    if let Some(uploaded_at) = plugin.tracked_graphics(index) {
+                        info!(
+                            self.logger,
+                            "graphic {:?} already tracked for {}ms",
+                            index,
+                            Instant::now().duration_since(uploaded_at).as_millis()
+                        );
+                    } else {
+                        info!(self.logger, "uploading graphic {:?}", index);
+
+                        plugin
+                            .upload_graphics(&[(index, &graphic.gfx)])
+                            .expect("unable to upload graphics");
                     }
-                    None => {
-                        warn!(self.logger, "no render state to upload to");
-                    }
+                }
+                None => {
+                    warn!(self.logger, "no render state to upload to");
                 }
             }
         }
@@ -143,16 +103,16 @@ impl RenderState {
 
 /// Basic trait for calling into rendering functionality.
 pub trait Presenter {
-    fn present(&mut self, scene: &RenderScene);
+    fn present(&mut self, scene: &World);
     fn update_resources(&mut self);
     fn deallocate(&mut self);
 
     /// Query for a tracked drawable.
-    fn tracked_graphics(&mut self, index: GraphicsIndex) -> Option<Instant>;
+    fn tracked_graphics(&self, index: GfxIndex) -> Option<Instant>;
 
     fn upload_graphics(
         &mut self,
-        graphics: &[(GraphicsIndex, &GraphicsFacet)],
+        graphics: &[(GfxIndex, &Graphic)],
     ) -> Result<(), RenderStateError>;
 }
 
@@ -174,12 +134,4 @@ pub enum TextureUploaderError {
     QueueSend,
     #[error("queue send error")]
     QueueRecv,
-}
-
-/// Represents the constructed scene as references into world state.
-pub struct RenderScene {
-    // TODO: should this just be indices?
-    pub active_camera: usize,
-    pub cameras: Vec<(PhysicalFacet, CameraFacet)>,
-    pub drawables: Vec<Drawable>,
 }

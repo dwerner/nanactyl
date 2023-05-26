@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 use core_executor::scoped::ScopedThreadPoolExecutor;
 use core_executor::ThreadPoolExecutor;
 use glam::{Mat4, Vec3};
-use world::graphics::{GfxIndex, Shape};
+use hecs::World;
+use world::graphics::Shape;
 use world::health::HealthFacet;
 
 fn run_sync_workload(player_slice: &mut [Player]) {
@@ -17,7 +18,6 @@ fn cpu_float() -> f32 {
 }
 
 struct Player {
-    gfx: GfxIndex,
     pos: Vec3,
     angles: Vec3,
     scale: f32,
@@ -37,7 +37,6 @@ impl Player {
             1000.0, //far
         );
         Player {
-            gfx: GfxIndex::default(),
             pos: Vec3::ZERO,
             view: Mat4::IDENTITY,
             perspective,

@@ -17,8 +17,9 @@ use histogram::Histogram;
 use input::wire::InputState;
 use logger::{error, info, LogLevel};
 use network::{Connection, Message, RpcError, Typed, MAX_UNACKED_PACKETS, MSG_LEN, PAYLOAD_LEN};
-use wire::{WirePosition, WireThing, WorldUpdate};
-use world::{Vec3, World, WorldError, WorldLockAndControllerState};
+use wire::EntityUpdate;
+use world::components::{DynamicPhysics, Spatial};
+use world::{Entity, Vec3, World, WorldError, WorldLockAndControllerState};
 
 const NUM_UPDATES_PER_MSG: u32 = 96;
 
@@ -106,24 +107,18 @@ pub extern "C" fn unload(state: &mut WorldLockAndControllerState) {
 }
 
 async fn pump_connection_as_server(s: &mut World) -> Result<[InputState; 2], PluginError> {
-    // 1. construct a group of all world state.
+    // 1. construct a group of all updates fromo world state (dynamic physics
+    // objects only).
     let packet = s
-        .things
+        .hecs_world
+        .query::<(&mut Spatial, &DynamicPhysics)>()
         .iter()
-        .enumerate()
-        .map(|(idx, thing)| {
-            let id = idx as u32;
-            let thing: WireThing = thing.into();
-            let p = &s.facets.physical[thing.phys as usize];
-            WorldUpdate {
-                id,
-                thing,
-                position: WirePosition(p.position.x, p.position.y, p.position.z),
-                y_rotation: p.angles.y,
-            }
+        .map(|(entity, (spatial, _physics))| {
+            EntityUpdate::new(entity, spatial.pos, spatial.angles.y)
         })
         .take(NUM_UPDATES_PER_MSG as usize)
         .collect::<Vec<_>>();
+
     // 2. Compress that
     let compressed = wire::compress_world_updates(&packet)?;
     let _seq = s.connection.as_mut().unwrap().send(&compressed).await;
@@ -195,24 +190,22 @@ async fn pump_connection_as_client(
         &data.try_ref().map_err(WorldError::UpdateFromBytes)?.payload,
     )?;
 
-    for wire::WorldUpdate {
-        id,
-        thing,
-        position,
-        y_rotation,
+    // Update entities in world from decompressed updates.
+    // TODO: support mapping of entities between views of the world, as entities
+    // could vary!
+    for wire::EntityUpdate {
+        entity_bits,
+        pos: position,
+        y_rot: y_rotation,
     } in decompressed_updates
     {
-        let thing: Thing = thing.into();
-        match s.things.get_mut(id as usize) {
-            Some(t) => *t = thing,
-            None => error!(logger, "thing not found at index {id}"),
-        };
-        match s.facets.physical.get_mut(id as usize) {
-            Some(phys) => {
-                phys.position = Vec3::new(position.0, position.1, position.2);
+        let entity = Entity::from_bits(entity_bits).expect("unable to from_bits Entity");
+        match s.hecs_world.get::<&mut Spatial>(entity) {
+            Ok(mut phys) => {
+                phys.pos = position;
                 phys.angles.y = y_rotation;
             }
-            None => error!(logger, "no physical facet at index {}", position.0),
+            Err(err) => error!(logger, "error getting entity {:?}", err),
         }
     }
 
@@ -238,75 +231,31 @@ pub mod wire {
 
     use super::*;
 
-    #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
+    /// Entity network update.
+    #[derive(Debug, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
-    pub struct WorldUpdate {
-        pub id: u32,
-        pub thing: WireThing,
-        pub position: WirePosition,
-
-        // FOR RIGHT NOW, only support y axis rotation
-        pub y_rotation: f32,
+    pub struct EntityUpdate {
+        pub entity_bits: u64,
+        pub pos: Vec3,
+        pub y_rot: f32,
     }
 
-    impl From<&Thing> for WireThing {
-        fn from(thing: &Thing) -> Self {
-            match thing.facets {
-                health::ThingType::Camera { phys, camera } => Self {
-                    tag: 0,
-                    phys: phys.into(),
-                    facet: camera.into(),
-                    _pad: 0,
-                },
-                health::ThingType::GraphicsObject { phys, model } => Self {
-                    tag: 1,
-                    phys: phys.into(),
-                    facet: model.into(),
-                    _pad: 0,
-                },
+    impl EntityUpdate {
+        pub fn new(entity: Entity, pos: Vec3, y_rot: f32) -> Self {
+            Self {
+                entity_bits: entity.to_bits().into(),
+                pos,
+                y_rot,
             }
         }
     }
-
-    impl From<WireThing> for Thing {
-        fn from(wt: WireThing) -> Self {
-            match wt {
-                WireThing {
-                    tag: 0,
-                    phys,
-                    facet,
-                    ..
-                } => Thing::camera(phys.into(), facet.into()),
-                WireThing {
-                    tag: 1,
-                    phys,
-                    facet,
-                    ..
-                } => Thing::model(phys.into(), facet.into()),
-                _ => unreachable!(),
-            }
-        }
-    }
-
-    #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
-    #[repr(C)]
-    pub struct WireThing {
-        pub tag: u8,
-        _pad: u8,
-        pub facet: u16,
-        pub phys: u32,
-    }
-
-    #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
-    #[repr(C)]
-    pub struct WirePosition(pub f32, pub f32, pub f32);
 
     const ZSTD_LEVEL: i32 = 3;
 
     /// Compress an update with zstd.
-    pub(crate) fn compress_world_updates(values: &[WorldUpdate]) -> Result<Vec<u8>, PluginError> {
-        let mut sized: [WorldUpdate; NUM_UPDATES_PER_MSG as usize] =
-            [WorldUpdate::default(); NUM_UPDATES_PER_MSG as usize];
+    pub(crate) fn compress_world_updates(values: &[EntityUpdate]) -> Result<Vec<u8>, PluginError> {
+        let mut sized: [EntityUpdate; NUM_UPDATES_PER_MSG as usize] =
+            [EntityUpdate::new(Entity::DANGLING, Vec3::ZERO, 0.0); NUM_UPDATES_PER_MSG as usize];
         sized.copy_from_slice(values);
         let mut compressed_bytes = vec![];
         let read_bytes = bytemuck::bytes_of(&sized);
@@ -323,7 +272,7 @@ pub mod wire {
     /// Decompress an update using zstd.
     pub(crate) fn decompress_world_updates(
         compressed: &[u8],
-    ) -> Result<Vec<WorldUpdate>, PluginError> {
+    ) -> Result<Vec<EntityUpdate>, PluginError> {
         let mut decoded_bytes = vec![];
         let len: &u16 = bytemuck::from_bytes(&compressed[0..2]);
         let len = *len;
@@ -331,7 +280,7 @@ pub mod wire {
         let decoded = zstd::decode_all(&compressed[2..(2 + len as usize).min(compressed.len())])
             .map_err(WorldError::UpdateDecompression)?;
         decoded_bytes.extend(decoded);
-        let updates: &[WorldUpdate; NUM_UPDATES_PER_MSG as usize] =
+        let updates: &[EntityUpdate; NUM_UPDATES_PER_MSG as usize] =
             bytemuck::try_from_bytes(&decoded_bytes)
                 .map_err(|err| PluginError::FromBytes(err, decoded_bytes.len()))?;
         Ok(updates.to_vec())
@@ -348,17 +297,9 @@ pub mod wire {
         fn test_compression_roundtrip() {
             let values = (0..NUM_UPDATES_PER_MSG)
                 .map(|i| {
-                    let physical = PhysicalIndex::from(i);
-                    let model = GfxIndex::from(i);
-                    let model = Thing::model(physical, model);
-                    let wt: WireThing = (&model).into();
-                    let wpos = WirePosition(i as f32, i as f32, i as f32);
-                    WorldUpdate {
-                        id: i,
-                        thing: wt,
-                        position: wpos,
-                        y_rotation: 0.0,
-                    }
+                    let wpos = Vec3::new(i as f32, i as f32, i as f32);
+                    let entity = Entity::DANGLING;
+                    EntityUpdate::new(entity, wpos, 0.0)
                 })
                 .collect::<Vec<_>>();
 

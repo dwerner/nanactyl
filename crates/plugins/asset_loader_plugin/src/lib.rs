@@ -3,7 +3,7 @@ use std::time::Duration;
 use gfx::{Graphic, Model};
 use logger::info;
 use world::bundles::{Player, StaticObject};
-use world::components::{Player, Spatial};
+use world::components::Spatial;
 use world::{AssetLoaderStateAndWorldLock, Vec3};
 
 // TODO:
@@ -36,22 +36,24 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
         info!(logger, "adding player camera object at {}, {}", x, z);
         let pos = Vec3::new(x, 0.0, z);
         let tank = Player::new(world.root, tank_gfx, Spatial::new_at(pos));
-        let tank_id = world.add_player(tank).expect("unable to spawn tank");
+        let tank_id = world.add_player(tank);
         info!(logger, "added tank: {:?}", tank_id)
     }
 
     // initialize some state, lots of model_object entities
     for i in -4..4i32 {
         for j in -4..4i32 {
-            let model_idx = if (i + j) % 2 == 0 { tank_gfx } else { cube_gfx };
+            let model_prefab = if (i + j) % 2 == 0 { tank_gfx } else { cube_gfx };
             let (x, z) = (i as f32, j as f32);
             let object = StaticObject::new(
                 world.root,
-                tank_gfx,
-                Spatial::new_at(Vec3::new(x * 4.0, 2.0, z * 10.0)),
+                model_prefab,
+                Spatial::new_at(Vec3::new(x * 4.0, 2.0, z * 10.0)).with_angles(Vec3::new(
+                    0.0,
+                    j as f32 * 4.0,
+                    0.0,
+                )),
             );
-            object.spatial.angles = Vec3::new(0.0, j as f32 * 4.0, 0.0);
-            object.physics.angular_velocity = Vec3::new(0.0, 1.0, 0.0);
             world.hecs_world.spawn(object);
         }
     }
@@ -62,19 +64,10 @@ pub extern "C" fn load(state: &mut AssetLoaderStateAndWorldLock) {
         "assets/shaders/spv/skybox_fragment.spv",
     )
     .unwrap();
-    let sky_phys = PhysicalFacet::new_cuboid(0.0, 0.0, 0.0, 200.0);
-    let graphics = Graphic::new_model(sky_model);
-    let sky_model_idx = world.add_graphic(graphics);
-    let sky_phys_idx = world.add_physical(sky_phys);
-    let thing = Thing::model(sky_phys_idx, sky_model_idx);
-    world.add_thing(thing).unwrap();
 
-    info!(
-        logger,
-        "loaded asset loader plugin (updates {}) - models {})",
-        world.stats.updates,
-        world.facets.gfx_iter().count()
-    );
+    let sky_prefab = world.add_model(sky_model);
+    let sky = StaticObject::new(world.root, sky_prefab, Spatial::new_with_scale(200.0));
+    world.hecs_world.spawn(sky);
 }
 
 #[no_mangle]
@@ -82,7 +75,7 @@ pub extern "C" fn update(_state: &mut AssetLoaderStateAndWorldLock, _dt: &Durati
 
 #[no_mangle]
 pub extern "C" fn unload(state: &mut AssetLoaderStateAndWorldLock) {
-    state.world.clear();
+    state.world.hecs_world.clear();
     info!(
         state.world.logger,
         "unloaded asset loader plugin ({})", state.world.stats.updates

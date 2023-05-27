@@ -18,7 +18,7 @@ use input::wire::InputState;
 use logger::{error, info, LogLevel};
 use network::{Connection, Message, RpcError, Typed, MAX_UNACKED_PACKETS, MSG_LEN, PAYLOAD_LEN};
 use wire::EntityUpdate;
-use world::components::{DynamicPhysics, Spatial};
+use world::components::{PhysicsBody, Spatial};
 use world::{Entity, Vec3, World, WorldError, WorldLockAndControllerState};
 
 const NUM_UPDATES_PER_MSG: u32 = 96;
@@ -111,7 +111,7 @@ async fn pump_connection_as_server(s: &mut World) -> Result<[InputState; 2], Plu
     // objects only).
     let packet = s
         .hecs_world
-        .query::<(&mut Spatial, &DynamicPhysics)>()
+        .query::<(&mut Spatial, &PhysicsBody)>()
         .iter()
         .map(|(entity, (spatial, _physics))| {
             EntityUpdate::new(entity, spatial.pos, spatial.angles.y)

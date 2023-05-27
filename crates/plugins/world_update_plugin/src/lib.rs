@@ -18,7 +18,7 @@ use rapier3d::prelude::{
     ColliderBuilder, ColliderHandle, ColliderSet, RigidBodyBuilder, RigidBodySet,
 };
 use world::bundles::{Player, StaticObject};
-use world::components::{Control, DynamicPhysics, Spatial};
+use world::components::{Control, PhysicsBody, Spatial};
 use world::graphics::{Shape, EULER_ROT_ORDER};
 use world::{Entity, World, WorldError};
 
@@ -110,10 +110,8 @@ impl WorldUpdatePluginState {
     fn setup_object_colliders(&mut self, world: &mut World) {
         let rad = 0.1;
         // TODO: use physics object to set up properties of colliders
-        for (entity, (spatial, physics)) in world
-            .hecs_world
-            .query::<(&Spatial, &DynamicPhysics)>()
-            .iter()
+        for (entity, (spatial, physics)) in
+            world.hecs_world.query::<(&Spatial, &PhysicsBody)>().iter()
         {
             let x = spatial.pos.x;
             let y = spatial.pos.y;

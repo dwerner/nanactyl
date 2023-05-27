@@ -1,17 +1,17 @@
 //! Bundles for common archetypes
 
-use glam::{Mat4, Vec3};
+use glam::Mat4;
 use hecs::{Bundle, Entity};
 
 use crate::components::{
-    Camera, Control, Drawable, DynamicPhysics, RelativeTransform, Spatial, WorldTransform,
+    Camera, Control, Drawable, PhysicsBody, RelativeTransform, Spatial, StaticPhysics,
+    WorldTransform,
 };
 
 #[derive(Debug, Bundle)]
 pub struct StaticObject {
     pub spatial: Spatial,
     pub drawable: Drawable,
-    pub physics: DynamicPhysics,
     pub parent: RelativeTransform,
     pub world: WorldTransform,
 }
@@ -19,15 +19,11 @@ pub struct StaticObject {
 impl StaticObject {
     /// Create a new StaticObject with the given parent
     pub fn new(parent: Entity, gfx_prefab: Entity, spatial: Spatial) -> Self {
-        StaticObject {
+        Self {
             spatial,
             drawable: Drawable {
                 gfx: gfx_prefab,
                 scale: 1.0,
-            },
-            physics: DynamicPhysics {
-                mass: 1.0,
-                ..Default::default()
             },
             parent: RelativeTransform {
                 parent,
@@ -47,7 +43,7 @@ pub struct Player {
     pub control: Control,
     pub spatial: Spatial,
     pub drawable: Drawable,
-    pub physics: DynamicPhysics,
+    pub physics: PhysicsBody,
     pub parent: RelativeTransform,
     pub world: WorldTransform,
 }
@@ -73,7 +69,7 @@ impl Player {
                 gfx: gfx_prefab,
                 scale: 1.0,
             },
-            physics: DynamicPhysics {
+            physics: PhysicsBody {
                 mass: 1.0,
                 ..Default::default()
             },

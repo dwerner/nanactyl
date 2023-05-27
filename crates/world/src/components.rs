@@ -17,7 +17,7 @@ pub struct Camera {
 impl Camera {
     // Problematic because multiple components make up the properties of the camera,
     // including position, matrices, etc.
-    pub fn new(spatial: &Spatial, physics: &DynamicPhysics) -> Self {
+    pub fn new(spatial: &Spatial, physics: &PhysicsBody) -> Self {
         let mut camera = Camera {
             view: Mat4::IDENTITY,
 
@@ -36,13 +36,13 @@ impl Camera {
         camera
     }
 
-    pub fn update(&mut self, dt: &Duration, spatial: &mut Spatial, physics: &DynamicPhysics) {
+    pub fn update(&mut self, dt: &Duration, spatial: &mut Spatial, physics: &PhysicsBody) {
         let amount = (dt.as_millis() as f64 / 100.0) as f32;
         spatial.pos += physics.linear_velocity * amount;
         self.update_view_matrix(spatial, physics);
     }
 
-    pub fn update_view_matrix(&mut self, spatial: &Spatial, physics: &DynamicPhysics) {
+    pub fn update_view_matrix(&mut self, spatial: &Spatial, physics: &PhysicsBody) {
         let rot = Mat4::from_euler(
             EULER_ROT_ORDER,
             physics.angular_velocity.x,
@@ -75,6 +75,10 @@ pub struct Spatial {
 }
 
 impl Spatial {
+    pub fn with_angles(mut self, angles: Vec3) -> Self {
+        self.angles = angles;
+        self
+    }
     pub fn forward(&self) -> Vec3 {
         let rx = self.angles.x;
         let ry = self.angles.y;
@@ -108,6 +112,13 @@ impl Spatial {
             scale: 1.0,
         }
     }
+    pub fn new_with_scale(scale: f32) -> Self {
+        Spatial {
+            pos: Vec3::ZERO,
+            angles: Vec3::ZERO,
+            scale,
+        }
+    }
 }
 
 /// Instance of a graphic, attached to an entity.
@@ -132,7 +143,7 @@ impl GraphicPrefab {
 /// Dynamic physics objects have a rigidbody.
 /// TODO: revisit this and store handles for physics lookups?
 #[derive(Debug, Default)]
-pub struct DynamicPhysics {
+pub struct PhysicsBody {
     pub linear_velocity: Vec3,
     pub linear_acceleration: Vec3,
     pub angular_velocity: Vec3,

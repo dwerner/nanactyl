@@ -33,14 +33,11 @@ pub enum SceneError {
 
 /// "Declarative" style api attempt - don't expose any renderer details/buffers,
 /// instead have RenderState track them
-pub struct RenderState<'w> {
+pub struct RenderState {
     pub updates: u64,
     pub win_ptr: WinPtr,
     pub enable_validation_layer: bool,
     pub logger: Logger,
-
-    // TODO: consider where this borrow is going to come from, post-refactoring archetypes
-    pub world: Option<&'w World>,
 
     /// Internal plugin state held by RenderState. Must be cleared between each
     /// update to the plugin, and unload called.
@@ -50,20 +47,14 @@ pub struct RenderState<'w> {
     pub render_plugin_state: Option<Box<dyn RenderPluginState<State = Self> + Send + Sync>>,
 }
 
-impl<'w> RenderState<'w> {
-    pub fn new(
-        win_ptr: WinPtr,
-        enable_validation_layer: bool,
-        is_server: bool,
-        world: &'w World,
-    ) -> Self {
+impl RenderState {
+    pub fn new(win_ptr: WinPtr, enable_validation_layer: bool, is_server: bool) -> Self {
         Self {
             updates: 0,
             win_ptr,
             render_plugin_state: None,
             enable_validation_layer,
             logger: LogLevel::Info.logger(),
-            world: todo!("see TODO on world borrow"),
         }
     }
 
@@ -102,7 +93,7 @@ impl<'w> RenderState<'w> {
 
 /// Basic trait for calling into rendering functionality.
 pub trait Presenter {
-    fn present(&mut self, scene: &RenderState);
+    fn present(&mut self, world: &World);
     fn update_resources(&mut self);
     fn deallocate(&mut self);
 

@@ -29,9 +29,9 @@ use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, Pipeline, Shader, ShaderStage, ShaderStages,
     VertexInputAssembly, VulkanError,
 };
-use world::components::{Drawable, Spatial};
+use world::components::{Camera, Drawable, Spatial};
 use world::graphics::EULER_ROT_ORDER;
-use world::Entity;
+use world::{Entity, World};
 
 use crate::device::DeviceWrapper;
 use crate::types::DescriptorSetLayoutBinding;
@@ -64,11 +64,7 @@ impl VulkanDebug {
 }
 
 impl Renderer {
-    fn present(
-        &mut self,
-        base: &mut VulkanBase,
-        render_state: &RenderState,
-    ) -> Result<(), VulkanError> {
+    fn present(&mut self, base: &mut VulkanBase, world: &World) -> Result<(), VulkanError> {
         if base.flag_recreate_swapchain {
             base.recreate_swapchain()?;
         }
@@ -138,16 +134,25 @@ impl Renderer {
             vk::SubpassContents::INLINE,
         );
 
-        let (phys_cam, _camera) = &render_state.cameras[render_state.active_camera];
+        let (camera, spatial) = (
+            world
+                .hecs_world
+                .get::<&Camera>(world.camera().expect("camera"))
+                .expect("camera entity"),
+            world
+                .hecs_world
+                .get::<&Spatial>(world.camera().expect("camera"))
+                .expect("camera entity"),
+        );
 
         let scale = Mat4::from_scale(Vec3::new(0.5, 0.5, 0.5));
         let rotation = Mat4::from_euler(
             EULER_ROT_ORDER,
-            phys_cam.angles.x,
-            -phys_cam.angles.y,
+            spatial.angles.x,
+            -spatial.angles.y,
             0.0, //phys_cam.angles.z,
         );
-        let viewscale = scale * rotation * Mat4::from_translation(phys_cam.position);
+        let viewscale = scale * rotation * Mat4::from_translation(spatial.pos);
 
         fn calculate_fov(aspect_ratio: f32) -> f32 {
             let vertical_fov = 74.0f32;
@@ -202,8 +207,7 @@ impl Renderer {
                 0,
                 vk::IndexType::UINT32,
             );
-            for (drawable, spatial) in render_state
-                .world
+            for (drawable, spatial) in world
                 .hecs_world
                 .query::<(&Drawable, &Spatial)>()
                 .iter()
@@ -479,10 +483,10 @@ impl Renderer {
 }
 
 impl Presenter for VulkanRenderPluginState {
-    fn present(&mut self, render_state: &RenderState) {
+    fn present(&mut self, world: &World) {
         if let Some(renderer) = &mut self.renderer {
             renderer
-                .present(self.base.as_mut().unwrap(), render_state)
+                .present(self.base.as_mut().unwrap(), world)
                 .unwrap();
         }
     }
@@ -1807,13 +1811,14 @@ pub struct VulkanRenderPluginState {
 }
 
 impl PluginState for VulkanRenderPluginState {
-    type State = RenderState<'static>;
+    type State = (RenderState, World);
 
     fn new() -> Box<Self> {
         Box::new(VulkanRenderPluginState::default())
     }
 
     fn load(&mut self, state: &mut Self::State) {
+        let (state, world) = state;
         let logger = state.logger.sub("ash-renderer-load");
         info!(logger, "loaded ash_renderer_plugin...");
 
@@ -1835,16 +1840,18 @@ impl PluginState for VulkanRenderPluginState {
     }
 
     fn update(&mut self, state: &mut Self::State, _dt: &Duration) {
+        let (state, world) = state;
         // Call render, buffers are updated etc
         if let Some(renderer) = self.renderer.as_mut() {
             state.updates += 1;
             renderer
-                .present(self.base.as_mut().unwrap(), &state)
+                .present(self.base.as_mut().unwrap(), &world)
                 .unwrap();
         }
     }
 
     fn unload(&mut self, state: &mut Self::State) {
+        let (state, world) = state;
         let logger = state.logger.sub("ash-renderer-unload");
         info!(logger, "unloading ash_renderer_plugin...");
         if let Some(presenter) = &mut self.renderer {

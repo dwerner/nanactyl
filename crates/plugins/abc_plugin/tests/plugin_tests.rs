@@ -24,12 +24,14 @@ mod tests {
 
         let target_dir = root.join("target/debug");
 
-        let mut plugin = Plugin::open_from_target_dir(&target_dir, "abc_plugin").unwrap();
+        let mut plugin = Plugin::<_, ()>::open_from_target_dir(&target_dir, "abc_plugin").unwrap();
 
         let logger = LogLevel::Debug.logger().sub("test");
 
         // World is special, it holds on to state that is set by the plugin.
         let mut state = World::new(None, &logger, true);
+
+        plugin.call_plugin_state().unwrap();
 
         plugin.check(&mut state).unwrap();
         plugin

@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTimeError, UNIX_EPOCH};
@@ -14,6 +13,7 @@ include!(concat!(env!("OUT_DIR"), "/const_gen.rs"));
 const UPDATE_METHOD: &[u8] = b"update";
 const LOAD_METHOD: &[u8] = b"load";
 const UNLOAD_METHOD: &[u8] = b"unload";
+const PLUGIN_STATE_METHOD: &[u8] = b"plugin_state";
 
 #[derive(thiserror::Error, Debug)]
 pub enum PluginError {
@@ -47,8 +47,8 @@ pub enum PluginError {
     #[error("error opening lib {0:?}")]
     ErrorOnOpen(libloading::Error),
 
-    #[error("update invoked when plugin unloaded")]
-    UpdateNotLoaded,
+    #[error("method `{method}` invoked when not loaded")]
+    PluginMethodNotLoaded { method: &'static str },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -65,7 +65,7 @@ pub enum PluginCheck {
 /// We keep track of last-modified date of the file, and when it changes we
 /// copy the file, along with a version counter to a temporary directory to load
 /// it from.
-pub struct Plugin<T: Send + Sync + 'static> {
+pub struct Plugin<'p, S: Send + Sync + 'static, I: Send + Sync + 'static> {
     logger: Logger,
     /// Source filename to watch
     path: PathBuf,
@@ -74,13 +74,12 @@ pub struct Plugin<T: Send + Sync + 'static> {
     check_interval: u32,
     lib: Option<Library>,
     modified: Duration,
-    libcache: Option<LibCache<T>>,
+    libcache: Option<LibCache<'p, S, I>>,
     /// Keep track of how many times we've loaded,
     /// as we use this in the filename for the temp copy
     version: u64,
     name: String,
     tempdir: TempDir,
-    _pd: PhantomData<T>,
 }
 
 #[cfg(unix)]
@@ -88,19 +87,22 @@ use libloading::os::unix::Symbol as PlatformSymbol;
 #[cfg(windows)]
 use libloading::os::windows::Symbol as PlatformSymbol;
 
-struct LibCache<T> {
-    load: PlatformSymbol<LoadFn<T>>,
-    update: PlatformSymbol<UpdateFn<T>>,
-    unload: PlatformSymbol<UnloadFn<T>>,
+struct LibCache<'p, S, I> {
+    load: PlatformSymbol<LoadFn<S>>,
+    update: PlatformSymbol<UpdateFn<S>>,
+    unload: PlatformSymbol<UnloadFn<S>>,
+    plugin_state: PlatformSymbol<PluginStateFn<'p, I>>,
 }
 
-type UpdateFn<T> = unsafe extern "C" fn(&mut T, &Duration);
-type LoadFn<T> = unsafe extern "C" fn(&mut T);
-type UnloadFn<T> = unsafe extern "C" fn(&mut T);
+type UpdateFn<S> = unsafe extern "C" fn(&mut S, &Duration);
+type LoadFn<S> = unsafe extern "C" fn(&mut S);
+type UnloadFn<S> = unsafe extern "C" fn(&mut S);
+type PluginStateFn<'a, T> = unsafe extern "C" fn() -> Option<&'a mut T>;
 
-impl<T> Plugin<T>
+impl<'p, S, I> Plugin<'p, S, I>
 where
-    T: Send + Sync,
+    S: Send + Sync,
+    I: Send + Sync,
 {
     /// Wrap this plugin in Arc<Mutex<_>>
     pub fn into_shared(self) -> Arc<Mutex<Self>> {
@@ -119,7 +121,13 @@ where
 
     /// Opens a plugin from the project target directory. Note that `check` must
     /// be called subsequently in order to invoke callbacks on the plugin.
-    pub fn open_from_target_dir(plugin_dir: &Path, plugin_name: &str) -> Result<Self, PluginError> {
+    pub fn open_from_target_dir<'a>(
+        plugin_dir: &Path,
+        plugin_name: &'a str,
+    ) -> Result<Self, PluginError>
+    where
+        'a: 'p,
+    {
         let filename = if cfg!(windows) {
             plugin_dir.join(format!("{plugin_name}.dll"))
         } else {
@@ -130,7 +138,7 @@ where
 
     /// Opens a plugin at `path`, with `name`. Note that `check` must be called
     /// subsequently in order to invoke callbacks on the plugin.
-    pub fn open_at(path: impl AsRef<Path>, name: &str) -> Result<Plugin<T>, PluginError> {
+    pub fn open_at(path: impl AsRef<Path>, name: &str) -> Result<Plugin<S, I>, PluginError> {
         let modified = Duration::from_millis(0);
         let path = path.as_ref().to_path_buf();
         let name = name.to_string();
@@ -152,7 +160,6 @@ where
             lib: None,
             libcache: None,
             check_interval: 250,
-            _pd: PhantomData::<T>,
         })
     }
 
@@ -163,7 +170,7 @@ where
     /// - call "unload" lifecycle event on the current mod if there is one
     /// - call "load" lifecycle event on the newly loaded library, passing &mut
     ///   State
-    pub fn check(&mut self, state: &mut T) -> Result<PluginCheck, PluginError> {
+    pub fn check(&mut self, state: &mut S) -> Result<PluginCheck, PluginError> {
         if !self.should_check() {
             return Ok(PluginCheck::Unchanged);
         }
@@ -189,28 +196,35 @@ where
             fs::copy(&source, temp_file_path.as_path()).map_err(PluginError::CopyFile)?;
             let lib = unsafe { Library::new(temp_file_path).map_err(PluginError::ErrorOnOpen)? };
             let libcache = unsafe {
-                let load = lib.get::<LoadFn<T>>(LOAD_METHOD).map_err(|error| {
+                let load = lib.get::<LoadFn<S>>(LOAD_METHOD).map_err(|error| {
                     PluginError::MethodNotFound {
                         name: "load".to_string(),
                         error,
                     }
                 })?;
-                let unload = lib.get::<UnloadFn<T>>(UNLOAD_METHOD).map_err(|error| {
+                let unload = lib.get::<UnloadFn<S>>(UNLOAD_METHOD).map_err(|error| {
                     PluginError::MethodNotFound {
                         name: "unload".to_string(),
                         error,
                     }
                 })?;
-                let update = lib.get::<UpdateFn<T>>(UPDATE_METHOD).map_err(|error| {
+                let update = lib.get::<UpdateFn<S>>(UPDATE_METHOD).map_err(|error| {
                     PluginError::MethodNotFound {
                         name: "update".to_string(),
                         error,
                     }
                 })?;
+                let plugin_state = lib
+                    .get::<PluginStateFn<'p, I>>(PLUGIN_STATE_METHOD)
+                    .map_err(|error| PluginError::MethodNotFound {
+                        name: "plugin_state".to_string(),
+                        error,
+                    })?;
                 LibCache {
                     load: load.into_raw(),
                     update: update.into_raw(),
                     unload: unload.into_raw(),
+                    plugin_state: plugin_state.into_raw(),
                 }
             };
             if self.lib.is_some() {
@@ -239,16 +253,15 @@ where
     /// Call to the mod to update the state with the "update" lifecycle event.
     pub async fn call_update(
         &mut self,
-        state: &mut T,
+        state: &mut S,
         delta_time: &Duration,
     ) -> Result<Duration, PluginError> {
         let start_time = Instant::now();
         match self.libcache.as_ref() {
-            None => return Err(PluginError::UpdateNotLoaded),
             Some(cache) => unsafe {
-                // TODO: it could be that the lib fn needs to be cached.
                 (cache.update)(state, delta_time);
             },
+            None => return Err(PluginError::PluginMethodNotLoaded { method: "update" }),
         }
         self.updates += 1;
         self.last_reloaded += 1;
@@ -265,11 +278,15 @@ where
     }
 
     /// Trigger the "load" lifecycle event
-    fn call_load(&mut self, state: &mut T) -> Result<(), PluginError> {
+    fn call_load(&mut self, state: &mut S) -> Result<(), PluginError> {
         if let Some(cache) = self.libcache.as_ref() {
             unsafe {
                 (cache.load)(state);
             }
+        } else {
+            return Err(PluginError::PluginMethodNotLoaded {
+                method: "plugin_state",
+            });
         }
         debug!(
             self.logger,
@@ -286,11 +303,15 @@ where
     /// destructors for those objects will attempt to run at the wrong time, and
     /// this will cause a segfault. Normally this is called automatically when a
     /// new version of a plugin is loaded.
-    pub fn call_unload(&mut self, state: &mut T) -> Result<(), PluginError> {
+    pub fn call_unload(&mut self, state: &mut S) -> Result<(), PluginError> {
         if let Some(cache) = self.libcache.as_ref() {
             unsafe {
                 (cache.unload)(state);
             }
+        } else {
+            return Err(PluginError::PluginMethodNotLoaded {
+                method: "plugin_state",
+            });
         }
         if let Some(lib) = self.lib.take() {
             lib.close().map_err(PluginError::ErrorOnClose)?;
@@ -303,6 +324,23 @@ where
             self.version
         );
         Ok(())
+    }
+
+    /// Lock and get a handle to the plugin's state.
+    pub fn call_plugin_state<'a>(&mut self) -> Result<Option<&'a mut I>, PluginError>
+    where
+        'p: 'a,
+    {
+        if let Some(cache) = self.libcache.as_ref() {
+            unsafe {
+                let state = (cache.plugin_state)();
+                return Ok(state);
+            }
+        } else {
+            return Err(PluginError::PluginMethodNotLoaded {
+                method: "plugin_state",
+            });
+        }
     }
 
     #[cfg(unix)]
@@ -322,9 +360,10 @@ where
     }
 }
 
-impl<T> Drop for Plugin<T>
+impl<'p, S, I> Drop for Plugin<'p, S, I>
 where
-    T: Send + Sync,
+    S: Send + Sync,
+    I: Send + Sync,
 {
     fn drop(&mut self) {
         if let Some(lib) = self.lib.take() {
@@ -342,7 +381,6 @@ mod tests {
     use std::io::Write;
 
     use ::function_name::named;
-    use cmd_lib::run_cmd;
     use quote::quote;
     use syn::{parse_quote, ItemFn};
 
@@ -375,7 +413,14 @@ mod tests {
             }
         );
 
-        let fns = [item_fn_load, item_fn_update, item_fn_unload];
+        let item_fn_state: ItemFn = parse_quote!(
+            #[no_mangle]
+            pub extern "C" fn plugin_state() -> u32 {
+                42
+            }
+        );
+
+        let fns = [item_fn_load, item_fn_update, item_fn_unload, item_fn_state];
 
         let module = quote! {
             #(#fns)*
@@ -401,8 +446,26 @@ mod tests {
         file.write_all(plugin_source.as_bytes()).unwrap();
         file.flush().unwrap();
         drop(file);
+        duct::cmd!("rustfmt", &source_file_path).run().unwrap();
+        let compile_result = duct::cmd!(
+            "rustc",
+            source_file_path,
+            "--crate-type",
+            "cdylib",
+            "-o",
+            &dest_file_path
+        )
+        .run();
 
-        run_cmd!(rustc ${source_file_path} --crate-type cdylib -o ${dest_file_path}).unwrap();
+        if compile_result.is_err() {
+            std::mem::forget(tempdir);
+            println!(
+                "failed to compile plugin source: {:?}",
+                compile_result.unwrap_err()
+            );
+            std::process::exit(1i32);
+        }
+
         dest_file_path
     }
 
@@ -414,18 +477,18 @@ mod tests {
             let global_scope = quote! {
                 use std::sync::Arc;
                 type State = (Vec<Arc<bool>>, Arc<bool>);
+                static PLUGIN_STATE: Option<u32> = Some(1234);
             };
             let operation = quote! {
-
                 for _ in 0..10 {
                     state.0.push(Arc::clone(&state.1));
                 }
-
             };
             let item_fn_load: ItemFn = parse_quote!(
                 #[no_mangle]
                 pub extern "C" fn load(state: &mut State) {
                     #operation
+                    println!("refs at load: {}", Arc::strong_count(&state.1));
                 }
             );
 
@@ -433,6 +496,7 @@ mod tests {
                 #[no_mangle]
                 pub extern "C" fn update(state: &mut State, _dt: &std::time::Duration) {
                     #operation
+                    println!("refs at update: {}", Arc::strong_count(&state.1));
                 }
             );
 
@@ -444,7 +508,14 @@ mod tests {
                 }
             );
 
-            let fns = [item_fn_load, item_fn_update, item_fn_unload];
+            let item_fn_state: ItemFn = parse_quote!(
+                #[no_mangle]
+                pub extern "C" fn plugin_state<'a>() -> Option<&'a u32> {
+                    PLUGIN_STATE.as_ref()
+                }
+            );
+
+            let fns = [item_fn_load, item_fn_update, item_fn_unload, item_fn_state];
 
             let module = quote! {
                 #(#fns)*
@@ -463,13 +534,22 @@ mod tests {
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = (Vec::new(), Arc::new(true));
         let mut loader =
-            Plugin::<(Vec<Arc<bool>>, Arc<bool>)>::open_at(plugin_path, "test_plugin").unwrap();
+            Plugin::<(Vec<Arc<bool>>, Arc<bool>), u32>::open_at(plugin_path, "test_plugin")
+                .unwrap();
         let _update = loader.check(&mut state).unwrap();
         loader
             .call_update(&mut state, &Duration::from_secs(1))
             .await
             .unwrap();
-        assert_eq!(Arc::strong_count(&state.1), 2);
+        assert_eq!(Arc::strong_count(&state.1), 21);
+        loader
+            .call_update(&mut state, &Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(Arc::strong_count(&state.1), 31);
+
+        let state_value = loader.call_plugin_state().unwrap();
+        assert_eq!(state_value, Some(&mut 1234));
     }
 
     #[smol_potat::test]
@@ -481,7 +561,7 @@ mod tests {
 
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
+        let mut loader = Plugin::<i32, ()>::open_at(plugin_path, "test_plugin").unwrap();
         let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
         assert_eq!(update, PluginCheck::FoundNewVersion);
@@ -519,7 +599,7 @@ mod tests {
 
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
+        let mut loader = Plugin::<i32, ()>::open_at(plugin_path, "test_plugin").unwrap();
         let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
         assert_eq!(update, PluginCheck::FoundNewVersion);
@@ -567,18 +647,18 @@ mod tests {
 
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32>::open_at(plugin_path, "test_plugin").unwrap();
+        let mut loader = Plugin::<i32, ()>::open_at(plugin_path, "test_plugin").unwrap();
         assert!(matches!(
             loader
                 .call_update(&mut state, &Duration::from_millis(1))
                 .await,
-            Err(PluginError::UpdateNotLoaded)
+            Err(PluginError::PluginMethodNotLoaded { method: "update" })
         ));
     }
 
     #[test]
     fn should_fail_to_load_lib_that_doesnt_exist() {
-        let load = Plugin::<u32>::open_from_target_dir(
+        let load = Plugin::<u32, ()>::open_from_target_dir(
             &PathBuf::from(plugin_loader::RELATIVE_TARGET_DIR),
             "mod_unknown",
         );

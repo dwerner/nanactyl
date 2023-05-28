@@ -1,7 +1,7 @@
 //! Bundles for common archetypes
 
 use glam::Mat4;
-use hecs::{Bundle, Entity};
+use hecs::{Bundle, Entity, Query};
 
 use crate::components::{
     Camera, Control, Drawable, PhysicsBody, RelativeTransform, Spatial, StaticPhysics,
@@ -36,7 +36,6 @@ impl StaticObject {
     }
 }
 
-// TODO: bundles move into the plugin!
 #[derive(Debug, Bundle)]
 pub struct Player {
     pub camera: Camera,
@@ -46,6 +45,17 @@ pub struct Player {
     pub physics: PhysicsBody,
     pub parent: RelativeTransform,
     pub world: WorldTransform,
+}
+// TODO: bundles move into the plugin?
+#[derive(Debug, Query)]
+pub struct PlayerQuery<'a> {
+    pub camera: &'a mut Camera,
+    pub control: &'a mut Control,
+    pub spatial: &'a mut Spatial,
+    pub drawable: &'a mut Drawable,
+    pub physics: &'a mut PhysicsBody,
+    pub parent: &'a mut RelativeTransform,
+    pub world: &'a mut WorldTransform,
 }
 
 impl Player {
@@ -84,5 +94,23 @@ impl Player {
                 ..Default::default()
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_player_bundle() {
+        let mut world = hecs::World::new();
+        let root = world.spawn((WorldTransform::default(),));
+        let gfx = world.spawn((WorldTransform::default(),));
+        let player = Player::new(root, gfx, Spatial::default());
+
+        let p = world.spawn(player);
+
+        let mut query = world.query_one::<PlayerQuery>(p).unwrap();
+
+        assert!(matches!(query.get(), Some(_)));
     }
 }

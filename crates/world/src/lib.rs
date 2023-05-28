@@ -19,7 +19,7 @@ pub use glam::{Mat4, Quat, Vec3};
 use graphrox::Graph;
 pub use hecs::Entity;
 use input::wire::InputState;
-use logger::{LogLevel, Logger};
+use logger::{info, LogLevel, Logger};
 use network::{Connection, RpcError};
 
 #[repr(C)]
@@ -102,6 +102,9 @@ pub enum WorldError {
 
     #[error("component error {0:?}")]
     Component(hecs::ComponentError),
+
+    #[error("component error {0:?}")]
+    NoSuchEntity(hecs::NoSuchEntity),
 }
 
 pub struct World {
@@ -200,6 +203,7 @@ impl World {
 
     pub fn add_player(&mut self, player: Player) -> Entity {
         let player = self.hecs_world.spawn(player);
+        info!(self.logger, "spawned player entity: {:?}", player);
         self.players.push(player);
         player
     }

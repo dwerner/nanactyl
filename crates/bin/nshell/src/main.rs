@@ -17,7 +17,7 @@ use input::wire::InputState;
 use input::{DeviceEvent, EngineEvent};
 use logger::{error, info, LogLevel, Logger};
 use plugin_loader::{Plugin, PluginCheck, PluginError};
-use render::RenderState;
+use render::{RenderPluginState, RenderState};
 use serde::Deserialize;
 use structopt::StructOpt;
 use structopt_yaml::StructOptYaml;
@@ -116,21 +116,25 @@ fn main() {
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();
 
         // ash renderer
-        let ash_renderer_plugin =
-            Plugin::<RenderState>::open_from_target_dir(&opts.plugin_dir, "ash_renderer_plugin")
-                .unwrap()
-                .into_shared();
+        let ash_renderer_plugin = Plugin::<
+            RenderState,
+            Box<dyn RenderPluginState<GameState = RenderState> + Send + Sync>,
+        >::open_from_target_dir(
+            &opts.plugin_dir, "ash_renderer_plugin"
+        )
+        .unwrap()
+        .into_shared();
 
         // world update
         let world_update_plugin =
-            Plugin::<World>::open_from_target_dir(&opts.plugin_dir, "world_update_plugin")
+            Plugin::<World, ()>::open_from_target_dir(&opts.plugin_dir, "world_update_plugin")
                 .unwrap()
                 .into_shared();
 
         // net sync
         let net_sync_plugin = if !opts.net_disabled {
             Some(
-                Plugin::<WorldLockAndControllerState>::open_from_target_dir(
+                Plugin::<WorldLockAndControllerState, ()>::open_from_target_dir(
                     &opts.plugin_dir,
                     "net_sync_plugin",
                 )
@@ -143,7 +147,7 @@ fn main() {
 
         // asset loader
         let asset_loader_state = Arc::new(Mutex::new(AssetLoaderState::default()));
-        let asset_loader_plugin = Plugin::<AssetLoaderStateAndWorldLock>::open_from_target_dir(
+        let asset_loader_plugin = Plugin::<AssetLoaderStateAndWorldLock, ()>::open_from_target_dir(
             &opts.plugin_dir,
             "asset_loader_plugin",
         )
@@ -161,12 +165,18 @@ fn main() {
         let mut frame_start;
         let mut last_frame_complete = Instant::now();
 
-        {
-            render_state
-                .lock()
-                .await
-                .upload_untracked_graphics_prefabs(&*world.lock().await);
-        }
+        // {
+        //     let mut plugin = ash_renderer_plugin.lock().await;
+        //     let plugin_state: Option<
+        //         &mut Box<dyn RenderPluginState<GameState = RenderState> + Send +
+        // Sync>,
+        //     > = plugin.call_plugin_state().unwrap();
+
+        //     render_state
+        //         .lock()
+        //         .await
+        //         .upload_untracked_graphics_prefabs(&*world.lock().await,
+        // plugin_state); }
 
         let mut frame = 0u64;
         let own_controllers: [InputState; 2] = Default::default();
@@ -239,8 +249,11 @@ fn main() {
                 // TODO: stop copying state around.
                 let state = &mut *render_state.lock().await;
                 let world = &*world.as_ref().lock().await;
-                state.upload_untracked_graphics_prefabs(world);
-                state.update_render_scene(world).unwrap();
+                let mut plugin = ash_renderer_plugin.lock().await;
+                let plugin_state: Option<
+                    &mut Box<dyn RenderPluginState<GameState = RenderState> + Send + Sync>,
+                > = plugin.call_plugin_state().unwrap();
+                state.upload_untracked_graphics_prefabs(world, plugin_state);
             }
 
             match net_sync_plugin {
@@ -269,6 +282,16 @@ fn main() {
                     let world = &mut *world.lock().await;
                     world.set_server_controller_state(controller_state[0]);
                     world.set_client_controller_state(controller_state[1]);
+                }
+            }
+
+            {
+                // Actually call present - this is not done in the plugin anymore due to the
+                // trait object plumbing
+                let world = &*world.as_ref().lock().await;
+                let mut plugin = ash_renderer_plugin.lock().await;
+                if let Some(plugin_state) = plugin.call_plugin_state().unwrap() {
+                    plugin_state.present(&world);
                 }
             }
 
@@ -318,32 +341,19 @@ fn main() {
 
             frame += 1;
         } // 'frame_loop
-
-        world_update_plugin
-            .lock()
-            .await
-            .call_unload(&mut *world.lock().await)
-            .unwrap();
-        drop(world_update_plugin);
-
-        // Unload stateful plugins
-        ash_renderer_plugin
-            .lock()
-            .await
-            .call_unload(&mut *render_state.lock().await)
-            .unwrap();
     });
 
     info!(logger, "quitting.");
 }
 
-fn call_plugin_update_async<T>(
-    plugin: &Arc<Mutex<Plugin<T>>>,
+fn call_plugin_update_async<'a, T, P>(
+    plugin: &Arc<Mutex<Plugin<'a, T, P>>>,
     state: &Arc<Mutex<T>>,
     dt: &Duration,
-) -> Pin<Box<impl Future<Output = Result<Duration, PluginError>> + Send + Sync>>
+) -> Pin<Box<impl Future<Output = Result<Duration, PluginError>> + Send + Sync + 'a>>
 where
     T: Send + Sync,
+    P: Send + Sync,
 {
     let plugin = Arc::clone(plugin);
     let state = Arc::clone(state);
@@ -390,13 +400,14 @@ fn handle_input_events(
     None
 }
 
-fn check_plugin_async<T>(
-    plugin: &Arc<Mutex<Plugin<T>>>,
+fn check_plugin_async<'p, T, P>(
+    plugin: &Arc<Mutex<Plugin<'p, T, P>>>,
     state: &Arc<Mutex<T>>,
     logger: &Logger,
-) -> Pin<Box<impl Future<Output = ()> + Send + Sync>>
+) -> Pin<Box<impl Future<Output = ()> + Send + Sync + 'p>>
 where
     T: Send + Sync,
+    P: Send + Sync,
 {
     let logger = logger.sub("check_plugin_async");
     let plugin = Arc::clone(plugin);
@@ -407,9 +418,10 @@ where
 }
 
 // Main loop policy for handling plugin errors
-fn check_plugin<T>(plugin: &mut Plugin<T>, state: &mut T, logger: &Logger)
+fn check_plugin<T, P>(plugin: &mut Plugin<T, P>, state: &mut T, logger: &Logger)
 where
     T: Send + Sync,
+    P: Send + Sync,
 {
     let logger = logger.sub("check_plugin");
     match plugin.check(state) {

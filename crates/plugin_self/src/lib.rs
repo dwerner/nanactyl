@@ -26,7 +26,7 @@
 /// Safety:
 /// Must call 'unload' on the plugin before dropping it.
 pub trait PluginState {
-    type State: Send + Sync;
+    type GameState: Send + Sync;
 
     /// Zero arg constructor.
     fn new() -> Box<Self>
@@ -40,7 +40,7 @@ pub trait PluginState {
     /// # Arguments
     ///
     /// * `state`: The state that the plugin will manipulate.
-    fn load(&mut self, state: &mut Self::State);
+    fn load(&mut self, state: &mut Self::GameState);
 
     /// Update the plugin.
     ///
@@ -51,7 +51,7 @@ pub trait PluginState {
     /// * `state`: The state that the plugin will manipulate.
     /// * `delta_time`: The amount of time that has passed since the last
     ///   update.
-    fn update(&mut self, state: &mut Self::State, delta_time: &std::time::Duration);
+    fn update(&mut self, state: &mut Self::GameState, delta_time: &std::time::Duration);
 
     /// Unload the plugin.
     ///
@@ -60,53 +60,7 @@ pub trait PluginState {
     /// # Arguments
     ///
     /// * `state`: The state that the plugin will manipulate.
-    fn unload(&mut self, state: &mut Self::State);
-}
-
-/// Implements the binding for this plugin.
-///
-/// Notes:
-/// Intended to be used to hang dynamic state off the plugin State parameter, to
-/// be used between load->update->unload cycles. This adds the consequence that
-/// any pointers to objects created from this type are invalidated when the
-/// plugin is dropped.
-///
-/// Safety:
-///
-/// If this trait and macro are used, the plugin must be "unload"ed before being
-/// dropped.
-///
-/// Arguments:
-/// - Using a struct field: (Plugin state struct, Plugin state argument type =>
-///   state field)
-#[macro_export]
-macro_rules! impl_plugin_state_field {
-    // Specify a field on the owning struct
-    ($self_ty:ty, $assoc_type:ty => $field:ident) => {
-        #[no_mangle]
-        pub extern "C" fn load(state: &mut $assoc_type) {
-            let mut this = <$self_ty>::new();
-            this.load(state);
-            state.$field = Some(this);
-        }
-
-        #[no_mangle]
-        pub extern "C" fn update(state: &mut $assoc_type, delta_time: &std::time::Duration) {
-            let mut this = state.$field.take();
-            if let Some(mut this) = this {
-                this.update(state, delta_time);
-                state.$field = Some(this);
-            }
-        }
-
-        #[no_mangle]
-        pub extern "C" fn unload(state: &mut $assoc_type) {
-            let mut this = state.$field.take();
-            if let Some(mut this) = this {
-                this.unload(state);
-            }
-        }
-    };
+    fn unload(&mut self, state: &mut Self::GameState);
 }
 
 /// Where possible, this is preferred  to keep plugin state private.
@@ -117,29 +71,67 @@ macro_rules! impl_plugin_state_field {
 #[macro_export]
 macro_rules! impl_plugin_static {
     ($self_ty:ty, $assoc_type:ty) => {
-        static PLUGIN_STATE: std::sync::Mutex<Option<Box<$self_ty>>> = std::sync::Mutex::new(None);
+        static mut PLUGIN_STATE: Option<Box<$self_ty>> = None;
         #[no_mangle]
         pub extern "C" fn load(state: &mut $assoc_type) {
             let mut this = <$self_ty as PluginState>::new();
             this.load(state);
-            PLUGIN_STATE.lock().unwrap().replace(this);
+            unsafe {
+                PLUGIN_STATE.replace(this);
+            }
         }
 
         #[no_mangle]
         pub extern "C" fn update(state: &mut $assoc_type, delta_time: &std::time::Duration) {
-            let mut this = PLUGIN_STATE.lock().unwrap().take();
+            let mut this = unsafe { PLUGIN_STATE.take() };
             if let Some(mut this) = this {
                 this.update(state, delta_time);
-                PLUGIN_STATE.lock().unwrap().replace(this);
+                unsafe { PLUGIN_STATE.replace(this) };
             }
         }
 
         #[no_mangle]
         pub extern "C" fn unload(state: &mut $assoc_type) {
-            let mut this = PLUGIN_STATE.lock().unwrap().take();
+            let mut this = unsafe { PLUGIN_STATE.take() };
             if let Some(mut this) = this {
                 this.unload(state);
             }
+        }
+        #[no_mangle]
+        pub extern "C" fn plugin_state<'a>() -> Option<&'a mut ()> {
+            None
+        }
+    };
+    ($self_ty:ty, $assoc_type:ty, $plugin_state_ty:path) => {
+        static mut PLUGIN_STATE: Option<Box<dyn $plugin_state_ty + Send + Sync>> = None;
+        #[no_mangle]
+        pub extern "C" fn load(state: &mut $assoc_type) {
+            let mut this = <$self_ty as PluginState>::new();
+            this.load(state);
+            unsafe { PLUGIN_STATE.replace(this) };
+        }
+
+        #[no_mangle]
+        pub extern "C" fn update(state: &mut $assoc_type, delta_time: &std::time::Duration) {
+            let mut this = unsafe { PLUGIN_STATE.take() };
+            if let Some(mut this) = this {
+                this.update(state, delta_time);
+                unsafe { PLUGIN_STATE.replace(this) };
+            }
+        }
+
+        #[no_mangle]
+        pub extern "C" fn unload(state: &mut $assoc_type) {
+            let mut this = unsafe { PLUGIN_STATE.take() };
+            if let Some(mut this) = this {
+                this.unload(state);
+            }
+        }
+
+        #[no_mangle]
+        pub extern "C" fn plugin_state<'a>(
+        ) -> Option<&'a mut Box<(dyn $plugin_state_ty + Send + Sync + 'a)>> {
+            unsafe { std::mem::transmute(PLUGIN_STATE.as_mut()) }
         }
     };
 }

@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use async_lock::Mutex;
 use gfx::Graphic;
-use logger::{info, warn, LogLevel, Logger};
+use logger::{info, trace, warn, LogLevel, Logger};
 use platform::WinPtr;
 use plugin_self::PluginState;
 use world::components::GraphicPrefab;
@@ -38,13 +38,6 @@ pub struct RenderState {
     pub win_ptr: WinPtr,
     pub enable_validation_layer: bool,
     pub logger: Logger,
-
-    /// Internal plugin state held by RenderState. Must be cleared between each
-    /// update to the plugin, and unload called.
-    ///
-    /// Currently this *internal* state and the externally controlled "plugin"
-    /// owned by the app conflict in name a bit.
-    pub render_plugin_state: Option<Box<dyn RenderPluginState<State = Self> + Send + Sync>>,
 }
 
 impl RenderState {
@@ -52,7 +45,6 @@ impl RenderState {
         Self {
             updates: 0,
             win_ptr,
-            render_plugin_state: None,
             enable_validation_layer,
             logger: LogLevel::Info.logger(),
         }
@@ -64,12 +56,16 @@ impl RenderState {
 
     /// Search through the world for models that need to be uploaded, and do so.
     /// Does not yet handle updates to models.
-    pub fn upload_untracked_graphics_prefabs(&mut self, world: &World) {
+    pub fn upload_untracked_graphics_prefabs(
+        &mut self,
+        world: &World,
+        mut plugin: Option<&mut Box<dyn RenderPluginState<GameState = RenderState> + Send + Sync>>,
+    ) {
         for (entity, graphic) in world.hecs_world.query::<&GraphicPrefab>().iter() {
-            match self.render_plugin_state.as_mut() {
+            match plugin.as_mut() {
                 Some(plugin) => {
                     if let Some(uploaded_at) = plugin.tracked_graphics(entity) {
-                        info!(
+                        trace!(
                             self.logger,
                             "graphic {:?} already tracked for {}ms",
                             entity,

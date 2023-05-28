@@ -15,8 +15,9 @@ use bytemuck::PodCastError;
 use futures_lite::FutureExt;
 use histogram::Histogram;
 use input::wire::InputState;
-use logger::{error, info, LogLevel};
+use logger::{error, info, LogLevel, Logger};
 use network::{Connection, Message, RpcError, Typed, MAX_UNACKED_PACKETS, MSG_LEN, PAYLOAD_LEN};
+use plugin_self::{impl_plugin_static, PluginState};
 use wire::EntityUpdate;
 use world::components::{PhysicsBody, Spatial};
 use world::{Entity, Vec3, World, WorldError, WorldLockAndControllerState};
@@ -31,79 +32,95 @@ enum PluginError {
     World(#[from] WorldError),
 }
 
-#[no_mangle]
-pub extern "C" fn load(state: &mut WorldLockAndControllerState) {
-    info!(
-        state.logger,
-        "reloaded net sync plugin ({})!", state.world.stats.updates
-    );
-    let connection = match state.world.config.maybe_server_addr {
-        Some(addr) => {
-            futures_lite::future::block_on(async move {
-                let mut server = Peer::bind_dest("0.0.0.0:12001", &addr.to_string())
-                    .await
-                    .unwrap();
-
-                // initial message to client
-                server.send(b"moar plz").await.unwrap();
-                server
-            })
-        }
-        None => {
-            let logger = LogLevel::Info.logger();
-            // We will run as a server, accepting new connections.
-            futures_lite::future::block_on(async move {
-                let addr = "0.0.0.0:12002";
-                info!(logger, "binding addr {addr}");
-                let mut client = Peer::bind_only(addr).await.unwrap();
-                client.recv().await.unwrap();
-                client
-            })
-        }
-    };
-
-    state.world.connection =
-        Some(Box::new(connection) as Box<dyn Connection + Send + Sync + 'static>);
+struct NetSyncPluginState {
+    logger: Logger,
 }
 
-#[no_mangle]
-pub extern "C" fn update(s: &mut WorldLockAndControllerState, _dt: &Duration) {
-    let logger = s.logger.sub("net_sync_plugin-update");
-    // TODO: fix sized net sync issue (try > NUM_UPDTES_PER_MSG items)
-    if s.world.is_server() {
-        assert!(s.world.hecs_world.len() <= 96, "too many entities FIXME");
+impl_plugin_static!(NetSyncPluginState, WorldLockAndControllerState);
 
-        match futures_lite::future::block_on(pump_connection_as_server(&mut s.world)) {
-            Ok(controller_state) => {
-                // TODO: support N controllers, or just one per client?
-                s.world.set_client_controller_state(controller_state[0]);
-                let new_server_states = s.controller_state[0];
-                s.world.set_server_controller_state(new_server_states);
-            }
-            Err(err) => error!(logger, "error pumping server connection {err:?}"),
-        }
-    } else {
-        match futures_lite::future::block_on(pump_connection_as_client(
-            &mut s.world,
-            &*s.controller_state,
-        )) {
-            Err(PluginError::World(WorldError::Network(network::RpcError::Receive(kind))))
-                if kind.kind() == std::io::ErrorKind::TimedOut => {}
-            Err(err) => {
-                error!(logger, "error in client connection {err:?}");
-            }
-            _ => (),
-        }
-    };
-}
+impl PluginState for NetSyncPluginState {
+    type GameState = WorldLockAndControllerState;
 
-#[no_mangle]
-pub extern "C" fn unload(state: &mut WorldLockAndControllerState) {
-    info!(
-        state.logger,
-        "unloaded net sync plugin ({})...", state.world.stats.updates
-    );
-    state.world.connection.take();
+    fn new() -> Box<Self>
+    where
+        Self: Sized,
+    {
+        Box::new(Self {
+            logger: LogLevel::Info.logger(),
+        })
+    }
+
+    fn load(&mut self, state: &mut Self::GameState) {
+        info!(
+            state.logger,
+            "reloaded net sync plugin ({})!", state.world.stats.updates
+        );
+        let connection = match state.world.config.maybe_server_addr {
+            Some(addr) => {
+                futures_lite::future::block_on(async move {
+                    let mut server = Peer::bind_dest("0.0.0.0:12001", &addr.to_string())
+                        .await
+                        .unwrap();
+
+                    // initial message to client
+                    server.send(b"moar plz").await.unwrap();
+                    server
+                })
+            }
+            None => {
+                let logger = LogLevel::Info.logger();
+                // We will run as a server, accepting new connections.
+                futures_lite::future::block_on(async move {
+                    let addr = "0.0.0.0:12002";
+                    info!(logger, "binding addr {addr}");
+                    let mut client = Peer::bind_only(addr).await.unwrap();
+                    client.recv().await.unwrap();
+                    client
+                })
+            }
+        };
+
+        state.world.connection =
+            Some(Box::new(connection) as Box<dyn Connection + Send + Sync + 'static>);
+    }
+
+    fn update(&mut self, s: &mut Self::GameState, delta_time: &std::time::Duration) {
+        let logger = s.logger.sub("net_sync_plugin-update");
+        // TODO: fix sized net sync issue (try > NUM_UPDTES_PER_MSG items)
+        if s.world.is_server() {
+            assert!(s.world.hecs_world.len() <= 96, "too many entities FIXME");
+
+            match futures_lite::future::block_on(pump_connection_as_server(&mut s.world)) {
+                Ok(controller_state) => {
+                    // TODO: support N controllers, or just one per client?
+                    s.world.set_client_controller_state(controller_state[0]);
+                    let new_server_states = s.controller_state[0];
+                    s.world.set_server_controller_state(new_server_states);
+                }
+                Err(err) => error!(logger, "error pumping server connection {err:?}"),
+            }
+        } else {
+            match futures_lite::future::block_on(pump_connection_as_client(
+                &mut s.world,
+                &*s.controller_state,
+            )) {
+                Err(PluginError::World(WorldError::Network(network::RpcError::Receive(kind))))
+                    if kind.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    error!(logger, "error in client connection {err:?}");
+                }
+                _ => (),
+            }
+        };
+    }
+
+    fn unload(&mut self, state: &mut Self::GameState) {
+        info!(
+            state.logger,
+            "unloaded net sync plugin ({})...", state.world.stats.updates
+        );
+        state.world.connection.take();
+    }
 }
 
 async fn pump_connection_as_server(s: &mut World) -> Result<[InputState; 2], PluginError> {

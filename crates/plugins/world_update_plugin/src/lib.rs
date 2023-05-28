@@ -4,21 +4,22 @@
 //! accord based on a timestamp. For example: if running as a server, tick the
 //! simulation along based on the `dt` passed to the plugin.
 
+use std::any::TypeId;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use glam::{vec3, vec4, Mat4, Vec3};
 use input::wire::InputState;
 use input::Button;
-use logger::{info, LogLevel, Logger};
+use logger::{info, trace, LogLevel, Logger};
 use plugin_self::{impl_plugin_static, PluginState};
 use rapier3d::control::{DynamicRayCastVehicleController, WheelTuning};
 use rapier3d::na::{self as nalgebra, point, vector, Vector};
 use rapier3d::prelude::{
     ColliderBuilder, ColliderHandle, ColliderSet, RigidBodyBuilder, RigidBodySet,
 };
-use world::bundles::{Player, StaticObject};
-use world::components::{Control, PhysicsBody, Spatial};
+use world::bundles::{Player, PlayerQuery, StaticObject};
+use world::components::{Camera, Control, PhysicsBody, Spatial};
 use world::graphics::{Shape, EULER_ROT_ORDER};
 use world::{Entity, World, WorldError};
 
@@ -36,7 +37,7 @@ struct WorldUpdatePluginState {
 impl_plugin_static!(WorldUpdatePluginState, World);
 
 impl PluginState for WorldUpdatePluginState {
-    type State = World;
+    type GameState = World;
 
     fn new() -> Box<Self>
     where
@@ -53,7 +54,7 @@ impl PluginState for WorldUpdatePluginState {
         })
     }
 
-    fn load(&mut self, world: &mut Self::State) {
+    fn load(&mut self, world: &mut Self::GameState) {
         info!(world.logger, "loaded.");
 
         // Set up colliders and rigid bodies from the world state
@@ -65,7 +66,7 @@ impl PluginState for WorldUpdatePluginState {
         self.setup_object_colliders(world);
     }
 
-    fn update(&mut self, world: &mut Self::State, dt: &Duration) {
+    fn update(&mut self, world: &mut Self::GameState, dt: &Duration) {
         let mut world = WorldExt::new(world);
         world.update_stats(dt);
         if world.is_server() {
@@ -73,7 +74,7 @@ impl PluginState for WorldUpdatePluginState {
         }
     }
 
-    fn unload(&mut self, _world: &mut Self::State) {
+    fn unload(&mut self, _world: &mut Self::GameState) {
         // TODO unloading things that were put into the world on load
         info!(self.logger, "unloaded");
     }
@@ -211,7 +212,8 @@ impl<'a> WorldExt<'a> {
                 self.move_camera_based_on_controller_state(
                     &client_controller,
                     self.world.player(1).unwrap(),
-                );
+                )
+                .unwrap();
             }
             for (_entity, (control, spatial)) in self
                 .world
@@ -234,11 +236,21 @@ impl<'a> WorldExt<'a> {
         controller: &InputState,
         entity: Entity,
     ) -> Result<(), WorldError> {
+        // let player_entity = self.world.hecs_world.entity(entity).unwrap();
+        // trace!(
+        //     self.world.logger,
+        //     "entity={:?} has Camera={:?}",
+        //     player_entity.entity(),
+        //     player_entity.has::<Camera>()
+        // );
+
         let mut player = self
             .world
             .hecs_world
-            .get::<&mut Player>(entity)
-            .map_err(WorldError::Component)?;
+            .query_one::<PlayerQuery>(entity)
+            .map_err(WorldError::NoSuchEntity)?;
+
+        let player = player.get().unwrap();
 
         // TODO: move the get_camera_facet method up into World, and use that here.
         // kludge! this relies on the first two phys facets being the cameras 0,1
@@ -279,9 +291,9 @@ impl<'a> WorldExt<'a> {
             player.control.angular_intention.y = 0.0;
         }
 
-        todo!("consider moving methods to player?");
-        let camera = &mut player.camera;
-        camera.update_view_matrix(&player.spatial, &player.physics);
+        player
+            .camera
+            .update_view_matrix(&player.spatial, &player.physics);
 
         Ok(())
     }

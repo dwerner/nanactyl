@@ -11,7 +11,7 @@ const NAME: &str = "abc-plugin";
 const _VERSION: u64 = 0;
 
 impl PluginState for AbcPlugin {
-    type State = World;
+    type GameState = World;
 
     fn new() -> Box<Self>
     where
@@ -23,21 +23,21 @@ impl PluginState for AbcPlugin {
         })
     }
 
-    fn load(&mut self, _state: &mut Self::State) {
+    fn load(&mut self, _state: &mut Self::GameState) {
         info!(
             self.logger.sub("load"),
             "{} loaded state {}", NAME, self.plugin_state
         );
     }
 
-    fn update(&mut self, _state: &mut Self::State, _delta_time: &std::time::Duration) {
+    fn update(&mut self, _state: &mut Self::GameState, _delta_time: &std::time::Duration) {
         info!(
             self.logger.sub("update"),
             "{} updated state {}", NAME, self.plugin_state
         );
     }
 
-    fn unload(&mut self, _state: &mut Self::State) {
+    fn unload(&mut self, _state: &mut Self::GameState) {
         info!(
             self.logger.sub("unload"),
             "{} unloaded {}", NAME, self.plugin_state

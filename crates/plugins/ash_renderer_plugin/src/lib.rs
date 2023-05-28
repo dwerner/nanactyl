@@ -22,7 +22,7 @@ use gfx::{DiffuseColor, GpuNeeds, Graphic, Primitive, Vertex};
 use glam::{Mat4, Vec3};
 use logger::{debug, info, Logger};
 use platform::WinPtr;
-use plugin_self::{impl_plugin_state_field, PluginState};
+use plugin_self::{impl_plugin_static, PluginState};
 use render::{Presenter, RenderPluginState, RenderState, RenderStateError};
 use shader_objects::{PushConstants, UniformBuffer};
 use types::{
@@ -1811,14 +1811,14 @@ pub struct VulkanRenderPluginState {
 }
 
 impl PluginState for VulkanRenderPluginState {
-    type State = (RenderState, World);
+    type GameState = RenderState;
 
     fn new() -> Box<Self> {
         Box::new(VulkanRenderPluginState::default())
     }
 
-    fn load(&mut self, state: &mut Self::State) {
-        let (state, world) = state;
+    fn load(&mut self, state: &mut Self::GameState) {
+        // let (state, world) = state;
         let logger = state.logger.sub("ash-renderer-load");
         info!(logger, "loaded ash_renderer_plugin...");
 
@@ -1839,19 +1839,19 @@ impl PluginState for VulkanRenderPluginState {
         info!(logger, "set base");
     }
 
-    fn update(&mut self, state: &mut Self::State, _dt: &Duration) {
-        let (state, world) = state;
+    fn update(&mut self, state: &mut Self::GameState, _dt: &Duration) {
+        // let (state, world) = state;
         // Call render, buffers are updated etc
-        if let Some(renderer) = self.renderer.as_mut() {
-            state.updates += 1;
-            renderer
-                .present(self.base.as_mut().unwrap(), &world)
-                .unwrap();
-        }
+        // if let Some(renderer) = self.renderer.as_mut() {
+        //     state.updates += 1;
+        //     renderer
+        //         .present(self.base.as_mut().unwrap(), &world)
+        //         .unwrap();
+        // }
     }
 
-    fn unload(&mut self, state: &mut Self::State) {
-        let (state, world) = state;
+    fn unload(&mut self, state: &mut Self::GameState) {
+        // let (state, world) = state;
         let logger = state.logger.sub("ash-renderer-unload");
         info!(logger, "unloading ash_renderer_plugin...");
         if let Some(presenter) = &mut self.renderer {
@@ -1907,4 +1907,8 @@ fn primitive_to_vk_polygon_mode(primitive: Primitive) -> vk::PolygonMode {
 
 impl RenderPluginState for VulkanRenderPluginState {}
 
-impl_plugin_state_field!(VulkanRenderPluginState, RenderState => render_plugin_state);
+impl_plugin_static!(
+    VulkanRenderPluginState,
+    RenderState,
+    RenderPluginState<GameState = RenderState>
+);

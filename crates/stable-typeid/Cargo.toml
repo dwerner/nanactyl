@@ -1,0 +1,12 @@
+[package]
+name = "stable-typeid"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+uuid = ["dep:uuid"]
+serde = ["dep:serde"]
+
+[dependencies]
+uuid = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["derive"] }

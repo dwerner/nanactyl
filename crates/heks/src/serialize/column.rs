@@ -46,7 +46,7 @@ use crate::{
 /// # struct Position([f32; 3]);
 /// # #[derive(Serialize)]
 /// # struct Velocity([f32; 3]);
-/// use std::any::TypeId;
+/// use stable_typeid::StableTypeId;
 /// use heks::{*, serialize::column::*};
 ///
 /// #[derive(Serialize, Deserialize)]

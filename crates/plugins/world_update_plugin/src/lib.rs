@@ -4,7 +4,6 @@
 //! accord based on a timestamp. For example: if running as a server, tick the
 //! simulation along based on the `dt` passed to the plugin.
 
-use std::any::TypeId;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -18,6 +17,7 @@ use rapier3d::na::{self as nalgebra, point, vector, Vector};
 use rapier3d::prelude::{
     ColliderBuilder, ColliderHandle, ColliderSet, RigidBodyBuilder, RigidBodySet,
 };
+use stable_typeid::StableTypeId;
 use world::bundles::StaticObject;
 use world::components::{Camera, Control, PhysicsBody, Spatial};
 use world::graphics::{Shape, EULER_ROT_ORDER};

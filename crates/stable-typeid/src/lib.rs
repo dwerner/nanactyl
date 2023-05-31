@@ -1,14 +1,12 @@
-use std::{
-    any::type_name,
-    hash::{Hash, Hasher},
-};
+use std::any::type_name;
+use std::hash::{Hash, Hasher};
 
 pub trait TypeInfoExt {
     fn stable_type_id(&self) -> StableTypeId;
 }
 
 #[cfg_attr(features = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct StableTypeId {
     #[cfg(not(features = "uuid"))]
     id: u64,

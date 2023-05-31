@@ -5,7 +5,6 @@ pub mod components;
 pub mod graphics;
 pub mod health;
 
-use std::any::TypeId;
 use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -22,6 +21,7 @@ pub use hecs::Entity;
 use input::wire::InputState;
 use logger::{info, LogLevel, Logger};
 use network::{Connection, RpcError};
+use stable_typeid::StableTypeId;
 
 use crate::components::Camera;
 

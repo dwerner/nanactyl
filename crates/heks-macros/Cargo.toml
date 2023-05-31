@@ -17,4 +17,4 @@ proc-macro2 = "1.0.1"
 [dev-dependencies]
 # Remarkably, this isn't a circular dependency. Test crates coexist
 # with regular crates, even in unit tests!
-heks = { features = ["macros"], path = ".." }
+heks = { features = ["heks-macros"], path = "../heks" }

@@ -1,12 +1,11 @@
-use std::any::TypeId;
 use std::time::Duration;
 
-use gfx::{Graphic, Model};
+use gfx::Model;
 use logger::{info, LogLevel, Logger};
 use plugin_self::{impl_plugin_static, PluginState};
-use world::bundles::{Player, PlayerQuery, StaticObject};
-use world::components::{Camera, Spatial};
-use world::{AssetLoaderStateAndWorldLock, Vec3, World};
+use world::bundles::{Player, StaticObject};
+use world::components::Spatial;
+use world::{AssetLoaderStateAndWorldLock, Vec3};
 
 struct AssetLoaderPlugin {
     logger: Logger,
@@ -25,7 +24,7 @@ impl PluginState for AssetLoaderPlugin {
     }
 
     fn load(&mut self, state: &mut Self::GameState) {
-        info!(self.logger.sub("load"), "asset loader plugin loaded");
+        info!(self.logger.sub("load"), "asset loader plugin loaded.");
         let logger = &state.world.logger.sub("asset-loader");
         let world = &mut state.world;
 
@@ -46,7 +45,7 @@ impl PluginState for AssetLoaderPlugin {
         let cube_gfx = world.add_model(cube_model);
 
         for (x, z) in [(10.0, 10.0), (-10.0, -10.0)].into_iter() {
-            info!(logger, "adding player camera object at {}, {}", x, z);
+            info!(logger, "adding player camera object at: {}, {}", x, z);
             let pos = Vec3::new(x, 0.0, z);
             let tank = Player::new(world.root, tank_gfx, Spatial::new_at(pos));
             let tank_id = world.add_player(tank);
@@ -66,7 +65,9 @@ impl PluginState for AssetLoaderPlugin {
                         0.0,
                     )),
                 );
-                world.hecs_world.spawn(object);
+
+                // TODO: add_object
+                world.hecs_world.spawn(object.0);
             }
         }
 
@@ -79,7 +80,7 @@ impl PluginState for AssetLoaderPlugin {
 
         let sky_prefab = world.add_model(sky_model);
         let sky = StaticObject::new(world.root, sky_prefab, Spatial::new_with_scale(200.0));
-        world.hecs_world.spawn(sky);
+        world.hecs_world.spawn(sky.0);
     }
 
     fn update(&mut self, state: &mut Self::GameState, delta_time: &Duration) {}
@@ -89,7 +90,7 @@ impl PluginState for AssetLoaderPlugin {
         info!(log, "asset loader plugin unloaded");
         state.world.hecs_world.clear();
         info!(
-            state.world.logger,
+            log,
             "unloaded asset loader plugin ({})", state.world.stats.updates
         );
     }

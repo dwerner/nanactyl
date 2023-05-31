@@ -11,14 +11,14 @@ use std::time::{Duration, Instant};
 use glam::{vec3, vec4, Mat4, Vec3};
 use input::wire::InputState;
 use input::Button;
-use logger::{info, trace, LogLevel, Logger};
+use logger::{error, info, LogLevel, Logger};
 use plugin_self::{impl_plugin_static, PluginState};
 use rapier3d::control::{DynamicRayCastVehicleController, WheelTuning};
 use rapier3d::na::{self as nalgebra, point, vector, Vector};
 use rapier3d::prelude::{
     ColliderBuilder, ColliderHandle, ColliderSet, RigidBodyBuilder, RigidBodySet,
 };
-use world::bundles::{Player, PlayerQuery, StaticObject};
+use world::bundles::StaticObject;
 use world::components::{Camera, Control, PhysicsBody, Spatial};
 use world::graphics::{Shape, EULER_ROT_ORDER};
 use world::{Entity, World, WorldError};
@@ -159,7 +159,8 @@ impl WorldUpdatePluginState {
             Spatial::new_at(vec3(0.0, -ground_height - ground_y_offset, 0.0)),
         );
 
-        let entity = world.hecs_world.spawn(ground_phys);
+        // TODO: spawn object method
+        let entity = world.hecs_world.spawn(ground_phys.0);
         self.collider_handles.insert(entity, collider_handle);
     }
 }
@@ -202,18 +203,48 @@ impl<'a> WorldExt<'a> {
             // TODO: deal with hardcoded players
             //
             if let Some(server_controller) = self.world.server_controller_state {
-                self.move_camera_based_on_controller_state(
-                    &server_controller,
-                    self.world.player(0).unwrap(),
-                )
-                .unwrap();
+                let entity = self.world.player(0).unwrap();
+                if let Err(err) =
+                    self.move_camera_based_on_controller_state(&server_controller, entity)
+                {
+                    error!(self.world.logger, "Do any entities have a camera?");
+                    let entitites = self.world.hecs_world.iter();
+                    for eref in entitites {
+                        error!(
+                            self.world.logger,
+                            "entity={:?} has Camera={:?} camera typeid= {:?}",
+                            eref.entity(),
+                            eref.has::<Camera>(),
+                            TypeId::of::<Camera>(),
+                        );
+                    }
+                    error!(
+                        self.world.logger,
+                        "error moving server camera: ({:?}) {:?}", entity, err
+                    );
+                    panic!("exiting...");
+                }
             }
             if let Some(client_controller) = self.world.client_controller_state {
-                self.move_camera_based_on_controller_state(
-                    &client_controller,
-                    self.world.player(1).unwrap(),
-                )
-                .unwrap();
+                let entity = self.world.player(1).unwrap();
+                if let Err(err) =
+                    self.move_camera_based_on_controller_state(&client_controller, entity)
+                {
+                    error!(self.world.logger, "Do any entities have a camera?");
+                    let entitites = self.world.hecs_world.iter();
+                    for eref in entitites {
+                        error!(
+                            self.world.logger,
+                            "entity={:?} has Camera={:?}",
+                            eref.entity(),
+                            eref.has::<Camera>()
+                        );
+                    }
+                    error!(
+                        self.world.logger,
+                        "error moving client camera: ({:?}) {:?}", entity, err
+                    );
+                }
             }
             for (_entity, (control, spatial)) in self
                 .world
@@ -244,13 +275,13 @@ impl<'a> WorldExt<'a> {
         //     player_entity.has::<Camera>()
         // );
 
-        let mut player = self
+        let mut query = self
             .world
             .hecs_world
-            .query_one::<PlayerQuery>(entity)
+            .query_one::<(&mut Camera, &mut Control, &Spatial, &PhysicsBody)>(entity)
             .map_err(WorldError::NoSuchEntity)?;
 
-        let player = player.get().unwrap();
+        let (camera, control, spatial, physics) = query.get().ok_or(WorldError::NoSuchCamera)?;
 
         // TODO: move the get_camera_facet method up into World, and use that here.
         // kludge! this relies on the first two phys facets being the cameras 0,1
@@ -267,33 +298,31 @@ impl<'a> WorldExt<'a> {
 
         let rot = Mat4::from_euler(
             EULER_ROT_ORDER,
-            player.spatial.angles.x,
-            player.spatial.angles.y,
-            player.spatial.angles.z,
+            spatial.angles.x,
+            spatial.angles.y,
+            spatial.angles.z,
         );
         let forward = rot.transform_vector3(Vec3::new(0.0, 0.0, 1.0));
         if controller.is_button_pressed(Button::Down) {
-            let transform = player.camera.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
-            player.control.linear_intention += transform.transform_vector3(forward);
+            let transform = camera.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
+            control.linear_intention += transform.transform_vector3(forward);
         } else if controller.is_button_pressed(Button::Up) {
             let transform =
-                player.camera.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));
-            player.control.linear_intention += transform.transform_vector3(forward);
+                camera.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));
+            control.linear_intention += transform.transform_vector3(forward);
         } else {
-            player.control.linear_intention = Vec3::ZERO;
+            control.linear_intention = Vec3::ZERO;
         }
 
         if controller.is_button_pressed(Button::Left) {
-            player.control.angular_intention.y = -1.0 * speed;
+            control.angular_intention.y = -1.0 * speed;
         } else if controller.is_button_pressed(Button::Right) {
-            player.control.angular_intention.y = speed;
+            control.angular_intention.y = speed;
         } else {
-            player.control.angular_intention.y = 0.0;
+            control.angular_intention.y = 0.0;
         }
 
-        player
-            .camera
-            .update_view_matrix(&player.spatial, &player.physics);
+        camera.update_view_matrix(&spatial, &physics);
 
         Ok(())
     }

@@ -8,6 +8,7 @@ use crate::graphics::{Shape, EULER_ROT_ORDER};
 
 /// A component representing a camera.
 #[derive(Debug, Default)]
+#[repr(C)]
 pub struct Camera {
     pub projection: Mat4,
     pub view: Mat4,
@@ -196,7 +197,7 @@ mod tests {
         },));
 
         let player = Player::new(root_transform, gfx_prefab, Spatial::default());
-        let _player_id = world.spawn(player);
+        let _player_id = world.spawn(player.0);
 
         let entity = {
             let mut query = world.query::<(&Camera, &Spatial)>();

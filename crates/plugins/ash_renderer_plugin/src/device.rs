@@ -6,7 +6,7 @@ use ash::vk;
 use gfx::{Image, Primitive};
 use logger::Logger;
 
-use crate::types::{BufferAndMemory, Shader, Texture, VulkanError};
+use crate::types::{BufferAndMemory, RenderError, Shader, Texture};
 use crate::VulkanBase;
 
 /// Newtype over `ash::Device` allowing our own methods to be implemented.
@@ -30,7 +30,7 @@ impl<'a> DeviceWrapper<'a> {
         &self,
         push_constants_len: u32,
         desc_set_layouts: &[vk::DescriptorSetLayout],
-    ) -> Result<vk::PipelineLayout, VulkanError> {
+    ) -> Result<vk::PipelineLayout, RenderError> {
         let push_constant_ranges = [*vk::PushConstantRange::builder()
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .offset(0)
@@ -44,17 +44,17 @@ impl<'a> DeviceWrapper<'a> {
             self.device
                 .create_pipeline_layout(&layout_create_info, None)
         }
-        .map_err(VulkanError::VkResultToDo)
+        .map_err(RenderError::VkResultToDo)
     }
 
-    pub(crate) fn wait_for_fence(&self, fence: vk::Fence) -> Result<(), VulkanError> {
+    pub(crate) fn wait_for_fence(&self, fence: vk::Fence) -> Result<(), RenderError> {
         unsafe {
             self.device
                 .wait_for_fences(&[fence], true, u64::MAX)
-                .map_err(VulkanError::Fence)?;
+                .map_err(RenderError::Fence)?;
             self.device
                 .reset_fences(&[fence])
-                .map_err(VulkanError::FenceReset)?;
+                .map_err(RenderError::FenceReset)?;
         }
         Ok(())
     }
@@ -63,7 +63,7 @@ impl<'a> DeviceWrapper<'a> {
         &self,
         memory_properties: vk::PhysicalDeviceMemoryProperties,
         image_extent: vk::Extent2D,
-    ) -> Result<Texture, VulkanError> {
+    ) -> Result<Texture, RenderError> {
         let texture_create_info = vk::ImageCreateInfo {
             image_type: vk::ImageType::TYPE_2D,
             format: vk::Format::R8G8B8A8_UNORM,
@@ -77,7 +77,7 @@ impl<'a> DeviceWrapper<'a> {
             ..Default::default()
         };
         let texture_image = unsafe { self.device.create_image(&texture_create_info, None) }
-            .map_err(VulkanError::VkResultToDo)?;
+            .map_err(RenderError::VkResultToDo)?;
         let texture_memory_req =
             unsafe { self.device.get_image_memory_requirements(texture_image) };
         let texture_memory_index = VulkanBase::find_memorytype_index(
@@ -85,7 +85,7 @@ impl<'a> DeviceWrapper<'a> {
             &memory_properties,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )
-        .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?;
+        .ok_or(RenderError::UnableToFindMemoryTypeForBuffer)?;
 
         let texture_allocate_info = vk::MemoryAllocateInfo {
             allocation_size: texture_memory_req.size,
@@ -94,13 +94,13 @@ impl<'a> DeviceWrapper<'a> {
         };
 
         let texture_memory = unsafe { self.device.allocate_memory(&texture_allocate_info, None) }
-            .map_err(VulkanError::VkResultToDo)?;
+            .map_err(RenderError::VkResultToDo)?;
 
         unsafe {
             self.device
                 .bind_image_memory(texture_image, texture_memory, 0)
         }
-        .map_err(VulkanError::VkResultToDo)?;
+        .map_err(RenderError::VkResultToDo)?;
 
         Texture::create(
             texture_create_info.format,
@@ -115,7 +115,7 @@ impl<'a> DeviceWrapper<'a> {
         &self,
         buffer: &mut BufferAndMemory,
         data: &[T],
-    ) -> Result<(), VulkanError>
+    ) -> Result<(), RenderError>
     where
         T: Copy,
     {
@@ -127,7 +127,7 @@ impl<'a> DeviceWrapper<'a> {
                 vk::MemoryMapFlags::empty(),
             )
         }
-        .map_err(VulkanError::VkResultToDo)?;
+        .map_err(RenderError::VkResultToDo)?;
         let mut slice = unsafe { Align::new(ptr, align_of::<T>() as u64, buffer.allocation_size) };
         slice.copy_from_slice(data);
         unsafe { self.device.unmap_memory(buffer.memory) };
@@ -142,7 +142,7 @@ impl<'a> DeviceWrapper<'a> {
         usage: vk::BufferUsageFlags,
         memory_properties: vk::PhysicalDeviceMemoryProperties,
         data: &[T],
-    ) -> Result<BufferAndMemory, VulkanError>
+    ) -> Result<BufferAndMemory, RenderError>
     where
         T: Copy,
     {
@@ -153,7 +153,7 @@ impl<'a> DeviceWrapper<'a> {
             ..Default::default()
         };
         let buffer = unsafe { self.device.create_buffer(&buffer_info, None) }
-            .map_err(VulkanError::VkResultToDo)?;
+            .map_err(RenderError::VkResultToDo)?;
         let (allocation_size, memory_type_index) = self.memorytype_index_and_size_for_buffer(
             buffer,
             memory_properties,
@@ -165,14 +165,14 @@ impl<'a> DeviceWrapper<'a> {
             ..Default::default()
         };
         let buffer_memory = unsafe { self.device.allocate_memory(&allocate_info, None) }
-            .map_err(VulkanError::VkResultToDo)?;
+            .map_err(RenderError::VkResultToDo)?;
         let mut buffer = BufferAndMemory::new(buffer, buffer_memory, data.len(), allocation_size);
         self.update_buffer(&mut buffer, data)?;
         unsafe {
             self.device
                 .bind_buffer_memory(buffer.buffer, buffer.memory, 0)
         }
-        .map_err(VulkanError::VkResultToDo)?;
+        .map_err(RenderError::VkResultToDo)?;
         Ok(buffer)
     }
 
@@ -182,21 +182,21 @@ impl<'a> DeviceWrapper<'a> {
         buffer: vk::Buffer,
         memory_properties: vk::PhysicalDeviceMemoryProperties,
         flags: vk::MemoryPropertyFlags,
-    ) -> Result<(u64, u32), VulkanError> {
+    ) -> Result<(u64, u32), RenderError> {
         let buffer_memory_req = unsafe { self.device.get_buffer_memory_requirements(buffer) };
         Ok((
             buffer_memory_req.size,
             VulkanBase::find_memorytype_index(&buffer_memory_req, &memory_properties, flags)
-                .ok_or(VulkanError::UnableToFindMemoryTypeForBuffer)?,
+                .ok_or(RenderError::UnableToFindMemoryTypeForBuffer)?,
         ))
     }
 
     /// Create a fence on the GPU.
-    pub fn create_fence(&self) -> Result<vk::Fence, VulkanError> {
+    pub fn create_fence(&self) -> Result<vk::Fence, RenderError> {
         let fence_create_info =
             vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
         unsafe { self.device.create_fence(&fence_create_info, None) }
-            .map_err(VulkanError::VkResultToDo)
+            .map_err(RenderError::VkResultToDo)
     }
 
     /// Copy buffer to an image.
@@ -232,15 +232,15 @@ impl<'a> DeviceWrapper<'a> {
         fence: vk::Fence,
         queue: vk::Queue,
         submits: &[vk::SubmitInfo],
-    ) -> Result<(), VulkanError> {
+    ) -> Result<(), RenderError> {
         unsafe { self.device.queue_submit(queue, submits, fence) }
-            .map_err(VulkanError::SubmitCommandBuffers)
+            .map_err(RenderError::SubmitCommandBuffers)
     }
 
     /// End command buffer.
-    pub fn end_command_buffer(&self, command_buffer: vk::CommandBuffer) -> Result<(), VulkanError> {
+    pub fn end_command_buffer(&self, command_buffer: vk::CommandBuffer) -> Result<(), RenderError> {
         unsafe { self.device.end_command_buffer(command_buffer) }
-            .map_err(VulkanError::EndCommandBuffer)
+            .map_err(RenderError::EndCommandBuffer)
     }
 
     /// Insert a barrier end.
@@ -306,7 +306,7 @@ impl<'a> DeviceWrapper<'a> {
         &self,
         image: &Image,
         memory_properties: vk::PhysicalDeviceMemoryProperties,
-    ) -> Result<(vk::Extent2D, BufferAndMemory), VulkanError> {
+    ) -> Result<(vk::Extent2D, BufferAndMemory), RenderError> {
         let image_extent = {
             let (width, height) = image.extent();
             vk::Extent2D { width, height }
@@ -324,21 +324,21 @@ impl<'a> DeviceWrapper<'a> {
     pub fn begin_command_buffer(
         &self,
         command_buffer: vk::CommandBuffer,
-    ) -> Result<(), VulkanError> {
+    ) -> Result<(), RenderError> {
         let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         unsafe {
             self.device
                 .begin_command_buffer(command_buffer, &command_buffer_begin_info)
         }
-        .map_err(VulkanError::BeginCommandBuffer)
+        .map_err(RenderError::BeginCommandBuffer)
     }
 
     /// Allocate a command buffer. TODO: could be more than a single buffer.
     pub fn allocate_command_buffers(
         &self,
         pool: vk::CommandPool,
-    ) -> Result<Vec<vk::CommandBuffer>, VulkanError> {
+    ) -> Result<Vec<vk::CommandBuffer>, RenderError> {
         let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
             .command_buffer_count(1)
             .command_pool(pool)
@@ -347,24 +347,24 @@ impl<'a> DeviceWrapper<'a> {
             self.device
                 .allocate_command_buffers(&command_buffer_allocate_info)
         }
-        .map_err(VulkanError::VkResultToDo)
+        .map_err(RenderError::VkResultToDo)
     }
 
     /// Creates a command pool.
     pub fn create_command_pool(
         &self,
         queue_family_index: u32,
-    ) -> Result<vk::CommandPool, VulkanError> {
+    ) -> Result<vk::CommandPool, RenderError> {
         let pool_create_info = vk::CommandPoolCreateInfo::builder()
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
             .queue_family_index(queue_family_index);
         unsafe { self.device.create_command_pool(&pool_create_info, None) }
-            .map_err(VulkanError::VkResultToDo)
+            .map_err(RenderError::VkResultToDo)
     }
 
     /// Resets a fence.
-    pub fn reset_fence(&self, fence: vk::Fence) -> Result<(), VulkanError> {
-        unsafe { self.device.reset_fences(&[fence]) }.map_err(VulkanError::FenceReset)
+    pub fn reset_fence(&self, fence: vk::Fence) -> Result<(), RenderError> {
+        unsafe { self.device.reset_fences(&[fence]) }.map_err(RenderError::FenceReset)
     }
 
     /// Record beginning of render pass.

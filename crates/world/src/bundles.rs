@@ -8,55 +8,41 @@ use crate::components::{
     WorldTransform,
 };
 
-#[derive(Debug, Bundle)]
-pub struct StaticObject {
-    pub spatial: Spatial,
-    pub drawable: Drawable,
-    pub parent: RelativeTransform,
-    pub world: WorldTransform,
-}
+#[derive(Debug)]
+pub struct StaticObject(pub (Spatial, Drawable, RelativeTransform, WorldTransform));
 
 impl StaticObject {
     /// Create a new StaticObject with the given parent
     pub fn new(parent: Entity, gfx_prefab: Entity, spatial: Spatial) -> Self {
-        Self {
+        Self((
             spatial,
-            drawable: Drawable {
+            Drawable {
                 gfx: gfx_prefab,
                 scale: 1.0,
             },
-            parent: RelativeTransform {
+            RelativeTransform {
                 parent,
                 relative_matrix: Mat4::IDENTITY,
             },
-            world: WorldTransform {
+            WorldTransform {
                 world_matrix: Mat4::IDENTITY,
             },
-        }
+        ))
     }
 }
 
-#[derive(Debug, Bundle)]
-pub struct Player {
-    pub camera: Camera,
-    pub control: Control,
-    pub spatial: Spatial,
-    pub drawable: Drawable,
-    pub physics: PhysicsBody,
-    pub parent: RelativeTransform,
-    pub world: WorldTransform,
-}
-// TODO: bundles move into the plugin?
-#[derive(Debug, Query)]
-pub struct PlayerQuery<'a> {
-    pub camera: &'a mut Camera,
-    pub control: &'a mut Control,
-    pub spatial: &'a mut Spatial,
-    pub drawable: &'a mut Drawable,
-    pub physics: &'a mut PhysicsBody,
-    pub parent: &'a mut RelativeTransform,
-    pub world: &'a mut WorldTransform,
-}
+#[derive(Debug)]
+pub struct Player(
+    pub  (
+        Camera,
+        Control,
+        Spatial,
+        Drawable,
+        PhysicsBody,
+        RelativeTransform,
+        WorldTransform,
+    ),
+);
 
 impl Player {
     /// Create a new Player with the given parent
@@ -69,31 +55,31 @@ impl Player {
             0.1,    // near
             1000.0, //far
         );
-        Player {
-            spatial,
-            camera: Camera {
+        Player((
+            Camera {
                 projection: perspective,
                 ..Default::default()
             },
-            drawable: Drawable {
+            Control {
+                ..Default::default()
+            },
+            spatial,
+            Drawable {
                 gfx: gfx_prefab,
                 scale: 1.0,
             },
-            physics: PhysicsBody {
+            PhysicsBody {
                 mass: 1.0,
                 ..Default::default()
             },
-            parent: RelativeTransform {
+            RelativeTransform {
                 parent,
                 relative_matrix: Mat4::IDENTITY,
             },
-            world: WorldTransform {
+            WorldTransform {
                 world_matrix: Mat4::IDENTITY,
             },
-            control: Control {
-                ..Default::default()
-            },
-        }
+        ))
     }
 }
 
@@ -107,9 +93,9 @@ mod tests {
         let gfx = world.spawn((WorldTransform::default(),));
         let player = Player::new(root, gfx, Spatial::default());
 
-        let p = world.spawn(player);
+        let p = world.spawn(player.0);
 
-        let mut query = world.query_one::<PlayerQuery>(p).unwrap();
+        let mut query = world.query_one::<(&Camera,)>(p).unwrap();
 
         assert!(matches!(query.get(), Some(_)));
     }

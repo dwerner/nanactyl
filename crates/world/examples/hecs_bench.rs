@@ -7,7 +7,7 @@ use hecs::World;
 use world::graphics::Shape;
 use world::health::HealthFacet;
 
-fn run_sync_workload(player_slice: &mut [Player]) {
+fn run_sync_workload(player_slice: &mut [TestComponent]) {
     for mut player in player_slice.iter_mut() {
         update_player(&mut player);
     }
@@ -17,7 +17,7 @@ fn cpu_float() -> f32 {
     rand::random::<f32>() * rand::random::<f32>()
 }
 
-struct Player {
+struct TestComponent {
     pos: Vec3,
     angles: Vec3,
     scale: f32,
@@ -28,7 +28,7 @@ struct Player {
     shape: Shape,
     health: HealthFacet,
 }
-impl Player {
+impl TestComponent {
     fn new() -> Self {
         let perspective = Mat4::perspective_lh(
             1.7,    //aspect
@@ -36,7 +36,7 @@ impl Player {
             0.1,    // near
             1000.0, //far
         );
-        Player {
+        TestComponent {
             pos: Vec3::ZERO,
             view: Mat4::IDENTITY,
             perspective,
@@ -50,7 +50,7 @@ impl Player {
     }
 }
 
-fn update_player(player: &mut Player) {
+fn update_player(player: &mut TestComponent) {
     player.angles.x += cpu_float();
     player.angles.y = cpu_float();
     player.angles.z = cpu_float();
@@ -94,11 +94,11 @@ fn main() {
                 if e % 10000 == 0 {
                     //println!("creating entity {}", e);
                 }
-                world.spawn((Player::new(),));
+                world.spawn((TestComponent::new(),));
             }
 
             /// TODO: move this kind of thing into the slice interface
-            fn split_slices(slices: Vec<&mut [Player]>) -> Vec<&mut [Player]> {
+            fn split_slices(slices: Vec<&mut [TestComponent]>) -> Vec<&mut [TestComponent]> {
                 let mut new_slices = Vec::new();
                 for slice in slices {
                     let len = slice.len();
@@ -114,7 +114,7 @@ fn main() {
                 let mut archetypes = world.archetypes();
                 let _empty = archetypes.next().unwrap();
                 let arch = archetypes.next().unwrap();
-                let mut player_column = arch.get::<&mut Player>().unwrap();
+                let mut player_column = arch.get::<&mut TestComponent>().unwrap();
 
                 // It turns out there is a way to get a column and split it in hecs.
                 let mid = player_column.len() / 2;
@@ -155,7 +155,7 @@ fn main() {
                 let mut archetypes = world.archetypes();
                 let _empty = archetypes.next().unwrap();
                 let arch = archetypes.next().unwrap();
-                let mut player_column = arch.get::<&mut Player>().unwrap();
+                let mut player_column = arch.get::<&mut TestComponent>().unwrap();
                 let mid = player_column.len() / 2;
                 let (left, right) = player_column.split_at_mut(mid);
                 let mut slice_partitions = vec![left, right];
@@ -190,7 +190,7 @@ fn main() {
             // the first archetype in the world is always empty
             let _empty = archetypes.next().unwrap();
             let arch = archetypes.next().unwrap();
-            let mut player_column = arch.get::<&mut Player>().unwrap();
+            let mut player_column = arch.get::<&mut TestComponent>().unwrap();
             run_sync_workload(&mut *player_column);
 
             stages.push(Stage::Sync(Stats {

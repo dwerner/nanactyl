@@ -9,7 +9,7 @@ use ash::vk;
 
 /// Collection of specific error types that Vulkan can raise, in rust form.
 #[derive(thiserror::Error, Debug)]
-pub enum VulkanError {
+pub enum RenderError {
     #[error("error reading shader ({0:?})")]
     ShaderRead(io::Error),
 
@@ -57,11 +57,14 @@ pub enum VulkanError {
 
     #[error("error no shader entry point found")]
     NoShaderEntryPoint,
+
+    #[error("component missing from camera entity")]
+    ComponentMissingFromCameraEntity,
 }
 
-impl VulkanError {
+impl RenderError {
     pub fn shader_reflect(s: &str) -> Self {
-        VulkanError::ShaderReflect(s.to_string())
+        RenderError::ShaderReflect(s.to_string())
     }
 }
 
@@ -147,7 +150,7 @@ impl Texture {
         image: vk::Image,
         memory: vk::DeviceMemory,
         device: &ash::Device,
-    ) -> Result<Self, VulkanError> {
+    ) -> Result<Self, RenderError> {
         let img_view_info = vk::ImageViewCreateInfo {
             view_type: vk::ImageViewType::TYPE_2D,
             format,
@@ -167,7 +170,7 @@ impl Texture {
             ..Default::default()
         };
         let image_view = unsafe { device.create_image_view(&img_view_info, None) }
-            .map_err(VulkanError::VkResultToDo)?;
+            .map_err(RenderError::VkResultToDo)?;
 
         Ok(Self {
             image,
@@ -426,11 +429,11 @@ impl ShaderStage {
         entry_point_name: String,
         stage: vk::ShaderStageFlags,
         flags: vk::PipelineShaderStageCreateFlags,
-    ) -> Result<Self, VulkanError> {
+    ) -> Result<Self, RenderError> {
         Ok(Self {
             module,
             entry_point_name: CString::new(entry_point_name)
-                .map_err(VulkanError::InvalidCString)?,
+                .map_err(RenderError::InvalidCString)?,
             stage,
             flags,
         })
@@ -447,12 +450,12 @@ impl ShaderStage {
 
 impl Shader {
     /// Create an ash::vk::ShaderModule from the SPIR-V shader data.
-    pub fn as_shader_module(&self, device: &ash::Device) -> Result<vk::ShaderModule, VulkanError> {
+    pub fn as_shader_module(&self, device: &ash::Device) -> Result<vk::ShaderModule, RenderError> {
         let mut cursor = Cursor::new(&self.data);
-        let code = ash::util::read_spv(&mut cursor).map_err(VulkanError::ShaderRead)?;
+        let code = ash::util::read_spv(&mut cursor).map_err(RenderError::ShaderRead)?;
         let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);
         unsafe { device.create_shader_module(&create_info, None) }
-            .map_err(VulkanError::VkResultToDo)
+            .map_err(RenderError::VkResultToDo)
     }
 
     pub fn entry_points(&self) -> &[EntryPoint] {
@@ -464,7 +467,7 @@ impl Shader {
     }
 
     /// Reload this shader from disk.
-    pub fn reload(&mut self) -> Result<(), VulkanError> {
+    pub fn reload(&mut self) -> Result<(), RenderError> {
         let new = Self::read_spv(self.path.clone())?;
         let _old = mem::replace(&mut *self, new);
         Ok(())
@@ -476,26 +479,26 @@ impl Shader {
     ///
     /// A shader doesn't know what stages are available, so you must specify
     /// when creating a pipeline.
-    pub fn read_spv(path: PathBuf) -> Result<Self, VulkanError> {
-        let mut reader = BufReader::new(File::open(&path).map_err(VulkanError::ShaderRead)?);
+    pub fn read_spv(path: PathBuf) -> Result<Self, RenderError> {
+        let mut reader = BufReader::new(File::open(&path).map_err(RenderError::ShaderRead)?);
         let mut data = Vec::new();
         reader
             .read_to_end(&mut data)
-            .map_err(VulkanError::ShaderRead)?;
+            .map_err(RenderError::ShaderRead)?;
 
         let shader_module = spirv_reflect::ShaderModule::load_u8_data(&data)
-            .map_err(VulkanError::shader_reflect)?;
+            .map_err(RenderError::shader_reflect)?;
 
         let mut entry_points = Vec::new();
         for entry_point in shader_module
             .enumerate_entry_points()
-            .map_err(VulkanError::shader_reflect)?
+            .map_err(RenderError::shader_reflect)?
         {
             let stage_flags = spirv_reflect_shader_stage_to_vk(entry_point.shader_stage);
             let mut descriptor_set_bindings = Vec::new();
             for descriptor_set in shader_module
                 .enumerate_descriptor_sets(Some(&entry_point.name))
-                .map_err(VulkanError::shader_reflect)?
+                .map_err(RenderError::shader_reflect)?
             {
                 for binding in descriptor_set.bindings {
                     let set = binding.set;
@@ -514,7 +517,7 @@ impl Shader {
             let mut push_constant_ranges = Vec::new();
             for push_constant in shader_module
                 .enumerate_push_constant_blocks(Some(&entry_point.name))
-                .map_err(VulkanError::shader_reflect)?
+                .map_err(RenderError::shader_reflect)?
             {
                 let offset = push_constant.offset;
                 let size = push_constant.size;
@@ -584,14 +587,14 @@ impl ShaderStages {
         device: &ash::Device,
         shader: Arc<Shader>,
         stage_flags: vk::ShaderStageFlags,
-    ) -> Result<(), VulkanError> {
+    ) -> Result<(), RenderError> {
         let pipeline_flags = vk::PipelineShaderStageCreateFlags::empty();
 
         // TODO do more thank just grab the first entry point
         let entry_point_name = shader
             .entry_points
             .get(0)
-            .ok_or(VulkanError::NoShaderEntryPoint)?
+            .ok_or(RenderError::NoShaderEntryPoint)?
             .name
             .clone();
 

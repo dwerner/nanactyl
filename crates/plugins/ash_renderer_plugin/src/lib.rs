@@ -20,14 +20,14 @@ use ash::{vk, Device, Entry};
 use device::GraphicsHandle;
 use gfx::{DiffuseColor, GpuNeeds, Graphic, Primitive, Vertex};
 use glam::{Mat4, Vec3};
-use logger::{debug, info, Logger};
+use logger::{debug, error, info, Logger};
 use platform::WinPtr;
 use plugin_self::{impl_plugin_static, PluginState};
 use render::{Presenter, RenderPluginState, RenderState, RenderStateError};
 use shader_objects::{PushConstants, UniformBuffer};
 use types::{
-    Attachments, AttachmentsModifier, BufferAndMemory, Pipeline, Shader, ShaderStage, ShaderStages,
-    VertexInputAssembly, VulkanError,
+    Attachments, AttachmentsModifier, BufferAndMemory, Pipeline, RenderError, Shader, ShaderStage,
+    ShaderStages, VertexInputAssembly,
 };
 use world::components::{Camera, Drawable, Spatial};
 use world::graphics::EULER_ROT_ORDER;
@@ -64,7 +64,7 @@ impl VulkanDebug {
 }
 
 impl Renderer {
-    fn present(&mut self, base: &mut VulkanBase, world: &World) -> Result<(), VulkanError> {
+    fn present(&mut self, base: &mut VulkanBase, world: &World) -> Result<(), RenderError> {
         if base.flag_recreate_swapchain {
             base.recreate_swapchain()?;
         }
@@ -95,8 +95,30 @@ impl Renderer {
                 return Ok(());
             }
             Err(err) => {
-                return Err(VulkanError::SwapchainAcquireNextImage(err));
+                return Err(RenderError::SwapchainAcquireNextImage(err));
             }
+        };
+
+        let (camera, spatial) = {
+            let camera_entity = world.camera().expect("camera should exist");
+            let entity = world.hecs_world.entity(camera_entity).unwrap();
+            if !entity.has::<&Camera>() {
+                return Err(RenderError::ComponentMissingFromCameraEntity);
+            }
+            if !entity.has::<&Spatial>() {
+                return Err(RenderError::ComponentMissingFromCameraEntity);
+            }
+
+            (
+                world
+                    .hecs_world
+                    .get::<&Camera>(camera_entity)
+                    .expect("camera entity"),
+                world
+                    .hecs_world
+                    .get::<&Spatial>(camera_entity)
+                    .expect("spatial entity"),
+            )
         };
 
         let clear_values = [
@@ -132,17 +154,6 @@ impl Renderer {
             base.draw_cmd_buf,
             &render_pass_begin_info,
             vk::SubpassContents::INLINE,
-        );
-
-        let (camera, spatial) = (
-            world
-                .hecs_world
-                .get::<&Camera>(world.camera().expect("camera"))
-                .expect("camera entity"),
-            world
-                .hecs_world
-                .get::<&Spatial>(world.camera().expect("camera"))
-                .expect("camera entity"),
         );
 
         let scale = Mat4::from_scale(Vec3::new(0.5, 0.5, 0.5));
@@ -298,7 +309,7 @@ impl Renderer {
                 base.flag_recreate_swapchain = true;
                 return Ok(());
             }
-            Err(vk_err) => return Err(VulkanError::Present(vk_err)),
+            Err(vk_err) => return Err(RenderError::Present(vk_err)),
         };
 
         Ok(())
@@ -306,7 +317,7 @@ impl Renderer {
 
     /// Rebuilds pipelines and reloads shaders *from disk*.
     // TODO: build pipeline and bindings from more rich introspection of assets.
-    fn rebuild_pipelines(&mut self, base: &mut VulkanBase) -> Result<(), VulkanError> {
+    fn rebuild_pipelines(&mut self, base: &mut VulkanBase) -> Result<(), RenderError> {
         let logger = self.logger.sub("rebuild_pipelines");
         if Instant::now().duration_since(self.last_pipeline_rebuild)
             < Duration::from_secs(PIPELINE_REBUILD_DELAY_MILLIS)
@@ -318,7 +329,7 @@ impl Renderer {
             unsafe {
                 base.device
                     .device_wait_idle()
-                    .map_err(VulkanError::VkResultToDo)?;
+                    .map_err(RenderError::VkResultToDo)?;
 
                 for (_, mut pipeline) in self.pipelines.drain() {
                     if let Some(vk_pipeline) = pipeline.vk.take() {
@@ -460,11 +471,11 @@ impl Renderer {
         Ok(())
     }
 
-    fn deallocate(&mut self, base: &mut VulkanBase) -> Result<(), VulkanError> {
+    fn deallocate(&mut self, base: &mut VulkanBase) -> Result<(), RenderError> {
         unsafe {
             base.device
                 .device_wait_idle()
-                .map_err(VulkanError::VkResultToDo)?;
+                .map_err(RenderError::VkResultToDo)?;
         }
         for (_, desc) in self.pipelines.iter() {
             unsafe {
@@ -485,9 +496,9 @@ impl Renderer {
 impl Presenter for VulkanRenderPluginState {
     fn present(&mut self, world: &World) {
         if let Some(renderer) = &mut self.renderer {
-            renderer
-                .present(self.base.as_mut().unwrap(), world)
-                .unwrap();
+            if let Err(err) = renderer.present(self.base.as_mut().unwrap(), world) {
+                error!(self.logger, "error during present: {:?}", err);
+            }
         }
     }
 
@@ -740,7 +751,7 @@ impl VulkanBase {
         completed_uploads
     }
 
-    fn renderer(&mut self) -> Result<Renderer, VulkanError> {
+    fn renderer(&mut self) -> Result<Renderer, RenderError> {
         let logger = self.logger.sub("renderer");
         // TODO: shaders that apply only to certain models need different descriptor
         // sets.
@@ -781,7 +792,7 @@ impl VulkanBase {
         polygon_mode: vk::PolygonMode,
         vertex_input_assembly: &VertexInputAssembly,
         render_pass: vk::RenderPass,
-    ) -> Result<vk::Pipeline, VulkanError> {
+    ) -> Result<vk::Pipeline, RenderError> {
         let shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo> = shader_stages
             .shader_stage_defs
             .iter()
@@ -851,7 +862,7 @@ impl VulkanBase {
                 None,
             )
         }
-        .map_err(|(pipeline, result)| VulkanError::FailedToCreatePipeline(pipeline, result))?[0];
+        .map_err(|(pipeline, result)| RenderError::FailedToCreatePipeline(pipeline, result))?[0];
         Ok(pipeline)
     }
 
@@ -946,12 +957,12 @@ impl VulkanBase {
         &self,
         pool: vk::DescriptorPool,
         layouts: &[vk::DescriptorSetLayout],
-    ) -> Result<Vec<vk::DescriptorSet>, VulkanError> {
+    ) -> Result<Vec<vk::DescriptorSet>, RenderError> {
         let desc_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(pool)
             .set_layouts(layouts);
         unsafe { self.device.allocate_descriptor_sets(&desc_alloc_info) }
-            .map_err(VulkanError::VkResultToDo)
+            .map_err(RenderError::VkResultToDo)
     }
 
     /// Creates a descriptor set layout from the provided `ShaderBindingDesc`
@@ -960,7 +971,7 @@ impl VulkanBase {
         &self,
         vertex_shader: &Shader,
         fragment_shader: &Shader,
-    ) -> Result<vk::DescriptorSetLayout, VulkanError> {
+    ) -> Result<vk::DescriptorSetLayout, RenderError> {
         let vertex_bindings =
             vertex_shader
                 .entry_points()
@@ -987,7 +998,7 @@ impl VulkanBase {
             self.device
                 .create_descriptor_set_layout(&descriptor_info, None)
         }
-        .map_err(VulkanError::VkResultToDo)?;
+        .map_err(RenderError::VkResultToDo)?;
         Ok(layout)
     }
 
@@ -997,7 +1008,7 @@ impl VulkanBase {
         max_sets: u32,
         max_samplers: u32,
         max_uniform_buffers: u32,
-    ) -> Result<vk::DescriptorPool, VulkanError> {
+    ) -> Result<vk::DescriptorPool, RenderError> {
         let descriptor_sizes = [
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::UNIFORM_BUFFER,
@@ -1023,11 +1034,11 @@ impl VulkanBase {
             self.device
                 .create_descriptor_pool(&descriptor_pool_info, None)
         }
-        .map_err(VulkanError::VkResultToDo)
+        .map_err(RenderError::VkResultToDo)
     }
 
     /// Creates a sampler.
-    pub fn create_sampler(&self) -> Result<vk::Sampler, VulkanError> {
+    pub fn create_sampler(&self) -> Result<vk::Sampler, RenderError> {
         // start preparing shader related structures
         let sampler_info = vk::SamplerCreateInfo {
             mag_filter: vk::Filter::LINEAR,
@@ -1043,7 +1054,7 @@ impl VulkanBase {
         };
 
         unsafe { self.device.create_sampler(&sampler_info, None) }
-            .map_err(VulkanError::VkResultToDo)
+            .map_err(RenderError::VkResultToDo)
     }
     /// Create attachments for renderpass construction
     pub fn create_attachments(
@@ -1083,7 +1094,7 @@ impl VulkanBase {
         all_attachments: &[vk::AttachmentDescription],
         color_attachment_refs: &[vk::AttachmentReference],
         depth_attachment_ref: &vk::AttachmentReference,
-    ) -> Result<vk::RenderPass, VulkanError> {
+    ) -> Result<vk::RenderPass, RenderError> {
         let dependencies = [*vk::SubpassDependency::builder()
             .src_subpass(vk::SUBPASS_EXTERNAL)
             .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
@@ -1102,7 +1113,7 @@ impl VulkanBase {
             .dependencies(&dependencies);
 
         unsafe { device.create_render_pass(&renderpass_create_info, None) }
-            .map_err(VulkanError::VkResultToDo)
+            .map_err(RenderError::VkResultToDo)
     }
 
     /// Create framebuffers needed, consumes the renderpass. Returns an error
@@ -1113,7 +1124,7 @@ impl VulkanBase {
         present_image_views: &[vk::ImageView],
         render_pass: vk::RenderPass,
         surface_resolution: vk::Extent2D,
-    ) -> Result<Vec<vk::Framebuffer>, VulkanError> {
+    ) -> Result<Vec<vk::Framebuffer>, RenderError> {
         let mut framebuffers = Vec::new();
         println!("creating new framebuffers with extent {surface_resolution:?}");
         for present_image_view in present_image_views.iter() {
@@ -1126,7 +1137,7 @@ impl VulkanBase {
                 .layers(1);
 
             let framebuffer = unsafe { device.create_framebuffer(&frame_buffer_create_info, None) }
-                .map_err(VulkanError::VkResultToDo)?;
+                .map_err(RenderError::VkResultToDo)?;
             framebuffers.push(framebuffer);
         }
         Ok(framebuffers)
@@ -1151,7 +1162,7 @@ impl VulkanBase {
         win_ptr: platform::WinPtr,
         enable_validation_layer: bool,
         logger: Logger,
-    ) -> Result<Self, VulkanError> {
+    ) -> Result<Self, RenderError> {
         let entry = unsafe { Entry::load() }.expect("unable to load vulkan");
         let application_info = &vk::ApplicationInfo {
             api_version: vk::make_api_version(0, 1, 0, 0),
@@ -1454,17 +1465,17 @@ impl VulkanBase {
 
     /// Re-create the swapchain bound. Useful when window properties change, on
     /// resize, fullscreen, focus, etc.
-    pub fn recreate_swapchain(&mut self) -> Result<(), VulkanError> {
+    pub fn recreate_swapchain(&mut self) -> Result<(), RenderError> {
         let surface_loader = Surface::new(&self.entry, &self.instance);
         let old_surface_loader = mem::replace(&mut self.surface_loader, surface_loader);
 
         let surface =
             unsafe { ash_window::create_surface(&self.entry, &self.instance, &self.win_ptr, None) }
-                .map_err(VulkanError::VkResultToDo)?;
+                .map_err(RenderError::VkResultToDo)?;
         let old_surface = mem::replace(&mut self.surface, surface);
 
         let physical_devices = unsafe { self.instance.enumerate_physical_devices() }
-            .map_err(VulkanError::EnumeratePhysicalDevices)?;
+            .map_err(RenderError::EnumeratePhysicalDevices)?;
         let (physical_device, queue_family_index) = surface_loader_physical_device(
             &physical_devices,
             &self.instance,
@@ -1479,7 +1490,7 @@ impl VulkanBase {
             self.surface_loader
                 .get_physical_device_surface_capabilities(self.physical_device, self.surface)
         }
-        .map_err(VulkanError::VkResultToDo)?;
+        .map_err(RenderError::VkResultToDo)?;
 
         let desired_image_count =
             (surface_capabilities.min_image_count + 1).max(surface_capabilities.max_image_count);
@@ -1557,7 +1568,7 @@ impl VulkanBase {
                     })
                     .image(image);
                 unsafe { self.device.create_image_view(&create_view_info, None) }
-                    .map_err(VulkanError::VkResultToDo)
+                    .map_err(RenderError::VkResultToDo)
                     .unwrap()
             })
             .collect();
@@ -1598,12 +1609,12 @@ impl VulkanBase {
             self.device
                 .allocate_memory(&depth_image_allocate_info, None)
         }
-        .map_err(VulkanError::VkResultToDo)?;
+        .map_err(RenderError::VkResultToDo)?;
         unsafe {
             self.device
                 .bind_image_memory(self.depth_image, depth_image_memory, 0)
         }
-        .map_err(VulkanError::VkResultToDo)?;
+        .map_err(RenderError::VkResultToDo)?;
         let old_depth_image_memory = mem::replace(&mut self.depth_image_memory, depth_image_memory);
 
         Self::record_and_submit_commandbuffer(
@@ -1657,7 +1668,7 @@ impl VulkanBase {
 
         let depth_image_view =
             unsafe { self.device.create_image_view(&depth_image_view_info, None) }
-                .map_err(VulkanError::VkResultToDo)?;
+                .map_err(RenderError::VkResultToDo)?;
         let old_depth_image_view = mem::replace(&mut self.depth_image_view, depth_image_view);
 
         let (attachments, color, depth) = Self::create_attachments(self.surface_format.format);

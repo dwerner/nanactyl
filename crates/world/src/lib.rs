@@ -5,6 +5,7 @@ pub mod components;
 pub mod graphics;
 pub mod health;
 
+use std::any::TypeId;
 use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -21,6 +22,8 @@ pub use hecs::Entity;
 use input::wire::InputState;
 use logger::{info, LogLevel, Logger};
 use network::{Connection, RpcError};
+
+use crate::components::Camera;
 
 #[repr(C)]
 pub struct WorldLockAndControllerState {
@@ -88,8 +91,8 @@ pub enum WorldError {
     #[error("Error casting update from bytes {0:?}")]
     UpdateFromBytes(RpcError),
 
-    #[error("no camera facet at index {0:?}")]
-    NoSuchCamera(u32),
+    #[error("no camera")]
+    NoSuchCamera,
 
     #[error("no camera found in scene")]
     PlayerNotFound,
@@ -202,8 +205,13 @@ impl World {
     }
 
     pub fn add_player(&mut self, player: Player) -> Entity {
-        let player = self.hecs_world.spawn(player);
-        info!(self.logger, "spawned player entity: {:?}", player);
+        let player = self.hecs_world.spawn(player.0);
+        info!(
+            self.logger,
+            "spawned player entity: {:?} camera typeid {:?}",
+            player,
+            TypeId::of::<Camera>()
+        );
         self.players.push(player);
         player
     }

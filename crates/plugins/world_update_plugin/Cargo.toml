@@ -12,6 +12,7 @@ input = { path = "../../input" }
 logger = { path = "../../logger" }
 plugin_self = { path = "../../plugin_self" }
 world = { path = "../../world" }
+stable-typeid = { path = "../../stable-typeid" }
 
 # workspace
 rapier3d = { workspace = true}

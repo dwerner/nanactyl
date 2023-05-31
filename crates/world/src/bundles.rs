@@ -1,7 +1,7 @@
 //! Bundles for common archetypes
 
 use glam::Mat4;
-use hecs::{Bundle, Entity, Query};
+use heks::{Bundle, Entity, Query};
 
 use crate::components::{
     Camera, Control, Drawable, PhysicsBody, RelativeTransform, Spatial, StaticPhysics,
@@ -88,7 +88,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_player_bundle() {
-        let mut world = hecs::World::new();
+        let mut world = heks::World::new();
         let root = world.spawn((WorldTransform::default(),));
         let gfx = world.spawn((WorldTransform::default(),));
         let player = Player::new(root, gfx, Spatial::default());

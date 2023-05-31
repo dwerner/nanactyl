@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use gfx::Graphic;
 use glam::{Mat4, Vec3};
-use hecs::Entity;
+use heks::Entity;
 
 use crate::graphics::{Shape, EULER_ROT_ORDER};
 
@@ -187,8 +187,8 @@ mod tests {
     use crate::bundles::Player;
 
     #[test]
-    fn playing_with_hecs() {
-        let mut world = hecs::World::new();
+    fn playing_with_heks() {
+        let mut world = heks::World::new();
 
         let root_transform = world.spawn((WorldTransform::default(),));
         let gfx_prefab = world.spawn((GraphicPrefab {

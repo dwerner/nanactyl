@@ -17,7 +17,7 @@ use components::{GraphicPrefab, WorldTransform};
 use gfx::{DebugMesh, Graphic, Model};
 pub use glam::{Mat4, Quat, Vec3};
 use graphrox::Graph;
-pub use hecs::Entity;
+pub use heks::Entity;
 use input::wire::InputState;
 use logger::{info, LogLevel, Logger};
 use network::{Connection, RpcError};
@@ -104,16 +104,16 @@ pub enum WorldError {
     NoSuchPhys(u32),
 
     #[error("component error {0:?}")]
-    Component(hecs::ComponentError),
+    Component(heks::ComponentError),
 
     #[error("component error {0:?}")]
-    NoSuchEntity(hecs::NoSuchEntity),
+    NoSuchEntity(heks::NoSuchEntity),
 }
 
 pub struct World {
-    pub hecs_world: hecs::World,
+    pub heks_world: heks::World,
 
-    pub root: hecs::Entity,
+    pub root: heks::Entity,
 
     pub stats: Stats,
     pub config: Config,
@@ -150,8 +150,8 @@ impl World {
     ///
     /// FIXME: make this /// independent of any connecting clients.
     pub fn new(maybe_server_addr: Option<SocketAddr>, logger: &Logger, net_disabled: bool) -> Self {
-        let mut hecs_world = hecs::World::new();
-        let root_entity = hecs_world.spawn((WorldTransform::default(),));
+        let mut heks_world = heks::World::new();
+        let root_entity = heks_world.spawn((WorldTransform::default(),));
         Self {
             connection: None,
 
@@ -170,7 +170,7 @@ impl World {
                 last_tick: Instant::now(),
             },
 
-            hecs_world,
+            heks_world,
             root: root_entity,
 
             logger: logger.sub("world"),
@@ -193,24 +193,25 @@ impl World {
     }
 
     pub fn add_debug_mesh(&mut self, mesh: DebugMesh) -> Entity {
-        self.hecs_world.spawn((GraphicPrefab {
+        self.heks_world.spawn((GraphicPrefab {
             gfx: Graphic::DebugMesh(mesh),
         },))
     }
 
     pub fn add_model(&mut self, model: Model) -> Entity {
-        self.hecs_world.spawn((GraphicPrefab {
+        self.heks_world.spawn((GraphicPrefab {
             gfx: Graphic::Model(model),
         },))
     }
 
     pub fn add_player(&mut self, player: Player) -> Entity {
-        let player = self.hecs_world.spawn(player.0);
+        let player = self.heks_world.spawn(player.0);
         info!(
             self.logger,
-            "spawned player entity: {:?} camera typeid {:?}",
+            "spawned player entity: {:?} camera type_name {} typeid {:?}",
             player,
-            TypeId::of::<Camera>()
+            std::any::type_name::<Camera>(),
+            StableTypeId::of::<Camera>()
         );
         self.players.push(player);
         player

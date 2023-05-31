@@ -88,7 +88,7 @@ impl PluginState for NetSyncPluginState {
         let logger = s.logger.sub("net_sync_plugin-update");
         // TODO: fix sized net sync issue (try > NUM_UPDTES_PER_MSG items)
         if s.world.is_server() {
-            assert!(s.world.hecs_world.len() <= 96, "too many entities FIXME");
+            assert!(s.world.heks_world.len() <= 96, "too many entities FIXME");
 
             match futures_lite::future::block_on(pump_connection_as_server(&mut s.world)) {
                 Ok(controller_state) => {
@@ -127,7 +127,7 @@ async fn pump_connection_as_server(s: &mut World) -> Result<[InputState; 2], Plu
     // 1. construct a group of all updates fromo world state (dynamic physics
     // objects only).
     let packet = s
-        .hecs_world
+        .heks_world
         .query::<(&mut Spatial, &PhysicsBody)>()
         .iter()
         .map(|(entity, (spatial, _physics))| {
@@ -217,7 +217,7 @@ async fn pump_connection_as_client(
     } in decompressed_updates
     {
         let entity = Entity::from_bits(entity_bits).expect("unable to from_bits Entity");
-        match s.hecs_world.get::<&mut Spatial>(entity) {
+        match s.heks_world.get::<&mut Spatial>(entity) {
             Ok(mut phys) => {
                 phys.pos = position;
                 phys.angles.y = y_rotation;

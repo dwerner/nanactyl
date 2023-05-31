@@ -67,7 +67,6 @@ futures-util = "0.3.28"
 function_name = "0.3"
 glam = { version = "0.24", default-features = false, features = ["libm", "bytemuck", "serde"] }
 graphrox = "1.2.0"
-hecs = { version = "0.10.3", features = ["serde"] }
 histogram = "0.6.9" # lock in 0.6.9 for now
 image = "0.24.3"
 libloading = "0.7"

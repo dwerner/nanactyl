@@ -112,7 +112,7 @@ impl WorldUpdatePluginState {
         let rad = 0.1;
         // TODO: use physics object to set up properties of colliders
         for (entity, (spatial, physics)) in
-            world.hecs_world.query::<(&Spatial, &PhysicsBody)>().iter()
+            world.heks_world.query::<(&Spatial, &PhysicsBody)>().iter()
         {
             let x = spatial.pos.x;
             let y = spatial.pos.y;
@@ -160,7 +160,7 @@ impl WorldUpdatePluginState {
         );
 
         // TODO: spawn object method
-        let entity = world.hecs_world.spawn(ground_phys.0);
+        let entity = world.heks_world.spawn(ground_phys.0);
         self.collider_handles.insert(entity, collider_handle);
     }
 }
@@ -208,14 +208,14 @@ impl<'a> WorldExt<'a> {
                     self.move_camera_based_on_controller_state(&server_controller, entity)
                 {
                     error!(self.world.logger, "Do any entities have a camera?");
-                    let entitites = self.world.hecs_world.iter();
+                    let entitites = self.world.heks_world.iter();
                     for eref in entitites {
                         error!(
                             self.world.logger,
                             "entity={:?} has Camera={:?} camera typeid= {:?}",
                             eref.entity(),
                             eref.has::<Camera>(),
-                            TypeId::of::<Camera>(),
+                            StableTypeId::of::<Camera>(),
                         );
                     }
                     error!(
@@ -231,7 +231,7 @@ impl<'a> WorldExt<'a> {
                     self.move_camera_based_on_controller_state(&client_controller, entity)
                 {
                     error!(self.world.logger, "Do any entities have a camera?");
-                    let entitites = self.world.hecs_world.iter();
+                    let entitites = self.world.heks_world.iter();
                     for eref in entitites {
                         error!(
                             self.world.logger,
@@ -248,7 +248,7 @@ impl<'a> WorldExt<'a> {
             }
             for (_entity, (control, spatial)) in self
                 .world
-                .hecs_world
+                .heks_world
                 .query::<(&Control, &mut Spatial)>()
                 .iter()
             {
@@ -267,7 +267,7 @@ impl<'a> WorldExt<'a> {
         controller: &InputState,
         entity: Entity,
     ) -> Result<(), WorldError> {
-        // let player_entity = self.world.hecs_world.entity(entity).unwrap();
+        // let player_entity = self.world.heks_world.entity(entity).unwrap();
         // trace!(
         //     self.world.logger,
         //     "entity={:?} has Camera={:?}",
@@ -277,7 +277,7 @@ impl<'a> WorldExt<'a> {
 
         let mut query = self
             .world
-            .hecs_world
+            .heks_world
             .query_one::<(&mut Camera, &mut Control, &Spatial, &PhysicsBody)>(entity)
             .map_err(WorldError::NoSuchEntity)?;
 

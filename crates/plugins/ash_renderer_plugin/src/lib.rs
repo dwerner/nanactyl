@@ -25,6 +25,7 @@ use platform::WinPtr;
 use plugin_self::{impl_plugin_static, PluginState};
 use render::{Presenter, RenderPluginState, RenderState, RenderStateError};
 use shader_objects::{PushConstants, UniformBuffer};
+use stable_typeid::StableTypeId;
 use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, Pipeline, RenderError, Shader, ShaderStage,
     ShaderStages, VertexInputAssembly,
@@ -101,21 +102,29 @@ impl Renderer {
 
         let (camera, spatial) = {
             let camera_entity = world.camera().expect("camera should exist");
-            let entity = world.hecs_world.entity(camera_entity).unwrap();
+            let entity = world.heks_world.entity(camera_entity).unwrap();
             if !entity.has::<&Camera>() {
-                return Err(RenderError::ComponentMissingFromCameraEntity);
+                return Err(RenderError::ComponentMissingFromCameraEntity(
+                    camera_entity,
+                    std::any::type_name::<Camera>(),
+                    StableTypeId::of::<Camera>(),
+                ));
             }
             if !entity.has::<&Spatial>() {
-                return Err(RenderError::ComponentMissingFromCameraEntity);
+                return Err(RenderError::ComponentMissingFromCameraEntity(
+                    camera_entity,
+                    std::any::type_name::<Spatial>(),
+                    StableTypeId::of::<Camera>(),
+                ));
             }
 
             (
                 world
-                    .hecs_world
+                    .heks_world
                     .get::<&Camera>(camera_entity)
                     .expect("camera entity"),
                 world
-                    .hecs_world
+                    .heks_world
                     .get::<&Spatial>(camera_entity)
                     .expect("spatial entity"),
             )
@@ -219,7 +228,7 @@ impl Renderer {
                 vk::IndexType::UINT32,
             );
             for (drawable, spatial) in world
-                .hecs_world
+                .heks_world
                 .query::<(&Drawable, &Spatial)>()
                 .iter()
                 .filter_map(|(entity, (drawable, spatial))| {
@@ -497,7 +506,8 @@ impl Presenter for VulkanRenderPluginState {
     fn present(&mut self, world: &World) {
         if let Some(renderer) = &mut self.renderer {
             if let Err(err) = renderer.present(self.base.as_mut().unwrap(), world) {
-                error!(self.logger, "error during present: {:?}", err);
+                error!(self.logger, "error during present : {:?}", err);
+                panic!();
             }
         }
     }

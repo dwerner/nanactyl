@@ -11,6 +11,7 @@ logger = { path = "../logger" }
 plugin_self = { path = "../plugin_self" }
 core_executor = { path = "../core_executor" }
 heks = { path = "../heks" }
+stable-typeid = { path = "../stable-typeid" }
 
 # workspace deps
 async-lock = { workspace = true }

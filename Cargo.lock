@@ -137,6 +137,7 @@ dependencies = [
  "render",
  "shader_objects",
  "spirv-reflect",
+ "stable-typeid",
  "thiserror",
  "world",
 ]
@@ -3623,6 +3624,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "smol-potat",
+ "stable-typeid",
  "thiserror",
 ]
 
@@ -3635,6 +3637,7 @@ dependencies = [
  "logger",
  "plugin_self",
  "rapier3d",
+ "stable-typeid",
  "world",
 ]
 

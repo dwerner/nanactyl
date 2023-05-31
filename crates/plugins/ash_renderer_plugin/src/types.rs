@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ash::vk;
+use stable_typeid::StableTypeId;
+use world::Entity;
 
 /// Collection of specific error types that Vulkan can raise, in rust form.
 #[derive(thiserror::Error, Debug)]
@@ -58,8 +60,8 @@ pub enum RenderError {
     #[error("error no shader entry point found")]
     NoShaderEntryPoint,
 
-    #[error("component missing from camera entity")]
-    ComponentMissingFromCameraEntity,
+    #[error("component missing from camera entity {0:?}, {1:?}, {2:?}")]
+    ComponentMissingFromCameraEntity(Entity, &'static str, StableTypeId),
 }
 
 impl RenderError {

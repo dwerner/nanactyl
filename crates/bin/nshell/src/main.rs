@@ -342,10 +342,10 @@ fn main() {
             frame += 1;
         } // 'frame_loop
 
-        // without clearing the world, we segfault on the drop of hecs_world :S
+        // without clearing the world, we segfault on the drop of heks_world :S
         // TODO: figure out why
         info!(logger, "clearing world");
-        world.lock().await.hecs_world.clear();
+        world.lock().await.heks_world.clear();
     });
 
     info!(logger, "quitting.");

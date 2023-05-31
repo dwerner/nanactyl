@@ -67,7 +67,7 @@ impl PluginState for AssetLoaderPlugin {
                 );
 
                 // TODO: add_object
-                world.hecs_world.spawn(object.0);
+                world.heks_world.spawn(object.0);
             }
         }
 
@@ -80,7 +80,7 @@ impl PluginState for AssetLoaderPlugin {
 
         let sky_prefab = world.add_model(sky_model);
         let sky = StaticObject::new(world.root, sky_prefab, Spatial::new_with_scale(200.0));
-        world.hecs_world.spawn(sky.0);
+        world.heks_world.spawn(sky.0);
     }
 
     fn update(&mut self, state: &mut Self::GameState, delta_time: &Duration) {}
@@ -88,7 +88,7 @@ impl PluginState for AssetLoaderPlugin {
     fn unload(&mut self, state: &mut Self::GameState) {
         let log = self.logger.sub("unload");
         info!(log, "asset loader plugin unloaded");
-        state.world.hecs_world.clear();
+        state.world.heks_world.clear();
         info!(
             log,
             "unloaded asset loader plugin ({})", state.world.stats.updates

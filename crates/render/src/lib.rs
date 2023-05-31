@@ -61,7 +61,7 @@ impl RenderState {
         world: &World,
         mut plugin: Option<&mut Box<dyn RenderPluginState<GameState = RenderState> + Send + Sync>>,
     ) {
-        for (entity, graphic) in world.hecs_world.query::<&GraphicPrefab>().iter() {
+        for (entity, graphic) in world.heks_world.query::<&GraphicPrefab>().iter() {
             match plugin.as_mut() {
                 Some(plugin) => {
                     if let Some(uploaded_at) = plugin.tracked_graphics(entity) {

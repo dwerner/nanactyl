@@ -205,7 +205,7 @@ impl World {
     }
 
     pub fn add_player(&mut self, player: Player) -> Entity {
-        let player = self.heks_world.spawn(player.0);
+        let player = self.heks_world.spawn(player);
         let log = self.logger.sub("entity");
         info!(
             log,

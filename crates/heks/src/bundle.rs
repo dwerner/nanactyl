@@ -5,7 +5,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use core::any::{type_name, TypeId};
+use core::any::type_name;
 use core::ptr::NonNull;
 use core::{fmt, mem};
 
@@ -188,9 +188,9 @@ macro_rules! tuple_impl {
         unsafe impl<$($name: Component),*> Bundle for ($($name,)*) {
             fn with_static_ids<T>(f: impl FnOnce(&[StableTypeId]) -> T) -> T {
                 const N: usize = count!($($name),*);
-                let mut xs: [(usize, TypeId); N] = [$((mem::align_of::<$name>(), StableTypeId::of::<$name>())),*];
+                let mut xs: [(usize, StableTypeId); N] = [$((mem::align_of::<$name>(), StableTypeId::of::<$name>())),*];
                 xs.sort_unstable_by(|x, y| x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1)));
-                let mut ids = [TypeId::of::<()>(); N];
+                let mut ids = [StableTypeId::of::<()>(); N];
                 for (slot, &(_, id)) in ids.iter_mut().zip(xs.iter()) {
                     *slot = id;
                 }

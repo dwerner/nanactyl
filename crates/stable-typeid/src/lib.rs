@@ -6,7 +6,7 @@ pub trait TypeInfoExt {
 }
 
 #[cfg_attr(features = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct StableTypeId {
     #[cfg(not(features = "uuid"))]
     id: u64,

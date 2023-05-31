@@ -1,4 +1,3 @@
-use core::any::TypeId;
 use core::mem::MaybeUninit;
 use core::{fmt, slice};
 

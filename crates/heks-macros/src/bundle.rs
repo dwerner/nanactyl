@@ -45,8 +45,8 @@ fn gen_dynamic_bundle_impl(
                 false #(|| ::stable_typeid::StableTypeId::of::<#tys>() == ::stable_typeid::StableTypeId::of::<__heks__T>())*
             }
 
-            fn key(&self) -> ::core::option::Option<::core::any::TypeId> {
-                ::core::option::Option::Some(::core::any::TypeId::of::<Self>())
+            fn key(&self) -> ::core::option::Option<::stable_typeid::StableTypeId> {
+                ::core::option::Option::Some(::stable_typeid::StableTypeId::of::<Self>())
             }
 
             fn with_ids<__heks__T>(&self, f: impl ::std::ops::FnOnce(&[::stable_typeid::StableTypeId]) -> __heks__T) -> __heks__T {

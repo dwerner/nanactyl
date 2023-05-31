@@ -1,8 +1,9 @@
-use core::any::TypeId;
 use core::fmt::{self, Debug, Formatter};
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut, FnOnce};
 use core::ptr::NonNull;
+
+use stable_typeid::StableTypeId;
 
 use crate::archetype::Archetype;
 use crate::{
@@ -92,7 +93,7 @@ impl<'a> EntityRef<'a> {
     /// Handler>>` where `Handler` is some user-defined trait with methods
     /// for serialization, or to be called after spawning or before
     /// despawning to maintain secondary indices.
-    pub fn component_types(&self) -> impl Iterator<Item = TypeId> + 'a {
+    pub fn component_types(&self) -> impl Iterator<Item = StableTypeId> + 'a {
         self.archetype.types().iter().map(|ty| ty.id())
     }
 

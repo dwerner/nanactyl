@@ -161,7 +161,7 @@ impl WorldUpdatePluginState {
         );
 
         // TODO: spawn object method
-        let entity = world.heks_world.spawn(ground_phys.0);
+        let entity = world.heks_world.spawn(ground_phys);
         self.collider_handles.insert(entity, collider_handle);
     }
 }

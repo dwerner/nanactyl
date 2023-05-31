@@ -525,7 +525,7 @@ impl<V> OrderedTypeIdMap<V> {
 /// name/check the component type; a [`Layout`], so that we know how to allocate
 /// memory for this component type; and a drop function which internally calls
 /// [`core::ptr::drop_in_place`] with the correct type parameter.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct TypeInfo {
     id: StableTypeId,
     layout: Layout,

@@ -197,7 +197,7 @@ mod tests {
         },));
 
         let player = Player::new(root_transform, gfx_prefab, Spatial::default());
-        let _player_id = world.spawn(player.0);
+        let _player_id = world.spawn(player);
 
         let entity = {
             let mut query = world.query::<(&Camera, &Spatial)>();

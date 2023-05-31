@@ -5,7 +5,6 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use core::any::TypeId;
 use core::marker::PhantomData;
 use core::mem;
 use core::ptr::NonNull;

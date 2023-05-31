@@ -103,18 +103,18 @@ impl Renderer {
         let (camera, spatial) = {
             let camera_entity = world.camera().expect("camera should exist");
             let entity = world.heks_world.entity(camera_entity).unwrap();
-            if !entity.has::<&Camera>() {
+            if !entity.has::<Camera>() {
                 return Err(RenderError::ComponentMissingFromCameraEntity(
                     camera_entity,
                     std::any::type_name::<Camera>(),
                     StableTypeId::of::<Camera>(),
                 ));
             }
-            if !entity.has::<&Spatial>() {
+            if !entity.has::<Spatial>() {
                 return Err(RenderError::ComponentMissingFromCameraEntity(
                     camera_entity,
                     std::any::type_name::<Spatial>(),
-                    StableTypeId::of::<Camera>(),
+                    StableTypeId::of::<Spatial>(),
                 ));
             }
 

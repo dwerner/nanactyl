@@ -10,7 +10,7 @@ input = { path = "../input" }
 logger = { path = "../logger" }
 plugin_self = { path = "../plugin_self" }
 core_executor = { path = "../core_executor" }
-heks = { path = "../heks" }
+heks = { path = "../heks", features = ["macros"] }
 stable-typeid = { path = "../stable-typeid" }
 
 # workspace deps

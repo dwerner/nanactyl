@@ -1,5 +1,6 @@
 use std::fmt;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +55,28 @@ impl LogLevel {
 pub struct Logger {
     pub level: LogLevel,
     path: Vec<String>,
+    filter: Arc<Mutex<Option<LogFilter>>>,
+}
+
+#[derive(Clone, Debug)]
+pub enum LogFilter {
+    Level(LogLevel),
+    Tag(String),
+    LevelAndTag(LogLevel, String),
+}
+
+impl LogFilter {
+    pub fn level(level: LogLevel) -> Self {
+        LogFilter::Level(level)
+    }
+
+    pub fn tag(prefix: &str) -> Self {
+        LogFilter::Tag(prefix.to_string())
+    }
+
+    pub fn level_and_tag(level: LogLevel, prefix: &str) -> Self {
+        LogFilter::LevelAndTag(level, prefix.to_string())
+    }
 }
 
 impl Default for Logger {
@@ -63,21 +86,60 @@ impl Default for Logger {
 }
 
 impl Logger {
+    pub fn get_filter(&self) -> Option<LogFilter> {
+        self.filter.lock().unwrap().clone()
+    }
+
+    pub fn set_filter(&self, filter: LogFilter) {
+        self.maybe_set_filter(Some(filter));
+    }
+
+    pub fn maybe_set_filter(&self, filter: Option<LogFilter>) {
+        crate::info!(self, "Setting log filter to {:?}", filter);
+        *self.filter.lock().unwrap() = filter;
+    }
+
     pub fn new(level: LogLevel) -> Self {
         Logger {
             level,
             path: Vec::new(),
+            filter: Arc::new(Mutex::new(None)),
         }
     }
 
-    pub fn log(&self, level: LogLevel, args: fmt::Arguments<'_>) {
-        if level <= self.level {
-            print!("{}(", level);
-            for (i, item) in self.path.iter().enumerate() {
-                print!("{}{item}", if i > 0 { "." } else { "" }, item = item);
+    pub fn log(&self, item_level: LogLevel, args: fmt::Arguments<'_>) {
+        if let Some(filter) = self.get_filter() {
+            match filter {
+                LogFilter::Level(level) => {
+                    if level == item_level {
+                        self.print(level, args);
+                    }
+                }
+                LogFilter::Tag(tag) => {
+                    if self.path.contains(&tag) {
+                        self.print(item_level, args);
+                    }
+                }
+                LogFilter::LevelAndTag(level, tag) => {
+                    if level == item_level && self.path.contains(&tag) {
+                        self.print(item_level, args);
+                    }
+                }
             }
-            println!("): {}", args);
+            return;
         }
+
+        if item_level <= self.level {
+            self.print(item_level, args);
+        }
+    }
+
+    fn print(&self, level: LogLevel, args: fmt::Arguments) {
+        print!("{}(", level);
+        for (i, item) in self.path.iter().enumerate() {
+            print!("{}{item}", if i > 0 { "." } else { "" }, item = item);
+        }
+        println!("): {}", args);
     }
 
     /// Create a new logger with the given name as a sub-logger of this one.
@@ -87,6 +149,7 @@ impl Logger {
         Logger {
             level: self.level.clone(),
             path,
+            filter: Arc::clone(&self.filter),
         }
     }
 
@@ -145,6 +208,9 @@ macro_rules! debug {
 
 #[macro_export]
 macro_rules! trace {
+    ($logger:expr, $($arg:tt)*) => {
+        $logger.trace(format_args!($($arg)*));
+    };
     ($logger:expr, $($arg:tt)*) => {
         $logger.trace(format_args!($($arg)*));
     };

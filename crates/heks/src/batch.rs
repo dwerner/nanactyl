@@ -1,10 +1,12 @@
-use crate::alloc::collections::BinaryHeap;
-use core::{any::TypeId, fmt, mem::MaybeUninit, slice};
+use core::any::TypeId;
+use core::mem::MaybeUninit;
+use core::{fmt, slice};
 
-use crate::{
-    archetype::{TypeIdMap, TypeInfo},
-    Archetype, Component,
-};
+use stable_typeid::StableTypeId;
+
+use crate::alloc::collections::BinaryHeap;
+use crate::archetype::{TypeIdMap, TypeInfo};
+use crate::{Archetype, Component};
 
 /// A collection of component types
 #[derive(Debug, Clone, Default)]
@@ -24,7 +26,8 @@ impl ColumnBatchType {
         self
     }
 
-    /// Construct a [`ColumnBatchBuilder`] for *exactly* `size` entities with these components
+    /// Construct a [`ColumnBatchBuilder`] for *exactly* `size` entities with
+    /// these components
     pub fn into_batch(self, size: u32) -> ColumnBatchBuilder {
         let mut types = self.types.into_sorted_vec();
         types.dedup();
@@ -39,7 +42,8 @@ impl ColumnBatchType {
     }
 }
 
-/// An incomplete collection of component data for entities with the same component types
+/// An incomplete collection of component data for entities with the same
+/// component types
 pub struct ColumnBatchBuilder {
     /// Number of components written so far for each component type
     fill: TypeIdMap<u32>,
@@ -51,18 +55,20 @@ unsafe impl Send for ColumnBatchBuilder {}
 unsafe impl Sync for ColumnBatchBuilder {}
 
 impl ColumnBatchBuilder {
-    /// Create a batch for *exactly* `size` entities with certain component types
+    /// Create a batch for *exactly* `size` entities with certain component
+    /// types
     pub fn new(ty: ColumnBatchType, size: u32) -> Self {
         ty.into_batch(size)
     }
 
-    /// Get a handle for inserting `T` components if `T` was in the [`ColumnBatchType`]
+    /// Get a handle for inserting `T` components if `T` was in the
+    /// [`ColumnBatchType`]
     pub fn writer<T: Component>(&mut self) -> Option<BatchWriter<'_, T>> {
         let archetype = self.archetype.as_mut().unwrap();
         let state = archetype.get_state::<T>()?;
         let base = archetype.get_base::<T>(state);
         Some(BatchWriter {
-            fill: self.fill.entry(TypeId::of::<T>()).or_insert(0),
+            fill: self.fill.entry(StableTypeId::of::<T>()).or_insert(0),
             storage: unsafe {
                 slice::from_raw_parts_mut(base.as_ptr().cast(), self.target_fill as usize)
                     .iter_mut()

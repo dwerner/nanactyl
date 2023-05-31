@@ -41,12 +41,17 @@ pub struct RenderState {
 }
 
 impl RenderState {
-    pub fn new(win_ptr: WinPtr, enable_validation_layer: bool, is_server: bool) -> Self {
+    pub fn new(
+        win_ptr: WinPtr,
+        enable_validation_layer: bool,
+        is_server: bool,
+        logger: Logger,
+    ) -> Self {
         Self {
             updates: 0,
             win_ptr,
             enable_validation_layer,
-            logger: LogLevel::Info.logger(),
+            logger,
         }
     }
 

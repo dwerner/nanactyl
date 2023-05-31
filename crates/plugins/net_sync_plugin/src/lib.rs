@@ -55,6 +55,8 @@ impl PluginState for NetSyncPluginState {
             state.logger,
             "reloaded net sync plugin ({})!", state.world.stats.updates
         );
+        self.logger.maybe_set_filter(state.logger.get_filter());
+
         let connection = match state.world.config.maybe_server_addr {
             Some(addr) => {
                 futures_lite::future::block_on(async move {
@@ -68,7 +70,7 @@ impl PluginState for NetSyncPluginState {
                 })
             }
             None => {
-                let logger = LogLevel::Info.logger();
+                let logger = state.logger.sub("net-sync");
                 // We will run as a server, accepting new connections.
                 futures_lite::future::block_on(async move {
                     let addr = "0.0.0.0:12002";

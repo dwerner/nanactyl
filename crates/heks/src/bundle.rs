@@ -9,6 +9,8 @@ use core::any::{type_name, TypeId};
 use core::ptr::NonNull;
 use core::{fmt, mem};
 
+use stable_typeid::StableTypeId;
+
 use crate::alloc::vec::Vec;
 use crate::archetype::TypeInfo;
 use crate::Component;
@@ -20,9 +22,10 @@ use crate::Component;
 /// implementation detail.
 #[allow(clippy::missing_safety_doc)]
 pub unsafe trait DynamicBundle {
-    /// Returns a `TypeId` uniquely identifying the set of components, if known
+    /// Returns a `StableTypeId` uniquely identifying the set of components, if
+    /// known
     #[doc(hidden)]
-    fn key(&self) -> Option<TypeId> {
+    fn key(&self) -> Option<StableTypeId> {
         None
     }
 
@@ -37,13 +40,13 @@ pub unsafe trait DynamicBundle {
     /// assert!(!my_bundle.has::<usize>());
     /// ```
     fn has<T: Component>(&self) -> bool {
-        self.with_ids(|types| types.contains(&TypeId::of::<T>()))
+        self.with_ids(|types| types.contains(&StableTypeId::of::<T>()))
     }
 
     /// Invoke a callback on the fields' type IDs, sorted by descending
     /// alignment then id
     #[doc(hidden)]
-    fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T;
+    fn with_ids<T>(&self, f: impl FnOnce(&[StableTypeId]) -> T) -> T;
 
     /// Obtain the fields' TypeInfos, sorted by descending alignment then id
     #[doc(hidden)]
@@ -64,7 +67,7 @@ pub unsafe trait DynamicBundle {
 #[allow(clippy::missing_safety_doc)]
 pub unsafe trait Bundle: DynamicBundle {
     #[doc(hidden)]
-    fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T;
+    fn with_static_ids<T>(f: impl FnOnce(&[StableTypeId]) -> T) -> T;
 
     /// Obtain the fields' TypeInfos, sorted by descending alignment then id
     #[doc(hidden)]
@@ -136,14 +139,14 @@ macro_rules! tuple_impl {
     ($($name: ident),*) => {
         unsafe impl<$($name: Component),*> DynamicBundle for ($($name,)*) {
             fn has<T: Component>(&self) -> bool {
-                false $(|| TypeId::of::<$name>() == TypeId::of::<T>())*
+                false $(|| StableTypeId::of::<$name>() == StableTypeId::of::<T>())*
             }
 
-            fn key(&self) -> Option<TypeId> {
-                Some(TypeId::of::<Self>())
+            fn key(&self) -> Option<StableTypeId> {
+                Some(StableTypeId::of::<Self>())
             }
 
-            fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
+            fn with_ids<T>(&self, f: impl FnOnce(&[StableTypeId]) -> T) -> T {
                 Self::with_static_ids(f)
             }
 
@@ -183,9 +186,9 @@ macro_rules! tuple_impl {
         }
 
         unsafe impl<$($name: Component),*> Bundle for ($($name,)*) {
-            fn with_static_ids<T>(f: impl FnOnce(&[TypeId]) -> T) -> T {
+            fn with_static_ids<T>(f: impl FnOnce(&[StableTypeId]) -> T) -> T {
                 const N: usize = count!($($name),*);
-                let mut xs: [(usize, TypeId); N] = [$((mem::align_of::<$name>(), TypeId::of::<$name>())),*];
+                let mut xs: [(usize, TypeId); N] = [$((mem::align_of::<$name>(), StableTypeId::of::<$name>())),*];
                 xs.sort_unstable_by(|x, y| x.0.cmp(&y.0).reverse().then(x.1.cmp(&y.1)));
                 let mut ids = [TypeId::of::<()>(); N];
                 for (slot, &(_, id)) in ids.iter_mut().zip(xs.iter()) {

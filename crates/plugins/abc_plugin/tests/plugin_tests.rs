@@ -24,7 +24,12 @@ mod tests {
 
         let target_dir = root.join("target/debug");
 
-        let mut plugin = Plugin::<_, ()>::open_from_target_dir(&target_dir, "abc_plugin").unwrap();
+        let mut plugin = Plugin::<_, ()>::open_from_target_dir(
+            &target_dir,
+            "abc_plugin",
+            LogLevel::Info.logger(),
+        )
+        .unwrap();
 
         let logger = LogLevel::Debug.logger().sub("test");
 

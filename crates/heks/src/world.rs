@@ -15,6 +15,7 @@ use std::error::Error;
 
 use hashbrown::hash_map::{Entry, HashMap};
 use spin::Mutex;
+use stable_typeid::StableTypeId;
 
 use crate::alloc::boxed::Box;
 use crate::alloc::vec;
@@ -342,7 +343,7 @@ impl World {
         let archetypes = &mut self.archetypes;
         let archetype_id = *self
             .bundle_to_archetype
-            .entry(TypeId::of::<T>())
+            .entry(StableTypeId::of::<T>())
             .or_insert_with(|| {
                 T::with_static_ids(|ids| {
                     archetypes.get(ids, || T::with_static_type_info(|info| info.to_vec()))
@@ -751,7 +752,7 @@ impl World {
         remove_edges: &mut IndexTypeIdMap<u32>,
         old_archetype: u32,
     ) -> u32 {
-        match remove_edges.entry((old_archetype, TypeId::of::<T>())) {
+        match remove_edges.entry((old_archetype, StableTypeId::of::<T>())) {
             Entry::Occupied(entry) => *entry.into_mut(),
             Entry::Vacant(entry) => {
                 let info = T::with_static_type_info(|removed| {
@@ -1200,7 +1201,7 @@ impl Drop for SpawnColumnBatchIter<'_> {
 
 struct ArchetypeSet {
     /// Maps sorted component type sets to archetypes
-    index: HashMap<Box<[TypeId]>, u32>,
+    index: HashMap<Box<[StableTypeId]>, u32>,
     archetypes: Vec<Archetype>,
 }
 
@@ -1215,7 +1216,7 @@ impl ArchetypeSet {
     }
 
     /// Find the archetype ID that has exactly `components`
-    fn get<T: Borrow<[TypeId]> + Into<Box<[TypeId]>>>(
+    fn get<T: Borrow<[StableTypeId]> + Into<Box<[StableTypeId]>>>(
         &mut self,
         components: T,
         info: impl FnOnce() -> Vec<TypeInfo>,
@@ -1226,7 +1227,7 @@ impl ArchetypeSet {
             .unwrap_or_else(|| self.insert(components.into(), info()))
     }
 
-    fn insert(&mut self, components: Box<[TypeId]>, info: Vec<TypeInfo>) -> u32 {
+    fn insert(&mut self, components: Box<[StableTypeId]>, info: Vec<TypeInfo>) -> u32 {
         let x = self.archetypes.len() as u32;
         self.archetypes.push(Archetype::new(info));
         let old = self.index.insert(components, x);
@@ -1314,7 +1315,7 @@ struct InsertTarget {
     index: u32,
 }
 
-type IndexTypeIdMap<V> = HashMap<(u32, TypeId), V, BuildHasherDefault<IndexTypeIdHasher>>;
+type IndexTypeIdMap<V> = HashMap<(u32, StableTypeId), V, BuildHasherDefault<IndexTypeIdHasher>>;
 
 #[derive(Default)]
 struct IndexTypeIdHasher(u64);

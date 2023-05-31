@@ -62,12 +62,6 @@ pub struct Model {
     material: Material,
 }
 
-impl Drop for Model {
-    fn drop(&mut self) {
-        println!("dropping model {:?}", self);
-    }
-}
-
 impl GpuNeeds for Model {
     fn fragment_shader_path(&self) -> &Path {
         self.fragment_shader.as_path()

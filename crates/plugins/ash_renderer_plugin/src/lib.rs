@@ -506,8 +506,7 @@ impl Presenter for VulkanRenderPluginState {
     fn present(&mut self, world: &World) {
         if let Some(renderer) = &mut self.renderer {
             if let Err(err) = renderer.present(self.base.as_mut().unwrap(), world) {
-                error!(self.logger, "error during present : {:?}", err);
-                panic!();
+                error!(self.logger.sub("entity"), "error in present : {:?}", err);
             }
         }
     }
@@ -762,7 +761,6 @@ impl VulkanBase {
     }
 
     fn renderer(&mut self) -> Result<Renderer, RenderError> {
-        let logger = self.logger.sub("renderer");
         // TODO: shaders that apply only to certain models need different descriptor
         // sets.
         //? TODO: any pool can be a thread local, but then any object must be destroyed
@@ -771,7 +769,7 @@ impl VulkanBase {
         let mut renderer = Renderer {
             descriptor_pool,
             pipelines: HashMap::new(),
-            logger,
+            logger: self.logger.sub("renderer"),
             last_pipeline_rebuild: Instant::now() - Duration::from_secs(60),
         };
         renderer.rebuild_pipelines(self)?;
@@ -1841,6 +1839,8 @@ impl PluginState for VulkanRenderPluginState {
     fn load(&mut self, state: &mut Self::GameState) {
         // let (state, world) = state;
         let logger = state.logger.sub("ash-renderer-load");
+        self.logger.maybe_set_filter(logger.get_filter());
+
         info!(logger, "loaded ash_renderer_plugin...");
 
         let mut base = VulkanBase::new(

@@ -11,6 +11,8 @@ use core::mem;
 use core::ptr::NonNull;
 use core::slice::Iter as SliceIter;
 
+use stable_typeid::StableTypeId;
+
 use crate::alloc::boxed::Box;
 use crate::alloc::vec::Vec;
 use crate::archetype::Archetype;
@@ -72,7 +74,7 @@ pub unsafe trait Fetch: Sized {
 
     /// Invoke `f` for every component type that may be borrowed and whether the
     /// borrow is unique
-    fn for_each_borrow(f: impl FnMut(TypeId, bool));
+    fn for_each_borrow(f: impl FnMut(StableTypeId, bool));
 }
 
 /// Type of access a [`Query`] may have to an [`Archetype`]
@@ -129,8 +131,8 @@ unsafe impl<T: Component> Fetch for FetchRead<T> {
         archetype.release::<T>(state);
     }
 
-    fn for_each_borrow(mut f: impl FnMut(TypeId, bool)) {
-        f(TypeId::of::<T>(), false);
+    fn for_each_borrow(mut f: impl FnMut(StableTypeId, bool)) {
+        f(StableTypeId::of::<T>(), false);
     }
 }
 
@@ -176,8 +178,8 @@ unsafe impl<T: Component> Fetch for FetchWrite<T> {
         archetype.release_mut::<T>(state);
     }
 
-    fn for_each_borrow(mut f: impl FnMut(TypeId, bool)) {
-        f(TypeId::of::<T>(), true);
+    fn for_each_borrow(mut f: impl FnMut(StableTypeId, bool)) {
+        f(StableTypeId::of::<T>(), true);
     }
 }
 
@@ -224,7 +226,7 @@ unsafe impl<T: Fetch> Fetch for TryFetch<T> {
         }
     }
 
-    fn for_each_borrow(f: impl FnMut(TypeId, bool)) {
+    fn for_each_borrow(f: impl FnMut(StableTypeId, bool)) {
         T::for_each_borrow(f);
     }
 }
@@ -363,7 +365,7 @@ unsafe impl<L: Fetch, R: Fetch> Fetch for FetchOr<L, R> {
         state.map(|l| L::release(archetype, l), |r| R::release(archetype, r));
     }
 
-    fn for_each_borrow(mut f: impl FnMut(TypeId, bool)) {
+    fn for_each_borrow(mut f: impl FnMut(StableTypeId, bool)) {
         L::for_each_borrow(&mut f);
         R::for_each_borrow(&mut f);
     }
@@ -434,7 +436,7 @@ unsafe impl<F: Fetch, G: Fetch> Fetch for FetchWithout<F, G> {
         F::release(archetype, state)
     }
 
-    fn for_each_borrow(f: impl FnMut(TypeId, bool)) {
+    fn for_each_borrow(f: impl FnMut(StableTypeId, bool)) {
         F::for_each_borrow(f);
     }
 }
@@ -504,7 +506,7 @@ unsafe impl<F: Fetch, G: Fetch> Fetch for FetchWith<F, G> {
         F::release(archetype, state)
     }
 
-    fn for_each_borrow(f: impl FnMut(TypeId, bool)) {
+    fn for_each_borrow(f: impl FnMut(StableTypeId, bool)) {
         F::for_each_borrow(f);
     }
 }
@@ -568,7 +570,7 @@ unsafe impl<F: Fetch> Fetch for FetchSatisfies<F> {
     }
     fn release(_archetype: &Archetype, _state: Self::State) {}
 
-    fn for_each_borrow(_: impl FnMut(TypeId, bool)) {}
+    fn for_each_borrow(_: impl FnMut(StableTypeId, bool)) {}
 }
 
 /// A borrow of a [`World`](crate::World) sufficient to execute the query `Q`
@@ -1039,7 +1041,7 @@ macro_rules! tuple_impl {
             }
 
             #[allow(unused_variables, unused_mut, clippy::unused_unit)]
-            fn for_each_borrow(mut f: impl FnMut(TypeId, bool)) {
+            fn for_each_borrow(mut f: impl FnMut(StableTypeId, bool)) {
                 $($name::for_each_borrow(&mut f);)*
             }
         }

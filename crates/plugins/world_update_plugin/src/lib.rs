@@ -56,6 +56,7 @@ impl PluginState for WorldUpdatePluginState {
 
     fn load(&mut self, world: &mut Self::GameState) {
         info!(world.logger, "loaded.");
+        self.logger.maybe_set_filter(world.logger.get_filter());
 
         // Set up colliders and rigid bodies from the world state
         self.setup_ground_collider(world);

@@ -24,9 +24,10 @@ impl PluginState for AssetLoaderPlugin {
     }
 
     fn load(&mut self, state: &mut Self::GameState) {
-        info!(self.logger.sub("load"), "asset loader plugin loaded.");
         let logger = &state.world.logger.sub("asset-loader");
+        logger.maybe_set_filter(state.world.logger.get_filter());
         let world = &mut state.world;
+        info!(self.logger.sub("load"), "asset loader plugin loaded.");
 
         let tank_model = Model::load_obj(
             "assets/models/static/tank.obj",

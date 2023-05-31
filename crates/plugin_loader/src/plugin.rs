@@ -124,6 +124,7 @@ where
     pub fn open_from_target_dir<'a>(
         plugin_dir: &Path,
         plugin_name: &'a str,
+        logger: Logger,
     ) -> Result<Self, PluginError>
     where
         'a: 'p,
@@ -133,12 +134,16 @@ where
         } else {
             plugin_dir.join(format!("lib{plugin_name}.so"))
         };
-        Self::open_at(filename, plugin_name)
+        Self::open_at(filename, plugin_name, logger)
     }
 
     /// Opens a plugin at `path`, with `name`. Note that `check` must be called
     /// subsequently in order to invoke callbacks on the plugin.
-    pub fn open_at(path: impl AsRef<Path>, name: &str) -> Result<Plugin<S, I>, PluginError> {
+    pub fn open_at(
+        path: impl AsRef<Path>,
+        name: &str,
+        logger: Logger,
+    ) -> Result<Plugin<S, I>, PluginError> {
         let modified = Duration::from_millis(0);
         let path = path.as_ref().to_path_buf();
         let name = name.to_string();
@@ -149,7 +154,7 @@ where
         })?;
 
         Ok(Plugin {
-            logger: LogLevel::Info.logger(),
+            logger,
             path,
             tempdir: TempDir::new(&name).map_err(PluginError::TempdirIo)?,
             name: name.to_string(),
@@ -533,9 +538,12 @@ mod tests {
 
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = (Vec::new(), Arc::new(true));
-        let mut loader =
-            Plugin::<(Vec<Arc<bool>>, Arc<bool>), u32>::open_at(plugin_path, "test_plugin")
-                .unwrap();
+        let mut loader = Plugin::<(Vec<Arc<bool>>, Arc<bool>), u32>::open_at(
+            plugin_path,
+            "test_plugin",
+            LogLevel::Info.logger(),
+        )
+        .unwrap();
         let _update = loader.check(&mut state).unwrap();
         loader
             .call_update(&mut state, &Duration::from_secs(1))
@@ -561,7 +569,9 @@ mod tests {
 
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32, ()>::open_at(plugin_path, "test_plugin").unwrap();
+        let mut loader =
+            Plugin::<i32, ()>::open_at(plugin_path, "test_plugin", LogLevel::Info.logger())
+                .unwrap();
         let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
         assert_eq!(update, PluginCheck::FoundNewVersion);
@@ -599,7 +609,9 @@ mod tests {
 
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32, ()>::open_at(plugin_path, "test_plugin").unwrap();
+        let mut loader =
+            Plugin::<i32, ()>::open_at(plugin_path, "test_plugin", LogLevel::Info.logger())
+                .unwrap();
         let update = loader.check(&mut state).unwrap();
         assert_eq!(state, 2);
         assert_eq!(update, PluginCheck::FoundNewVersion);
@@ -647,7 +659,9 @@ mod tests {
 
         // The normal use case - load a plugin, pass in state, then reload.
         let mut state = 1i32;
-        let mut loader = Plugin::<i32, ()>::open_at(plugin_path, "test_plugin").unwrap();
+        let mut loader =
+            Plugin::<i32, ()>::open_at(plugin_path, "test_plugin", LogLevel::Info.logger())
+                .unwrap();
         assert!(matches!(
             loader
                 .call_update(&mut state, &Duration::from_millis(1))
@@ -661,6 +675,7 @@ mod tests {
         let load = Plugin::<u32, ()>::open_from_target_dir(
             &PathBuf::from(plugin_loader::RELATIVE_TARGET_DIR),
             "mod_unknown",
+            LogLevel::Info.logger(),
         );
         assert!(matches!(load, Err(PluginError::MetadataIo { .. })))
     }

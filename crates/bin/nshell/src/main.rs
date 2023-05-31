@@ -15,7 +15,7 @@ use futures_lite::future;
 use histogram::Histogram;
 use input::wire::InputState;
 use input::{DeviceEvent, EngineEvent};
-use logger::{error, info, LogLevel, Logger};
+use logger::{error, info, LogFilter, LogLevel, Logger};
 use plugin_loader::{Plugin, PluginCheck, PluginError};
 use render::{RenderPluginState, RenderState};
 use serde::Deserialize;
@@ -48,6 +48,12 @@ struct CliOpts {
 
     #[structopt(long, default_value = "info")]
     log_level: LogLevel,
+
+    #[structopt(long)]
+    log_level_filter: Option<LogLevel>,
+
+    #[structopt(long)]
+    log_tag_filter: Option<String>,
 
     #[structopt(long)]
     net_disabled: bool,
@@ -85,6 +91,12 @@ fn main() {
     plugin_loader::register_tls_dtor_hook!();
 
     let opts = CliOpts::load_with_overrides(&logger);
+    match (opts.log_level_filter, opts.log_tag_filter) {
+        (None, Some(tag)) => logger.set_filter(LogFilter::tag(&tag)),
+        (Some(level), None) => logger.set_filter(LogFilter::level(level)),
+        (Some(level), Some(prefix)) => logger.set_filter(LogFilter::level_and_tag(level, &prefix)),
+        (None, None) => {}
+    }
 
     let mut executor = ThreadPoolExecutor::new(std::thread::available_parallelism().unwrap().get());
 
@@ -120,16 +132,21 @@ fn main() {
             RenderState,
             Box<dyn RenderPluginState<GameState = RenderState> + Send + Sync>,
         >::open_from_target_dir(
-            &opts.plugin_dir, "ash_renderer_plugin"
+            &opts.plugin_dir,
+            "ash_renderer_plugin",
+            logger.sub("ash_renderer_plugin"),
         )
         .unwrap()
         .into_shared();
 
         // world update
-        let world_update_plugin =
-            Plugin::<World, ()>::open_from_target_dir(&opts.plugin_dir, "world_update_plugin")
-                .unwrap()
-                .into_shared();
+        let world_update_plugin = Plugin::<World, ()>::open_from_target_dir(
+            &opts.plugin_dir,
+            "world_update_plugin",
+            logger.sub("world_update_plugin"),
+        )
+        .unwrap()
+        .into_shared();
 
         // net sync
         let net_sync_plugin = if !opts.net_disabled {
@@ -137,6 +154,7 @@ fn main() {
                 Plugin::<WorldLockAndControllerState, ()>::open_from_target_dir(
                     &opts.plugin_dir,
                     "net_sync_plugin",
+                    logger.sub("net_sync_plugin"),
                 )
                 .unwrap()
                 .into_shared(),
@@ -150,6 +168,7 @@ fn main() {
         let asset_loader_plugin = Plugin::<AssetLoaderStateAndWorldLock, ()>::open_from_target_dir(
             &opts.plugin_dir,
             "asset_loader_plugin",
+            logger.sub("asset_loader_plugin"),
         )
         .unwrap()
         .into_shared();
@@ -159,6 +178,7 @@ fn main() {
             win_ptr,
             opts.enable_validation_layer,
             opts.connect_to_server.is_none(),
+            logger.sub("render_state"),
         )
         .into_shared();
 

@@ -30,7 +30,7 @@ impl StaticObject {
                 relative_matrix: Mat4::IDENTITY,
             },
             world: WorldTransform {
-                world_matrix: Mat4::IDENTITY,
+                world: Mat4::IDENTITY,
             },
         }
     }
@@ -89,7 +89,7 @@ impl Player {
                 relative_matrix: Mat4::IDENTITY,
             },
             world: WorldTransform {
-                world_matrix: Mat4::IDENTITY,
+                world: Mat4::IDENTITY,
             },
             control: Control {
                 ..Default::default()

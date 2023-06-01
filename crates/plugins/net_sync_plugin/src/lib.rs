@@ -133,7 +133,7 @@ async fn pump_connection_as_server(s: &mut World) -> Result<[InputState; 2], Plu
         .query::<(&mut Spatial, &PhysicsBody)>()
         .iter()
         .map(|(entity, (spatial, _physics))| {
-            EntityUpdate::new(entity, spatial.pos, spatial.angles.y)
+            EntityUpdate::new(entity, spatial.get_pos(), spatial.get_angles().y)
         })
         .take(NUM_UPDATES_PER_MSG as usize)
         .collect::<Vec<_>>();
@@ -220,9 +220,9 @@ async fn pump_connection_as_client(
     {
         let entity = Entity::from_bits(entity_bits).expect("unable to from_bits Entity");
         match s.heks_world.get::<&mut Spatial>(entity) {
-            Ok(mut phys) => {
-                phys.pos = position;
-                phys.angles.y = y_rotation;
+            Ok(mut spatial) => {
+                spatial.rotate(Vec3::new(0.0, y_rotation, 0.0));
+                spatial.translate(position);
             }
             Err(err) => error!(logger, "error getting entity {:?}", err),
         }

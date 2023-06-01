@@ -30,7 +30,7 @@ use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, Pipeline, RenderError, Shader, ShaderStage,
     ShaderStages, VertexInputAssembly,
 };
-use world::components::{Camera, Drawable, Spatial};
+use world::components::{Camera, Drawable, Spatial, WorldTransform};
 use world::graphics::EULER_ROT_ORDER;
 use world::{Entity, World};
 
@@ -207,9 +207,11 @@ impl Renderer {
                 0,
                 vk::IndexType::UINT32,
             );
-            for (drawable, drawable_spatial) in world
+
+            // Don't calculate or update the world transform, just use what's been cached.
+            for (drawable, world_transform) in world
                 .heks_world
-                .query::<(&Drawable, &Spatial)>()
+                .query::<(&Drawable, &WorldTransform)>()
                 .iter()
                 .filter_map(|(_entity, (drawable, spatial))| {
                     if drawable.gfx == *gfx_index {
@@ -219,8 +221,7 @@ impl Renderer {
                     }
                 })
             {
-                let push_constants =
-                    PushConstants::new(drawable_transform(drawable, drawable_spatial));
+                let push_constants = PushConstants::new(world_transform.world);
                 let push_constant_bytes = push_constants.to_bytes();
 
                 let (model, _) = base.tracked_graphics.get(&drawable.gfx).unwrap();
@@ -469,18 +470,6 @@ impl Renderer {
         }
         Ok(())
     }
-}
-
-fn drawable_transform(drawable: &Drawable, drawable_spatial: &Spatial) -> Mat4 {
-    let scale = Mat4::from_scale(drawable.scale * Vec3::ONE);
-    let translation = Mat4::from_translation(drawable_spatial.pos);
-    let rot = Mat4::from_euler(
-        EULER_ROT_ORDER,
-        drawable_spatial.angles.x,
-        drawable_spatial.angles.y,
-        drawable_spatial.angles.z,
-    );
-    scale * rot * translation
 }
 
 impl Presenter for VulkanRenderPluginState {

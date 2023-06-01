@@ -44,14 +44,14 @@ impl Camera {
         physics: &PhysicsBody,
     ) {
         let amount = (dt.as_millis() as f64 / 100.0) as f32;
-        spatial.pos += physics.linear_velocity * amount;
+        spatial.translate(physics.linear_velocity * amount);
         self.update_view_matrix(spatial);
     }
 
     pub fn update_view_matrix(&mut self, spatial: &Spatial) {
-        let rot = Mat4::from_euler(EULER_ROT_ORDER, spatial.angles.x, spatial.angles.y, 0.0);
-        let trans = Mat4::from_translation(spatial.pos);
-        self.view = rot * trans;
+
+        // TODO: debugging view matrix
+        // self.view = spatial.to_view_matrix(self);
     }
 
     pub fn set_perspective(&mut self, fov: f32, aspect: f32, near: f32, far: f32) {
@@ -64,6 +64,7 @@ impl Camera {
 }
 
 /// A component representing a control. Should encapsulate action intention.
+/// Should be drawn on the debug layer.
 #[derive(Debug, Default)]
 pub struct Control {
     pub linear_intention: Vec3,
@@ -73,55 +74,75 @@ pub struct Control {
 /// A component representing a position and rotation.
 #[derive(Debug, Default)]
 pub struct Spatial {
-    pub pos: Vec3,
-    pub angles: Vec3,
-    pub scale: f32,
-    // pub rotation: Mat4,
+    pub transform: Mat4,
 }
 
+// Really should be a world transform.
 impl Spatial {
-    pub fn with_angles(mut self, angles: Vec3) -> Self {
-        self.angles = angles;
-        self
+    pub fn new() -> Self {
+        Self {
+            transform: Mat4::IDENTITY,
+        }
     }
+
+    pub fn translate(&mut self, translation: Vec3) {
+        self.transform = Mat4::from_translation(translation) * self.transform;
+    }
+
+    pub fn rotate(&mut self, angles: Vec3) {
+        self.transform =
+            Mat4::from_euler(EULER_ROT_ORDER, angles.x, angles.y, angles.z) * self.transform;
+    }
+
+    pub fn scale(&mut self, scale: Vec3) {
+        self.transform = Mat4::from_scale(scale) * self.transform;
+    }
+
+    pub fn to_view_matrix(&self, camera: &Camera) -> Mat4 {
+        self.transform.inverse()
+    }
+
+    pub fn with_angles(self, angles: Vec3) -> Self {
+        let rot = Mat4::from_euler(EULER_ROT_ORDER, angles.x, angles.y, angles.z) * self.transform;
+        Self { transform: rot }
+    }
+
+    pub fn get_pos(&self) -> Vec3 {
+        let (_scale, _rot, trans) = self.transform.to_scale_rotation_translation();
+        trans
+    }
+
+    pub fn get_angles(&self) -> Vec3 {
+        let (_scale, rot, _trans) = self.transform.to_scale_rotation_translation();
+        rot.to_euler(EULER_ROT_ORDER).into()
+    }
+
+    pub fn get_scale(&self) -> Vec3 {
+        let (scale, _rot, _trans) = self.transform.to_scale_rotation_translation();
+        scale
+    }
+
     pub fn forward(&self) -> Vec3 {
-        let rx = self.angles.x;
-        let ry = self.angles.y;
-        let vec = {
-            let x = -rx.cos() * ry.sin();
-            let y = rx.sin();
-            let z = rx.cos() * ry.cos();
-            Vec3::new(x, y, z)
-        };
-        vec.normalize()
+        -self.transform.z_axis.truncate().normalize()
     }
 
     pub fn right(&self) -> Vec3 {
-        let y = Vec3::new(1.0, 0.0, 0.0);
-        let forward = self.forward();
-        let cross = y.cross(forward);
-        cross.normalize()
+        self.transform.x_axis.truncate().normalize()
     }
 
     pub fn up(&self) -> Vec3 {
-        let x = Vec3::new(0.0, 1.0, 0.0);
-        x.cross(self.forward()).normalize()
+        self.transform.y_axis.truncate().normalize()
     }
-}
 
-impl Spatial {
-    pub fn new_at(pos: Vec3) -> Self {
-        Spatial {
-            pos,
-            angles: Vec3::ZERO,
-            scale: 1.0,
-        }
-    }
     pub fn new_with_scale(scale: f32) -> Self {
-        Spatial {
-            pos: Vec3::ZERO,
-            angles: Vec3::ZERO,
-            scale,
+        let scale = Mat4::from_scale(Vec3::ONE * scale);
+        Self { transform: scale }
+    }
+
+    pub fn new_at(pos: Vec3) -> Self {
+        let translation = Mat4::from_translation(pos);
+        Self {
+            transform: translation,
         }
     }
 }
@@ -176,7 +197,7 @@ pub struct RelativeTransform {
 /// The world root is an entity with an absolute transform.
 #[derive(Debug, Default)]
 pub struct WorldTransform {
-    pub world_matrix: Mat4,
+    pub world: Mat4,
 }
 
 /// A component representing an audio source.

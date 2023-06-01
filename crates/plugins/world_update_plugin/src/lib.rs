@@ -19,7 +19,9 @@ use rapier3d::prelude::{
 };
 use stable_typeid::StableTypeId;
 use world::bundles::StaticObject;
-use world::components::{Camera, Control, PhysicsBody, Spatial};
+use world::components::{
+    Camera, Control, Drawable, PhysicsBody, RelativeTransform, Spatial, WorldTransform,
+};
 use world::graphics::{Shape, EULER_ROT_ORDER};
 use world::{Entity, World, WorldError};
 
@@ -73,6 +75,8 @@ impl PluginState for WorldUpdatePluginState {
         if world.is_server() {
             world.step_physical();
         }
+
+        self.update_transform_hierarchy(&mut world);
     }
 
     fn unload(&mut self, _world: &mut Self::GameState) {
@@ -82,6 +86,42 @@ impl PluginState for WorldUpdatePluginState {
 }
 
 impl WorldUpdatePluginState {
+    fn update_transform_hierarchy(&self, world: &mut WorldExt) {
+        let root_entity = world.world.root;
+        let mut root_transform = world
+            .world
+            .heks_world
+            .query_one::<(&WorldTransform,)>(root_entity)
+            .unwrap();
+
+        let (root_transform,) = root_transform.get().unwrap();
+
+        let mut parents_query = world.world.heks_world.query::<&RelativeTransform>();
+        let parents = parents_query.view();
+
+        for (entity, (relative_transform, entity_world_transform)) in world
+            .world
+            .heks_world
+            .query::<(&RelativeTransform, &mut WorldTransform)>()
+            .iter()
+        {
+            let mut relative_matrix = relative_transform.relative_matrix;
+            let mut ancestor = relative_transform.parent;
+            while let Some(next) = parents.get(ancestor) {
+                relative_matrix = next.relative_matrix * relative_matrix;
+                ancestor = next.parent;
+            }
+            let (_, _, t) = relative_matrix.to_scale_rotation_translation();
+            let (_, _, wt) = entity_world_transform.world.to_scale_rotation_translation();
+            info!(
+                self.logger,
+                "{:?} relative pos {:?}, world pos: {:?} ", entity, t, wt
+            );
+            entity_world_transform.world = root_transform.world * relative_matrix;
+        }
+        info!(self.logger, "-- finished updating transforms");
+    }
+
     fn setup_vehicle(&mut self) {
         let hw = 0.3;
         let hh = 0.15;
@@ -115,9 +155,10 @@ impl WorldUpdatePluginState {
         for (entity, (spatial, physics)) in
             world.heks_world.query::<(&Spatial, &PhysicsBody)>().iter()
         {
-            let x = spatial.pos.x;
-            let y = spatial.pos.y;
-            let z = spatial.pos.z;
+            let pos = spatial.get_pos();
+            let x = pos.x;
+            let y = pos.y;
+            let z = pos.z;
 
             let rigid_body = RigidBodyBuilder::dynamic().translation(vector![x, y, z]);
             let handle = self.rigid_bodies.insert(rigid_body);
@@ -169,12 +210,14 @@ impl WorldUpdatePluginState {
 /// A helper struct for accessing the world state in the plugin.
 struct WorldExt<'a> {
     world: &'a mut World,
+    logger: Logger,
 }
 
 // TODO: lift non-dymanic stuff into World
 impl<'a> WorldExt<'a> {
     fn new(world: &'a mut World) -> Self {
-        WorldExt { world }
+        let logger = world.logger.sub("world-ext");
+        WorldExt { world, logger }
     }
 
     fn is_server(&self) -> bool {
@@ -208,11 +251,11 @@ impl<'a> WorldExt<'a> {
                 if let Err(err) =
                     self.move_camera_based_on_controller_state(&server_controller, entity)
                 {
-                    error!(self.world.logger, "Do any entities have a camera?");
+                    error!(self.logger, "Do any entities have a camera?");
                     let entitites = self.world.heks_world.iter();
                     for eref in entitites {
                         error!(
-                            self.world.logger,
+                            self.logger,
                             "entity={:?} has Camera={:?} camera typeid= {:?}",
                             eref.entity(),
                             eref.has::<Camera>(),
@@ -220,7 +263,7 @@ impl<'a> WorldExt<'a> {
                         );
                     }
                     error!(
-                        self.world.logger,
+                        self.logger,
                         "error moving server camera: ({:?}) {:?}", entity, err
                     );
                     panic!("exiting...");
@@ -231,18 +274,18 @@ impl<'a> WorldExt<'a> {
                 if let Err(err) =
                     self.move_camera_based_on_controller_state(&client_controller, entity)
                 {
-                    error!(self.world.logger, "Do any entities have a camera?");
+                    error!(self.logger, "Do any entities have a camera?");
                     let entitites = self.world.heks_world.iter();
                     for eref in entitites {
                         error!(
-                            self.world.logger,
+                            self.logger,
                             "entity={:?} has Camera={:?}",
                             eref.entity(),
                             eref.has::<Camera>()
                         );
                     }
                     error!(
-                        self.world.logger,
+                        self.logger,
                         "error moving client camera: ({:?}) {:?}", entity, err
                     );
                 }
@@ -253,11 +296,11 @@ impl<'a> WorldExt<'a> {
                 .query::<(&Control, &mut Spatial)>()
                 .iter()
             {
-                let linear = control.linear_intention * action_scale;
-                spatial.pos += linear;
-
                 let angular = control.angular_intention * action_scale;
-                spatial.angles += angular;
+                spatial.rotate(angular);
+
+                let linear = control.linear_intention * action_scale;
+                spatial.translate(linear);
             }
         }
         self.set_last_tick(Instant::now());
@@ -297,13 +340,9 @@ impl<'a> WorldExt<'a> {
         // The crux here is to push changes into World from bouncing it off the physics
         // sim, but update the simulation with positions at certain points
 
-        let rot = Mat4::from_euler(
-            EULER_ROT_ORDER,
-            spatial.angles.x,
-            spatial.angles.y,
-            spatial.angles.z,
-        );
-        let forward = rot.transform_vector3(Vec3::new(0.0, 0.0, 1.0));
+        info!(self.logger, "control pos {:?}", spatial.get_pos());
+
+        let forward = spatial.forward();
         if controller.is_button_pressed(Button::Down) {
             let transform = camera.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
             control.linear_intention += transform.transform_vector3(forward);

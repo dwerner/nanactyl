@@ -315,7 +315,9 @@ fn main() {
                 }
             }
 
+            // update the renderer and the world simultaneously
             let _join_result = futures_util::future::join(
+                // effectively a no-op now that we call present directly
                 executor.spawn_on_core(
                     1,
                     call_plugin_update_async(

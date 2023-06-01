@@ -22,5 +22,5 @@ codegen-units = 16
 opt-level = 3
 
 [workspace.dependencies]
-shader_objects = { path = "../../crates/shader_objects" }
+shader_objects = { path = "../../crates/shader_objects", default-features = false, features = ["spirv-std"] }
 spirv-std = { git = "https://github.com/EmbarkStudios/rust-gpu" }

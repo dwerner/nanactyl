@@ -2,10 +2,10 @@
     "rdocCaptureSettings": 1,
     "settings": {
         "autoStart": false,
-        "commandLine": "--enable-validation-layers --connect-to-server 127.0.0.1:12002",
+        "commandLine": "",
         "environment": [
         ],
-        "executable": "/home/dan/Development/nanactyl/target/release/nshell",
+        "executable": "/home/dan/Development/nanactyl/target/debug/nshell",
         "inject": false,
         "numQueuedFrames": 0,
         "options": {

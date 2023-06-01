@@ -7,5 +7,5 @@ edition = "2021"
 crate-type = ["dylib"]
 
 [dependencies]
-spirv-std = { workspace = true }
-shader_objects = { workspace = true }
+spirv-std = { workspace = true  }
+shader_objects = { workspace = true, features = ["spirv-std"] }

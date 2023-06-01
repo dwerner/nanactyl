@@ -4,8 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["std"]
+std = ["dep:bytemuck", "glam/serde", "glam/bytemuck", "glam/libm"]
+spirv-std = ["dep:spirv-std"]
 
 [dependencies]
-# explicitly need to *not* use the std features of bytemuck
-bytemuck = { version = "1.13.1", default-features = false,  features = ["derive"] }
-glam = { workspace = true }
+
+# std
+bytemuck = { workspace = true, optional = true }
+glam = { workspace = true, optional = true }
+
+# libm
+spirv-std = { git = "https://github.com/EmbarkStudios/rust-gpu", optional = true }

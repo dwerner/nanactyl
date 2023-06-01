@@ -2788,6 +2788,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "glam",
+ "spirv-std",
 ]
 
 [[package]]
@@ -2962,6 +2963,34 @@ dependencies = [
  "serde_derive",
  "spirv_headers",
 ]
+
+[[package]]
+name = "spirv-std"
+version = "0.7.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#a686676e44c3fb2c970f47e9dd1c6be03c2385ee"
+dependencies = [
+ "bitflags",
+ "glam",
+ "num-traits",
+ "spirv-std-macros",
+ "spirv-std-types",
+]
+
+[[package]]
+name = "spirv-std-macros"
+version = "0.7.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#a686676e44c3fb2c970f47e9dd1c6be03c2385ee"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "spirv-std-types",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "spirv-std-types"
+version = "0.7.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#a686676e44c3fb2c970f47e9dd1c6be03c2385ee"
 
 [[package]]
 name = "spirv_headers"

@@ -5,13 +5,13 @@ pub trait TypeInfoExt {
     fn stable_type_id(&self) -> StableTypeId;
 }
 
-#[cfg_attr(features = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct StableTypeId {
-    #[cfg(not(features = "uuid"))]
+    #[cfg(not(feature = "uuid"))]
     id: u64,
 
-    #[cfg(features = "uuid")]
+    #[cfg(feature = "uuid")]
     id: uuid::Uuid,
 
     #[cfg(test)]
@@ -39,7 +39,7 @@ impl StableTypeId {
                 name,
             }
         }
-        #[cfg(features = "uuid")]
+        #[cfg(feature = "uuid")]
         {
             let name = type_name::<T>();
             Self {

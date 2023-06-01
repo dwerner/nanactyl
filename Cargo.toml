@@ -37,15 +37,6 @@ exclude = [
     "assets/shaders",
 ]
 
-[profile.release]
-# lto leads to segfaults in vulkan libs, need to investigate
-lto = true
-strip = true
-incremental = true
-
-# turn on debug info
-# debug = true
-
 # Individual crates "inherit dependencies that are shared.
 # plugins can depend on crates.
 #
@@ -65,7 +56,7 @@ duct = "0.13.6"
 futures-lite = "1.12.0"
 futures-util = "0.3.28"
 function_name = "0.3"
-glam = { version = "0.24", default-features = false, features = ["libm", "bytemuck", "serde"] }
+glam = { version = "0.24", default-features = false }
 graphrox = "1.2.0"
 histogram = "0.6.9" # lock in 0.6.9 for now
 image = "0.24.3"
@@ -87,3 +78,11 @@ zstd = "0.12.2"
 [profile.debug-with-opt]
 inherits = "dev"
 opt-level = 3
+
+[profile.release]
+lto = true
+strip = true
+incremental = true
+
+# turn on debug info
+# debug = true

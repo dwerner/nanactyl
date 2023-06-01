@@ -1,4 +1,4 @@
-// lifted from https://github.com/bombomby/optick
+// lifted from https://github.com/rmanoka/async-scoped
 
 use std::marker::PhantomData;
 use std::pin::Pin;

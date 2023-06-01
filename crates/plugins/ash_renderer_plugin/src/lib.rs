@@ -100,7 +100,7 @@ impl Renderer {
             }
         };
 
-        let (camera, spatial) = {
+        let (camera, cam_spatial) = {
             let camera_entity = world.camera().expect("camera should exist");
             let entity = world.heks_world.entity(camera_entity).unwrap();
             if !entity.has::<Camera>() {
@@ -168,11 +168,11 @@ impl Renderer {
         let scale = Mat4::from_scale(Vec3::new(0.5, 0.5, 0.5));
         let rotation = Mat4::from_euler(
             EULER_ROT_ORDER,
-            spatial.angles.x,
-            -spatial.angles.y,
+            cam_spatial.angles.x,
+            -cam_spatial.angles.y,
             0.0, //phys_cam.angles.z,
         );
-        let viewscale = scale * rotation * Mat4::from_translation(spatial.pos);
+        let viewscale = scale * rotation * Mat4::from_translation(cam_spatial.pos);
 
         fn calculate_fov(aspect_ratio: f32) -> f32 {
             let vertical_fov = 74.0f32;
@@ -227,7 +227,7 @@ impl Renderer {
                 0,
                 vk::IndexType::UINT32,
             );
-            for (drawable, spatial) in world
+            for (drawable, drawable_spatial) in world
                 .heks_world
                 .query::<(&Drawable, &Spatial)>()
                 .iter()
@@ -241,11 +241,11 @@ impl Renderer {
             {
                 // create a matrix for translating to the given position.
                 let scale = Mat4::from_scale(drawable.scale * Vec3::ONE);
-                let translation = Mat4::from_translation(-spatial.pos);
+                let translation = Mat4::from_translation(-drawable_spatial.pos);
                 let rot = Mat4::from_euler(
                     EULER_ROT_ORDER,
-                    spatial.angles.x,
-                    spatial.angles.y,
+                    drawable_spatial.angles.x,
+                    drawable_spatial.angles.y,
                     1.57 * 2.0, //-drawable.angles.z,
                 );
 

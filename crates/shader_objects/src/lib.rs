@@ -4,6 +4,8 @@
 use bytemuck::{Pod, Zeroable};
 #[cfg(feature = "std")]
 use glam::{Mat4, Vec4};
+// spirv-std has made glam a mandatory re-export, so we build two feature sets of this crate to
+// maintain compatibility with both spirv-std and std.
 #[cfg(feature = "spirv-std")]
 use spirv_std::glam::{Mat4, Vec4};
 

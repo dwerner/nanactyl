@@ -165,27 +165,7 @@ impl Renderer {
             vk::SubpassContents::INLINE,
         );
 
-        let scale = Mat4::from_scale(Vec3::new(0.5, 0.5, 0.5));
-        let rotation = Mat4::from_euler(
-            EULER_ROT_ORDER,
-            cam_spatial.angles.x,
-            -cam_spatial.angles.y,
-            0.0, //phys_cam.angles.z,
-        );
-        let viewscale = scale * rotation * Mat4::from_translation(cam_spatial.pos);
-
-        fn calculate_fov(aspect_ratio: f32) -> f32 {
-            let vertical_fov = 74.0f32;
-            let vertical_radians = vertical_fov.to_radians();
-            let horizontal_radians = 2.0 * (vertical_radians / 2.0).atan() * aspect_ratio;
-            let horizontal_fov = horizontal_radians.to_degrees();
-            -horizontal_fov
-        }
-        let aspect_ratio =
-            base.surface_resolution.width as f32 / base.surface_resolution.height as f32;
-        let proj_mat =
-            Mat4::perspective_lh(calculate_fov(aspect_ratio), aspect_ratio, 0.01, 1000.0)
-                * viewscale;
+        let proj_mat = camera.view_projection();
 
         // TODO more than just models, meshes in general.
 
@@ -231,7 +211,7 @@ impl Renderer {
                 .heks_world
                 .query::<(&Drawable, &Spatial)>()
                 .iter()
-                .filter_map(|(entity, (drawable, spatial))| {
+                .filter_map(|(_entity, (drawable, spatial))| {
                     if drawable.gfx == *gfx_index {
                         Some((drawable, spatial))
                     } else {
@@ -239,20 +219,9 @@ impl Renderer {
                     }
                 })
             {
-                // create a matrix for translating to the given position.
-                let scale = Mat4::from_scale(drawable.scale * Vec3::ONE);
-                let translation = Mat4::from_translation(-drawable_spatial.pos);
-                let rot = Mat4::from_euler(
-                    EULER_ROT_ORDER,
-                    drawable_spatial.angles.x,
-                    drawable_spatial.angles.y,
-                    1.57 * 2.0, //-drawable.angles.z,
-                );
-
-                let model_mat = scale * translation * rot;
-
-                let push_constants = PushConstants { model_mat };
-                let push_constant_bytes = bytemuck::bytes_of(&push_constants);
+                let push_constants =
+                    PushConstants::new(drawable_transform(drawable, drawable_spatial));
+                let push_constant_bytes = push_constants.to_bytes();
 
                 let (model, _) = base.tracked_graphics.get(&drawable.gfx).unwrap();
                 w.cmd_push_constants(
@@ -500,6 +469,18 @@ impl Renderer {
         }
         Ok(())
     }
+}
+
+fn drawable_transform(drawable: &Drawable, drawable_spatial: &Spatial) -> Mat4 {
+    let scale = Mat4::from_scale(drawable.scale * Vec3::ONE);
+    let translation = Mat4::from_translation(drawable_spatial.pos);
+    let rot = Mat4::from_euler(
+        EULER_ROT_ORDER,
+        drawable_spatial.angles.x,
+        drawable_spatial.angles.y,
+        drawable_spatial.angles.z,
+    );
+    scale * rot * translation
 }
 
 impl Presenter for VulkanRenderPluginState {

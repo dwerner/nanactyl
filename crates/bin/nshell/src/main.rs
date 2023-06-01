@@ -341,7 +341,7 @@ fn main() {
             if frame % 1000 == 0 {
                 info!(
                     logger,
-                    "Frame time (us): Min: {} Avg: {} Max: {} StdDev: {} 50%: {}, 90%: {}, 99%: {}, 99.9%:{}",
+                    "Frame time (µs): Min: {} Avg: {} Max: {} StdDev: {} 50%: {}, 90%: {}, 99%: {}, 99.9%:{}",
                     frame_histogram.minimum().unwrap(),
                     frame_histogram.mean().unwrap(),
                     frame_histogram.maximum().unwrap(),

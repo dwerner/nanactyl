@@ -9,19 +9,6 @@ use glam::{Mat4, Vec4};
 #[cfg(feature = "spirv-std")]
 use spirv_std::glam::{Mat4, Vec4};
 
-#[cfg_attr(feature = "std", derive(Pod, Zeroable))]
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct UniformBuffer {
-    pub proj: Mat4,
-    pub lights: [Light; MAX_LIGHTS],
-    pub fog_color: Vec4,
-    pub fog_start: f32,
-    pub fog_end: f32,
-    pub _pad1: f32,
-    pub _pad2: f32,
-}
-
 pub const MAX_LIGHTS: usize = 2;
 
 #[cfg_attr(feature = "std", derive(Pod, Zeroable))]
@@ -36,7 +23,30 @@ pub struct Light {
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct PushConstants {
-    pub model_mat: Mat4,
+    pub model_transform: Mat4,
+}
+
+impl PushConstants {
+    pub fn new(model_transform: Mat4) -> Self {
+        Self { model_transform }
+    }
+
+    pub fn to_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
+    }
+}
+
+#[cfg_attr(feature = "std", derive(Pod, Zeroable))]
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct UniformBuffer {
+    pub proj: Mat4,
+    pub lights: [Light; MAX_LIGHTS],
+    pub fog_color: Vec4,
+    pub fog_start: f32,
+    pub fog_end: f32,
+    pub _pad1: f32,
+    pub _pad2: f32,
 }
 
 impl UniformBuffer {

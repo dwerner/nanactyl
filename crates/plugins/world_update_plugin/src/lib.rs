@@ -316,14 +316,14 @@ impl<'a> WorldExt<'a> {
         }
 
         if controller.is_button_pressed(Button::Left) {
-            control.angular_intention.y = -1.0 * speed;
-        } else if controller.is_button_pressed(Button::Right) {
             control.angular_intention.y = speed;
+        } else if controller.is_button_pressed(Button::Right) {
+            control.angular_intention.y = -1.0 * speed;
         } else {
             control.angular_intention.y = 0.0;
         }
 
-        camera.update_view_matrix(&spatial, &physics);
+        camera.update_view_matrix(&spatial);
 
         Ok(())
     }

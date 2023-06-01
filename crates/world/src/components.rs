@@ -18,7 +18,7 @@ pub struct Camera {
 impl Camera {
     // Problematic because multiple components make up the properties of the camera,
     // including position, matrices, etc.
-    pub fn new(spatial: &Spatial, physics: &PhysicsBody) -> Self {
+    pub fn new(spatial: &Spatial) -> Self {
         let mut camera = Camera {
             view: Mat4::IDENTITY,
 
@@ -33,29 +33,33 @@ impl Camera {
             // because it's not supported yet
             occlusion_culling: false,
         };
-        camera.update_view_matrix(spatial, physics);
+        camera.update_view_matrix(spatial);
         camera
     }
 
-    pub fn update(&mut self, dt: &Duration, spatial: &mut Spatial, physics: &PhysicsBody) {
+    pub fn update_from_phys(
+        &mut self,
+        dt: &Duration,
+        spatial: &mut Spatial,
+        physics: &PhysicsBody,
+    ) {
         let amount = (dt.as_millis() as f64 / 100.0) as f32;
         spatial.pos += physics.linear_velocity * amount;
-        self.update_view_matrix(spatial, physics);
+        self.update_view_matrix(spatial);
     }
 
-    pub fn update_view_matrix(&mut self, spatial: &Spatial, physics: &PhysicsBody) {
-        let rot = Mat4::from_euler(
-            EULER_ROT_ORDER,
-            physics.angular_velocity.x,
-            physics.angular_velocity.y,
-            0.0,
-        );
+    pub fn update_view_matrix(&mut self, spatial: &Spatial) {
+        let rot = Mat4::from_euler(EULER_ROT_ORDER, spatial.angles.x, spatial.angles.y, 0.0);
         let trans = Mat4::from_translation(spatial.pos);
-        self.view = trans * rot;
+        self.view = rot * trans;
     }
 
     pub fn set_perspective(&mut self, fov: f32, aspect: f32, near: f32, far: f32) {
         self.projection = Mat4::perspective_lh(aspect, fov, near, far);
+    }
+
+    pub fn view_projection(&self) -> Mat4 {
+        self.projection * self.view
     }
 }
 

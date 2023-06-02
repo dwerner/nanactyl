@@ -1,10 +1,13 @@
 use std::time::Duration;
 
+pub mod spatial;
+
 use gfx::Graphic;
 use glam::{Mat4, Vec3};
 use heks::Entity;
+use spatial::SpatialNode;
 
-use crate::graphics::{Shape, EULER_ROT_ORDER};
+use crate::graphics::Shape;
 
 /// A component representing a camera.
 #[derive(Debug, Default)]
@@ -18,7 +21,7 @@ pub struct Camera {
 impl Camera {
     // Problematic because multiple components make up the properties of the camera,
     // including position, matrices, etc.
-    pub fn new(spatial: &Spatial) -> Self {
+    pub fn new(spatial: &SpatialNode) -> Self {
         let mut camera = Camera {
             view: Mat4::IDENTITY,
 
@@ -40,7 +43,7 @@ impl Camera {
     pub fn update_from_phys(
         &mut self,
         dt: &Duration,
-        spatial: &mut Spatial,
+        spatial: &mut SpatialNode,
         physics: &PhysicsBody,
     ) {
         let amount = (dt.as_millis() as f64 / 100.0) as f32;
@@ -48,8 +51,7 @@ impl Camera {
         self.update_view_matrix(spatial);
     }
 
-    pub fn update_view_matrix(&mut self, spatial: &Spatial) {
-
+    pub fn update_view_matrix(&mut self, spatial: &SpatialNode) {
         // TODO: debugging view matrix
         // self.view = spatial.to_view_matrix(self);
     }
@@ -69,82 +71,6 @@ impl Camera {
 pub struct Control {
     pub linear_intention: Vec3,
     pub angular_intention: Vec3,
-}
-
-/// A component representing a position and rotation.
-#[derive(Debug, Default)]
-pub struct Spatial {
-    pub transform: Mat4,
-}
-
-// Really should be a world transform.
-impl Spatial {
-    pub fn new() -> Self {
-        Self {
-            transform: Mat4::IDENTITY,
-        }
-    }
-
-    pub fn translate(&mut self, translation: Vec3) {
-        self.transform = Mat4::from_translation(translation) * self.transform;
-    }
-
-    pub fn rotate(&mut self, angles: Vec3) {
-        self.transform =
-            Mat4::from_euler(EULER_ROT_ORDER, angles.x, angles.y, angles.z) * self.transform;
-    }
-
-    pub fn scale(&mut self, scale: Vec3) {
-        self.transform = Mat4::from_scale(scale) * self.transform;
-    }
-
-    pub fn to_view_matrix(&self, camera: &Camera) -> Mat4 {
-        self.transform.inverse()
-    }
-
-    pub fn with_angles(self, angles: Vec3) -> Self {
-        let rot = Mat4::from_euler(EULER_ROT_ORDER, angles.x, angles.y, angles.z) * self.transform;
-        Self { transform: rot }
-    }
-
-    pub fn get_pos(&self) -> Vec3 {
-        let (_scale, _rot, trans) = self.transform.to_scale_rotation_translation();
-        trans
-    }
-
-    pub fn get_angles(&self) -> Vec3 {
-        let (_scale, rot, _trans) = self.transform.to_scale_rotation_translation();
-        rot.to_euler(EULER_ROT_ORDER).into()
-    }
-
-    pub fn get_scale(&self) -> Vec3 {
-        let (scale, _rot, _trans) = self.transform.to_scale_rotation_translation();
-        scale
-    }
-
-    pub fn forward(&self) -> Vec3 {
-        -self.transform.z_axis.truncate().normalize()
-    }
-
-    pub fn right(&self) -> Vec3 {
-        self.transform.x_axis.truncate().normalize()
-    }
-
-    pub fn up(&self) -> Vec3 {
-        self.transform.y_axis.truncate().normalize()
-    }
-
-    pub fn new_with_scale(scale: f32) -> Self {
-        let scale = Mat4::from_scale(Vec3::ONE * scale);
-        Self { transform: scale }
-    }
-
-    pub fn new_at(pos: Vec3) -> Self {
-        let translation = Mat4::from_translation(pos);
-        Self {
-            transform: translation,
-        }
-    }
 }
 
 /// Instance of a graphic, attached to an entity.
@@ -186,13 +112,6 @@ pub struct Shaped {
 #[derive(Debug, Default)]
 pub struct StaticPhysics;
 
-/// Hierarchical transform relative to a parent.
-#[derive(Debug)]
-pub struct RelativeTransform {
-    pub parent: Entity,
-    pub relative_matrix: Mat4,
-}
-
 /// World transform, computed from the relative transform.
 /// The world root is an entity with an absolute transform.
 #[derive(Debug, Default)]
@@ -221,11 +140,11 @@ mod tests {
             gfx: Graphic::ParticleSystem,
         },));
 
-        let player = Player::new(root_transform, gfx_prefab, Spatial::default());
+        let player = Player::new(gfx_prefab, SpatialNode::new(root_transform));
         let _player_id = world.spawn(player);
 
         let entity = {
-            let mut query = world.query::<(&Camera, &Spatial)>();
+            let mut query = world.query::<(&Camera, &SpatialNode)>();
             let (entity, (camera, pos)) = query.iter().next().unwrap();
             println!("{:?}", entity);
 

@@ -19,7 +19,8 @@ use logger::{error, info, LogLevel, Logger};
 use network::{Connection, Message, RpcError, Typed, MAX_UNACKED_PACKETS, MSG_LEN, PAYLOAD_LEN};
 use plugin_self::{impl_plugin_static, PluginState};
 use wire::EntityUpdate;
-use world::components::{PhysicsBody, Spatial};
+use world::components::spatial::SpatialNode;
+use world::components::PhysicsBody;
 use world::{Entity, Vec3, World, WorldError, WorldLockAndControllerState};
 
 const NUM_UPDATES_PER_MSG: u32 = 96;
@@ -130,7 +131,7 @@ async fn pump_connection_as_server(s: &mut World) -> Result<[InputState; 2], Plu
     // objects only).
     let packet = s
         .heks_world
-        .query::<(&mut Spatial, &PhysicsBody)>()
+        .query::<(&mut SpatialNode, &PhysicsBody)>()
         .iter()
         .map(|(entity, (spatial, _physics))| {
             EntityUpdate::new(entity, spatial.get_pos(), spatial.get_angles().y)
@@ -219,7 +220,7 @@ async fn pump_connection_as_client(
     } in decompressed_updates
     {
         let entity = Entity::from_bits(entity_bits).expect("unable to from_bits Entity");
-        match s.heks_world.get::<&mut Spatial>(entity) {
+        match s.heks_world.get::<&mut SpatialNode>(entity) {
             Ok(mut spatial) => {
                 spatial.rotate(Vec3::new(0.0, y_rotation, 0.0));
                 spatial.translate(position);

@@ -3,31 +3,24 @@
 use glam::Mat4;
 use heks::{Bundle, Entity, Query};
 
-use crate::components::{
-    Camera, Control, Drawable, PhysicsBody, RelativeTransform, Spatial, StaticPhysics,
-    WorldTransform,
-};
+use crate::components::spatial::SpatialNode;
+use crate::components::{Camera, Control, Drawable, PhysicsBody, WorldTransform};
 
 #[derive(Debug, Bundle)]
 pub struct StaticObject {
-    pub spatial: Spatial,
+    pub spatial: SpatialNode,
     pub drawable: Drawable,
-    pub parent: RelativeTransform,
     pub world: WorldTransform,
 }
 
 impl StaticObject {
     /// Create a new StaticObject with the given parent
-    pub fn new(parent: Entity, gfx_prefab: Entity, spatial: Spatial) -> Self {
+    pub fn new(gfx_prefab: Entity, spatial: SpatialNode) -> Self {
         Self {
             spatial,
             drawable: Drawable {
                 gfx: gfx_prefab,
                 scale: 1.0,
-            },
-            parent: RelativeTransform {
-                parent,
-                relative_matrix: Mat4::IDENTITY,
             },
             world: WorldTransform {
                 world: Mat4::IDENTITY,
@@ -40,10 +33,9 @@ impl StaticObject {
 pub struct Player {
     pub camera: Camera,
     pub control: Control,
-    pub spatial: Spatial,
     pub drawable: Drawable,
     pub physics: PhysicsBody,
-    pub parent: RelativeTransform,
+    pub spatial: SpatialNode,
     pub world: WorldTransform,
 }
 // TODO: bundles move into the plugin?
@@ -51,10 +43,9 @@ pub struct Player {
 pub struct PlayerQuery<'a> {
     pub camera: &'a mut Camera,
     pub control: &'a mut Control,
-    pub spatial: &'a mut Spatial,
     pub drawable: &'a mut Drawable,
     pub physics: &'a mut PhysicsBody,
-    pub parent: &'a mut RelativeTransform,
+    pub spatial: &'a mut SpatialNode,
     pub world: &'a mut WorldTransform,
 }
 
@@ -63,7 +54,7 @@ impl Player {
     ///
     /// TODO:
     ///     - take a local transform?
-    pub fn new(parent: Entity, gfx_prefab: Entity, spatial: Spatial) -> Self {
+    pub fn new(gfx_prefab: Entity, spatial: SpatialNode) -> Self {
         let perspective = Mat4::perspective_lh(
             1.7,    //aspect
             0.75,   //fovy
@@ -84,10 +75,6 @@ impl Player {
                 mass: 1.0,
                 ..Default::default()
             },
-            parent: RelativeTransform {
-                parent,
-                relative_matrix: Mat4::IDENTITY,
-            },
             world: WorldTransform {
                 world: Mat4::IDENTITY,
             },
@@ -106,7 +93,7 @@ mod tests {
         let mut world = heks::World::new();
         let root = world.spawn((WorldTransform::default(),));
         let gfx = world.spawn((WorldTransform::default(),));
-        let player = Player::new(root, gfx, Spatial::default());
+        let player = Player::new(gfx, SpatialNode::new(root));
 
         let p = world.spawn(player);
 

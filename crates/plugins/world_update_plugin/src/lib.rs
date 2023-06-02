@@ -19,10 +19,9 @@ use rapier3d::prelude::{
 };
 use stable_typeid::StableTypeId;
 use world::bundles::StaticObject;
-use world::components::{
-    Camera, Control, Drawable, PhysicsBody, RelativeTransform, Spatial, WorldTransform,
-};
-use world::graphics::{Shape, EULER_ROT_ORDER};
+use world::components::spatial::SpatialNode;
+use world::components::{Camera, Control, PhysicsBody, WorldTransform};
+use world::graphics::Shape;
 use world::{Entity, World, WorldError};
 
 /// Internal plugin state. The lifespan is load->update->unload and dropped
@@ -86,7 +85,16 @@ impl PluginState for WorldUpdatePluginState {
 }
 
 impl WorldUpdatePluginState {
+    /// For every child in the tree, walk it's ancestors and update it's world
+    /// transform from them.
     fn update_transform_hierarchy(&self, world: &mut WorldExt) {
+        // TODO: is it worth marking entities dirty and re-iterating the list of updated
+        // ones
+        let world_transforms_updated = self.update_hierarchy(world);
+        mark_clean_updated_nodes(world, &world_transforms_updated);
+    }
+
+    fn update_hierarchy(&self, world: &mut WorldExt) -> Vec<Entity> {
         let root_entity = world.world.root;
         let mut root_transform = world
             .world
@@ -95,31 +103,42 @@ impl WorldUpdatePluginState {
             .unwrap();
 
         let (root_transform,) = root_transform.get().unwrap();
-
-        let mut parents_query = world.world.heks_world.query::<&RelativeTransform>();
+        let mut parents_query = world.world.heks_world.query::<&SpatialNode>();
         let parents = parents_query.view();
 
-        for (entity, (relative_transform, entity_world_transform)) in world
+        let mut world_transforms_updated = vec![];
+        for (entity, (node, entity_world_transform)) in world
             .world
             .heks_world
-            .query::<(&RelativeTransform, &mut WorldTransform)>()
+            .query::<(&SpatialNode, &mut WorldTransform)>()
             .iter()
+            .filter(|(_entity, (node, _))| node.is_dirty())
         {
-            let mut relative_matrix = relative_transform.relative_matrix;
-            let mut ancestor = relative_transform.parent;
+            let mut relative_matrix = node.transform;
+            let mut ancestor = node.parent;
             while let Some(next) = parents.get(ancestor) {
-                relative_matrix = next.relative_matrix * relative_matrix;
+                relative_matrix = next.transform * relative_matrix;
                 ancestor = next.parent;
             }
-            let (_, _, t) = relative_matrix.to_scale_rotation_translation();
-            let (_, _, wt) = entity_world_transform.world.to_scale_rotation_translation();
-            info!(
-                self.logger,
-                "{:?} relative pos {:?}, world pos: {:?} ", entity, t, wt
-            );
+            world_transforms_updated.push(entity);
+            {
+                let (_, _, t) = relative_matrix.to_scale_rotation_translation();
+                let (_, _, wt) = entity_world_transform.world.to_scale_rotation_translation();
+                info!(
+                    self.logger,
+                    "{:?} relative pos {:?}, world pos: {:?} ", entity, t, wt
+                );
+            }
             entity_world_transform.world = root_transform.world * relative_matrix;
         }
-        info!(self.logger, "-- finished updating transforms");
+        if world_transforms_updated.len() > 0 {
+            info!(
+                self.logger,
+                "updated {} world transforms",
+                world_transforms_updated.len()
+            );
+        }
+        world_transforms_updated
     }
 
     fn setup_vehicle(&mut self) {
@@ -152,8 +171,10 @@ impl WorldUpdatePluginState {
     fn setup_object_colliders(&mut self, world: &mut World) {
         let rad = 0.1;
         // TODO: use physics object to set up properties of colliders
-        for (entity, (spatial, physics)) in
-            world.heks_world.query::<(&Spatial, &PhysicsBody)>().iter()
+        for (entity, (spatial, physics)) in world
+            .heks_world
+            .query::<(&SpatialNode, &PhysicsBody)>()
+            .iter()
         {
             let pos = spatial.get_pos();
             let x = pos.x;
@@ -196,14 +217,31 @@ impl WorldUpdatePluginState {
 
         // TODO: try out adding a debug mesh
         let ground_phys = StaticObject::new(
-            world.root,
             gfx,
-            Spatial::new_at(vec3(0.0, -ground_height - ground_y_offset, 0.0)),
+            SpatialNode::new_at(world.root, vec3(0.0, -ground_height - ground_y_offset, 0.0)),
         );
 
         // TODO: spawn object method
         let entity = world.heks_world.spawn(ground_phys);
         self.collider_handles.insert(entity, collider_handle);
+    }
+}
+
+fn mark_clean_updated_nodes(world: &mut WorldExt, world_transforms_updated: &[Entity]) {
+    for node in world
+        .world
+        .heks_world
+        .query::<&mut SpatialNode>()
+        .iter()
+        .filter_map(|(e, node)| {
+            if world_transforms_updated.contains(&e) {
+                Some(node)
+            } else {
+                None
+            }
+        })
+    {
+        node.set_clean();
     }
 }
 
@@ -293,7 +331,7 @@ impl<'a> WorldExt<'a> {
             for (_entity, (control, spatial)) in self
                 .world
                 .heks_world
-                .query::<(&Control, &mut Spatial)>()
+                .query::<(&Control, &mut SpatialNode)>()
                 .iter()
             {
                 let angular = control.angular_intention * action_scale;
@@ -322,7 +360,7 @@ impl<'a> WorldExt<'a> {
         let mut query = self
             .world
             .heks_world
-            .query_one::<(&mut Camera, &mut Control, &Spatial, &PhysicsBody)>(entity)
+            .query_one::<(&mut Camera, &mut Control, &SpatialNode, &PhysicsBody)>(entity)
             .map_err(WorldError::NoSuchEntity)?;
 
         let (camera, control, spatial, physics) = query.get().ok_or(WorldError::NoSuchCamera)?;

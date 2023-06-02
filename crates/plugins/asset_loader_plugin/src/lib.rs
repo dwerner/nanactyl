@@ -4,7 +4,7 @@ use gfx::Model;
 use logger::{info, LogLevel, Logger};
 use plugin_self::{impl_plugin_static, PluginState};
 use world::bundles::{Player, StaticObject};
-use world::components::Spatial;
+use world::components::spatial::SpatialNode;
 use world::{AssetLoaderStateAndWorldLock, Vec3};
 
 struct AssetLoaderPlugin {
@@ -48,7 +48,7 @@ impl PluginState for AssetLoaderPlugin {
         for (x, z) in [(10.0, 10.0), (-10.0, -10.0)].into_iter() {
             info!(logger, "adding player camera object at: {}, {}", x, z);
             let pos = Vec3::new(x, 0.0, z);
-            let tank = Player::new(world.root, tank_gfx, Spatial::new_at(pos));
+            let tank = Player::new(tank_gfx, SpatialNode::new_at(world.root, pos));
             let tank_id = world.add_player(tank);
         }
 
@@ -58,13 +58,9 @@ impl PluginState for AssetLoaderPlugin {
                 let model_prefab = if (i + j) % 2 == 0 { tank_gfx } else { cube_gfx };
                 let (x, z) = (i as f32, j as f32);
                 let object = StaticObject::new(
-                    world.root,
                     model_prefab,
-                    Spatial::new_at(Vec3::new(x * 4.0, 2.0, z * 10.0)).with_angles(Vec3::new(
-                        0.0,
-                        j as f32 * 4.0,
-                        0.0,
-                    )),
+                    SpatialNode::new_at(world.root, Vec3::new(x * 4.0, 2.0, z * 10.0))
+                        .with_angles(Vec3::new(0.0, j as f32 * 4.0, 0.0)),
                 );
 
                 // TODO: add_object
@@ -80,7 +76,7 @@ impl PluginState for AssetLoaderPlugin {
         .unwrap();
 
         let sky_prefab = world.add_model(sky_model);
-        let sky = StaticObject::new(world.root, sky_prefab, Spatial::new_with_scale(200.0));
+        let sky = StaticObject::new(sky_prefab, SpatialNode::new_with_scale(world.root, 200.0));
         world.heks_world.spawn(sky);
     }
 

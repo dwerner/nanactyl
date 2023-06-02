@@ -19,7 +19,6 @@ use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry};
 use device::GraphicsHandle;
 use gfx::{DiffuseColor, GpuNeeds, Graphic, Primitive, Vertex};
-use glam::{Mat4, Vec3};
 use logger::{debug, error, info, Logger};
 use platform::WinPtr;
 use plugin_self::{impl_plugin_static, PluginState};
@@ -30,8 +29,8 @@ use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, Pipeline, RenderError, Shader, ShaderStage,
     ShaderStages, VertexInputAssembly,
 };
-use world::components::{Camera, Drawable, Spatial, WorldTransform};
-use world::graphics::EULER_ROT_ORDER;
+use world::components::spatial::SpatialNode;
+use world::components::{Camera, Drawable, WorldTransform};
 use world::{Entity, World};
 
 use crate::device::DeviceWrapper;
@@ -100,6 +99,7 @@ impl Renderer {
             }
         };
 
+        /// TODO: cleanup move to world to ensure we get a real camera.
         let (camera, cam_spatial) = {
             let camera_entity = world.camera().expect("camera should exist");
             let entity = world.heks_world.entity(camera_entity).unwrap();
@@ -110,11 +110,11 @@ impl Renderer {
                     StableTypeId::of::<Camera>(),
                 ));
             }
-            if !entity.has::<Spatial>() {
+            if !entity.has::<SpatialNode>() {
                 return Err(RenderError::ComponentMissingFromCameraEntity(
                     camera_entity,
-                    std::any::type_name::<Spatial>(),
-                    StableTypeId::of::<Spatial>(),
+                    std::any::type_name::<SpatialNode>(),
+                    StableTypeId::of::<SpatialNode>(),
                 ));
             }
 
@@ -125,7 +125,7 @@ impl Renderer {
                     .expect("camera entity"),
                 world
                     .heks_world
-                    .get::<&Spatial>(camera_entity)
+                    .get::<&SpatialNode>(camera_entity)
                     .expect("spatial entity"),
             )
         };

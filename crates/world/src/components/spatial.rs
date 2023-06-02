@@ -8,9 +8,14 @@ use crate::graphics::EULER_ROT_ORDER;
 /// Hierarchical transform relative to a parent.
 #[derive(Debug)]
 pub struct SpatialNode {
+    /// The parent of this node.
     pub parent: Entity,
+
+    /// The transform of this node relative to its parent.
     pub transform: Mat4,
-    dirty: bool,
+
+    /// Whether this node has been updated since the last world transform
+    updated: bool,
 }
 
 // Really should be a world transform.
@@ -18,7 +23,7 @@ impl SpatialNode {
     /// Construct a new node with a parent.
     pub fn new(parent: Entity) -> Self {
         Self {
-            dirty: true,
+            updated: true,
             transform: Mat4::IDENTITY,
             parent,
         }
@@ -28,7 +33,7 @@ impl SpatialNode {
     pub fn new_with_scale(parent: Entity, scale: f32) -> Self {
         Self {
             transform: Mat4::from_scale(Vec3::ONE * scale),
-            dirty: true,
+            updated: true,
             parent,
         }
     }
@@ -37,7 +42,7 @@ impl SpatialNode {
     pub fn new_at(parent: Entity, pos: Vec3) -> Self {
         Self {
             transform: Mat4::from_translation(pos),
-            dirty: true,
+            updated: true,
             parent,
         }
     }
@@ -49,45 +54,45 @@ impl SpatialNode {
             Mat4::from_euler(EULER_ROT_ORDER, angles.x, angles.y, angles.z) * self.transform;
         Self {
             transform,
-            dirty: true,
+            updated: true,
             parent: self.parent,
         }
     }
 
     /// Mark this node as dirty, so that it will be used by the world transform
     /// update.
-    pub fn set_dirty(&mut self) {
-        self.dirty = true;
+    pub fn mark_updated(&mut self) {
+        self.updated = true;
     }
 
     /// Mark this node as clean, so that it will not be used by the world
     /// transform
     pub fn set_clean(&mut self) {
-        self.dirty = false;
+        self.updated = false;
     }
 
     /// Returns true if this node is dirty.
     pub fn is_dirty(&self) -> bool {
-        self.dirty
+        self.updated
     }
 
     /// Translate this node to a position.
     pub fn translate(&mut self, translation: Vec3) {
-        self.set_dirty();
+        self.mark_updated();
         self.transform = Mat4::from_translation(translation) * self.transform;
     }
 
     /// Rotate this node by euler angles in EULER_ROT_ORDER.
-    pub fn rotate(&mut self, angles: Vec3) {
-        self.set_dirty();
-        self.transform =
-            Mat4::from_euler(EULER_ROT_ORDER, angles.x, angles.y, angles.z) * self.transform;
+    pub fn local_rotate(&mut self, angles: Vec3) {
+        let rot = Mat4::from_euler(EULER_ROT_ORDER, angles.x, angles.y, angles.z);
+        self.transform = self.transform * rot;
+        self.mark_updated();
     }
 
     /// Scale this node by a factor.
     pub fn scale(&mut self, scale: Vec3) {
-        self.set_dirty();
         self.transform = Mat4::from_scale(scale) * self.transform;
+        self.mark_updated();
     }
 
     /// Get the position of this transform.

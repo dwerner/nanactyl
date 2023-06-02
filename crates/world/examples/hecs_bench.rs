@@ -163,7 +163,7 @@ fn main() {
                     slice_partitions = split_slices(slice_partitions);
                 }
 
-                let s = exec.scope_and_block(|scope| {
+                let _s = exec.scope_and_block(|scope| {
                     for partition in slice_partitions {
                         scope.spawn(async move {
                             for mut player in partition.iter_mut() {

@@ -16,7 +16,6 @@ use bundles::Player;
 use components::{GraphicPrefab, WorldTransform};
 use gfx::{DebugMesh, Graphic, Model};
 pub use glam::{Mat4, Quat, Vec3};
-use graphrox::Graph;
 pub use heks::Entity;
 use input::wire::InputState;
 use logger::{info, LogLevel, Logger};
@@ -127,8 +126,6 @@ pub struct World {
     pub server_controller_state: Option<InputState>,
 
     pub logger: Logger,
-
-    pub graph: Graph,
 }
 
 pub struct Stats {
@@ -174,9 +171,6 @@ impl World {
             root: root_entity,
 
             logger: logger.sub("world"),
-
-            // we'll represent the relationship between game objects as an undirected graph.
-            graph: Graph::new_undirected(),
         }
     }
 

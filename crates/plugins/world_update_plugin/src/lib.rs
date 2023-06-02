@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use glam::{vec3, vec4, Mat4, Vec3};
 use input::wire::InputState;
 use input::Button;
-use logger::{error, info, LogLevel, Logger};
+use logger::{error, info, trace, LogLevel, Logger};
 use plugin_self::{impl_plugin_static, PluginState};
 use rapier3d::control::{DynamicRayCastVehicleController, WheelTuning};
 use rapier3d::na::{self as nalgebra, point, vector, Vector};
@@ -121,18 +121,10 @@ impl WorldUpdatePluginState {
                 ancestor = next.parent;
             }
             world_transforms_updated.push(entity);
-            {
-                let (_, _, t) = relative_matrix.to_scale_rotation_translation();
-                let (_, _, wt) = entity_world_transform.world.to_scale_rotation_translation();
-                info!(
-                    self.logger,
-                    "{:?} relative pos {:?}, world pos: {:?} ", entity, t, wt
-                );
-            }
             entity_world_transform.world = root_transform.world * relative_matrix;
         }
-        if world_transforms_updated.len() > 0 {
-            info!(
+        if !world_transforms_updated.is_empty() {
+            trace!(
                 self.logger,
                 "updated {} world transforms",
                 world_transforms_updated.len()
@@ -334,11 +326,11 @@ impl<'a> WorldExt<'a> {
                 .query::<(&Control, &mut SpatialNode)>()
                 .iter()
             {
-                let angular = control.angular_intention * action_scale;
-                spatial.rotate(angular);
-
                 let linear = control.linear_intention * action_scale;
                 spatial.translate(linear);
+
+                let angular = control.angular_intention * action_scale;
+                spatial.local_rotate(angular);
             }
         }
         self.set_last_tick(Instant::now());
@@ -378,7 +370,12 @@ impl<'a> WorldExt<'a> {
         // The crux here is to push changes into World from bouncing it off the physics
         // sim, but update the simulation with positions at certain points
 
-        info!(self.logger, "control pos {:?}", spatial.get_pos());
+        info!(
+            self.logger,
+            "control pos {:?} angles {:?}",
+            spatial.get_pos(),
+            spatial.get_angles()
+        );
 
         let forward = spatial.forward();
         if controller.is_button_pressed(Button::Down) {

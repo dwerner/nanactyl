@@ -1451,12 +1451,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "graphrox"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bd7e92e2a75f3750d172a295e98f3c29760c32e547b66da3b5ca717ce8ad4b5"
-
-[[package]]
 name = "half"
 version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3642,7 +3636,6 @@ dependencies = [
  "futures-util",
  "gfx",
  "glam",
- "graphrox",
  "heks",
  "input",
  "logger",

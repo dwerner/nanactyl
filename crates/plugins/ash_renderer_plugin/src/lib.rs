@@ -99,7 +99,7 @@ impl Renderer {
             }
         };
 
-        /// TODO: cleanup move to world to ensure we get a real camera.
+        // TODO: cleanup move to world to ensure we get a real camera.
         let (camera, cam_spatial) = {
             let camera_entity = world.camera().expect("camera should exist");
             let entity = world.heks_world.entity(camera_entity).unwrap();

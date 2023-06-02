@@ -23,7 +23,7 @@ use world::components::spatial::SpatialNode;
 use world::components::PhysicsBody;
 use world::{Entity, Vec3, World, WorldError, WorldLockAndControllerState};
 
-const NUM_UPDATES_PER_MSG: u32 = 96;
+const NUM_UPDATES_PER_MSG: u32 = 2;
 
 #[derive(thiserror::Error, Debug)]
 enum PluginError {
@@ -222,7 +222,7 @@ async fn pump_connection_as_client(
         let entity = Entity::from_bits(entity_bits).expect("unable to from_bits Entity");
         match s.heks_world.get::<&mut SpatialNode>(entity) {
             Ok(mut spatial) => {
-                spatial.rotate(Vec3::new(0.0, y_rotation, 0.0));
+                spatial.local_rotate(Vec3::new(0.0, y_rotation, 0.0));
                 spatial.translate(position);
             }
             Err(err) => error!(logger, "error getting entity {:?}", err),

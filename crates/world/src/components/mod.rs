@@ -53,7 +53,9 @@ impl Camera {
 
     pub fn update_view_matrix(&mut self, spatial: &SpatialNode) {
         // TODO: debugging view matrix
-        // self.view = spatial.to_view_matrix(self);
+
+        self.view =
+            (spatial.transform * Mat4::from_translation(Vec3::new(0.0, -1.0, 0.0))).inverse();
     }
 
     pub fn set_perspective(&mut self, fov: f32, aspect: f32, near: f32, far: f32) {

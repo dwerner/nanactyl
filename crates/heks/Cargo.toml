@@ -32,9 +32,15 @@ row-serialize = ["serde"]
 serde = { version = "1.0.117", default-features = false, optional = true }
 stable-typeid = { path = "../stable-typeid" }
 heks-macros = { path = "../heks-macros", optional = true }
-hashbrown = { version = "0.13.1", default-features = false, features = ["ahash", "inline-more"] }
+hashbrown = { version = "0.13.1", default-features = false, features = [
+    "ahash",
+    "inline-more",
+] }
 lazy_static = { version = "1.4.0", optional = true, features = ["spin_no_std"] }
-spin = { version = "0.9.2", default-features = false, features = ["mutex", "spin_mutex"] }
+spin = { version = "0.9.2", default-features = false, features = [
+    "mutex",
+    "spin_mutex",
+] }
 
 [dev-dependencies]
 bencher = "0.1.5"
@@ -47,6 +53,3 @@ serde_test = "1.0.117"
 name = "bench"
 harness = false
 required-features = ["macros"]
-
-[profile.release]
-debug = true

@@ -13,7 +13,10 @@ const RUST_GPU_TOOLCHAIN: &str = "nightly-2022-12-18";
 
 #[derive(StructOpt, Debug)]
 enum Command {
-    RunServerAndClient,
+    RunServerAndClient {
+        #[structopt(short, long)]
+        debug: bool,
+    },
     FmtLint,
     BuildShaders,
     /// Build a single plugin, defaults to release mode, -d or --debug for debug
@@ -86,8 +89,8 @@ fn set_required_rustflags(flags: &[&'static str]) {
 fn dispatch(cmd: Command) -> Result<(), std::io::Error> {
     println!("xtask : {cmd:?}");
     match cmd {
-        Command::RunServerAndClient => {
-            run_server_and_client()?;
+        Command::RunServerAndClient { debug } => {
+            run_server_and_client(debug)?;
             Ok(())
         }
         Command::FmtLint => {
@@ -185,15 +188,13 @@ fn build_shaders() -> Result<(), std::io::Error> {
 /// Currently bound to the concept of a single server and client. Starts a
 /// server, waits a second, then starts the client. Prints output to stdout with
 /// fancy ascii coloration.
-fn run_server_and_client() -> Result<(), std::io::Error> {
+fn run_server_and_client(debug: bool) -> Result<(), std::io::Error> {
     let server_proc = cmd!(
         "cargo",
         "run",
-        "--release",
+        if debug { "--profile=dev" } else { "--release" },
         "--bin",
         "nshell",
-        "--",
-        //"--enable-validation-layer",
     )
     .reader()?;
     // HACK: wait 1 second for the server to start
@@ -201,13 +202,12 @@ fn run_server_and_client() -> Result<(), std::io::Error> {
     let client_proc = cmd!(
         "cargo",
         "run",
-        "--release",
+        if debug { "--profile=dev" } else { "--release" },
         "--bin",
         "nshell",
         "--",
         "--connect-to-server",
         "127.0.0.1:12002",
-        //   "--enable-validation-layer",
     )
     .reader()?;
     let jh = std::thread::spawn(move || {

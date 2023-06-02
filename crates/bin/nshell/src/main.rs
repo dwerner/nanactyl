@@ -266,7 +266,9 @@ fn main() {
                 .unwrap();
 
             {
-                // TODO: stop copying state around.
+                // This is a bit convoluted, but the renderer plugin allows us to fetch a
+                // pointer to it's "state" which in this case is a dyn Renderer + Presenter
+                // trait object
                 let state = &mut *render_state.lock().await;
                 let world = &*world.as_ref().lock().await;
                 let mut plugin = ash_renderer_plugin.lock().await;

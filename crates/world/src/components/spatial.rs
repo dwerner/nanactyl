@@ -7,7 +7,7 @@ use crate::graphics::EULER_ROT_ORDER;
 /// A component representing a relative transform from a parent.
 /// Hierarchical transform relative to a parent.
 #[derive(Debug)]
-pub struct SpatialNode {
+pub struct SpatialHierarchyNode {
     /// The parent of this node.
     pub parent: Entity,
 
@@ -19,7 +19,7 @@ pub struct SpatialNode {
 }
 
 // Really should be a world transform.
-impl SpatialNode {
+impl SpatialHierarchyNode {
     /// Construct a new node with a parent.
     pub fn new(parent: Entity) -> Self {
         Self {
@@ -113,7 +113,7 @@ impl SpatialNode {
         scale
     }
 
-    /// Get a vector pointing forward from this transform.
+    /// get a vector pointing forward from this transform.
     pub fn forward(&self) -> Vec3 {
         -self.transform.z_axis.truncate().normalize()
     }

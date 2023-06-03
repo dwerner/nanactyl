@@ -29,7 +29,7 @@ use types::{
     Attachments, AttachmentsModifier, BufferAndMemory, Pipeline, RenderError, Shader, ShaderStage,
     ShaderStages, VertexInputAssembly,
 };
-use world::components::spatial::SpatialNode;
+use world::components::spatial::SpatialHierarchyNode;
 use world::components::{Camera, Drawable, WorldTransform};
 use world::{Entity, World};
 
@@ -110,11 +110,11 @@ impl Renderer {
                     StableTypeId::of::<Camera>(),
                 ));
             }
-            if !entity.has::<SpatialNode>() {
+            if !entity.has::<SpatialHierarchyNode>() {
                 return Err(RenderError::ComponentMissingFromCameraEntity(
                     camera_entity,
-                    std::any::type_name::<SpatialNode>(),
-                    StableTypeId::of::<SpatialNode>(),
+                    std::any::type_name::<SpatialHierarchyNode>(),
+                    StableTypeId::of::<SpatialHierarchyNode>(),
                 ));
             }
 
@@ -125,7 +125,7 @@ impl Renderer {
                     .expect("camera entity"),
                 world
                     .heks_world
-                    .get::<&SpatialNode>(camera_entity)
+                    .get::<&SpatialHierarchyNode>(camera_entity)
                     .expect("spatial entity"),
             )
         };
@@ -165,11 +165,8 @@ impl Renderer {
             vk::SubpassContents::INLINE,
         );
 
-        let proj_mat = camera.view_projection();
+        let proj_mat = camera.combined_projection();
 
-        // TODO more than just models, meshes in general.
-
-        // let logger = self.logger.sub("model render");
         for (gfx_index, (model, _uploaded_instant)) in base.tracked_graphics.iter() {
             // TODO: unified struct for models & pipelines
             let desc = match self.pipelines.get_mut(gfx_index) {
@@ -735,7 +732,7 @@ impl VulkanBase {
         // sets.
         //? TODO: any pool can be a thread local, but then any object must be destroyed
         //? on that thread.
-        let descriptor_pool = self.create_descriptor_pool(20, 20, 20)?;
+        let descriptor_pool = self.create_descriptor_pool(40, 40, 40)?;
         let mut renderer = Renderer {
             descriptor_pool,
             pipelines: HashMap::new(),

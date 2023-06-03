@@ -1,10 +1,11 @@
+use std::f32::consts::PI;
 use std::time::Duration;
 
 use gfx::Model;
 use logger::{info, LogLevel, Logger};
 use plugin_self::{impl_plugin_static, PluginState};
 use world::bundles::{Player, StaticObject};
-use world::components::spatial::SpatialNode;
+use world::components::spatial::SpatialHierarchyNode;
 use world::{AssetLoaderStateAndWorldLock, Vec3};
 
 struct AssetLoaderPlugin {
@@ -45,11 +46,16 @@ impl PluginState for AssetLoaderPlugin {
         .unwrap();
         let cube_gfx = world.add_model(cube_model);
 
+        let flip_angles = Vec3::new(0.0, 0.5 * PI, 1.0 * PI);
+
         for (x, z) in [(10.0, 10.0), (-10.0, -10.0)].into_iter() {
             info!(logger, "adding player camera object at: {}, {}", x, z);
             let pos = Vec3::new(x, 0.0, z);
-            let tank = Player::new(tank_gfx, SpatialNode::new_at(world.root, pos));
-            let tank_id = world.add_player(tank);
+            let tank = Player::new(
+                tank_gfx,
+                SpatialHierarchyNode::new_at(world.root, pos).with_angles(flip_angles),
+            );
+            let _tank_id = world.add_player(tank);
         }
 
         // initialize some state, lots of model_object entities
@@ -59,8 +65,8 @@ impl PluginState for AssetLoaderPlugin {
                 let (x, z) = (i as f32, j as f32);
                 let object = StaticObject::new(
                     model_prefab,
-                    SpatialNode::new_at(world.root, Vec3::new(x * 4.0, 2.0, z * 10.0))
-                        .with_angles(Vec3::new(0.0, j as f32 * 4.0, 0.0)),
+                    SpatialHierarchyNode::new_at(world.root, Vec3::new(x * 4.0, 2.0, z * 10.0))
+                        .with_angles(flip_angles),
                 );
 
                 // TODO: add_object
@@ -76,7 +82,10 @@ impl PluginState for AssetLoaderPlugin {
         .unwrap();
 
         let sky_prefab = world.add_model(sky_model);
-        let sky = StaticObject::new(sky_prefab, SpatialNode::new_with_scale(world.root, 200.0));
+        let sky = StaticObject::new(
+            sky_prefab,
+            SpatialHierarchyNode::new_with_scale(world.root, 200.0).with_angles(flip_angles),
+        );
         world.heks_world.spawn(sky);
     }
 

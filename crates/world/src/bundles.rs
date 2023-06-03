@@ -3,19 +3,19 @@
 use glam::Mat4;
 use heks::{Bundle, Entity, Query};
 
-use crate::components::spatial::SpatialNode;
+use crate::components::spatial::SpatialHierarchyNode;
 use crate::components::{Camera, Control, Drawable, PhysicsBody, WorldTransform};
 
 #[derive(Debug, Bundle)]
 pub struct StaticObject {
-    pub spatial: SpatialNode,
+    pub spatial: SpatialHierarchyNode,
     pub drawable: Drawable,
     pub world: WorldTransform,
 }
 
 impl StaticObject {
     /// Create a new StaticObject with the given parent
-    pub fn new(gfx_prefab: Entity, spatial: SpatialNode) -> Self {
+    pub fn new(gfx_prefab: Entity, spatial: SpatialHierarchyNode) -> Self {
         Self {
             spatial,
             drawable: Drawable {
@@ -35,7 +35,7 @@ pub struct Player {
     pub control: Control,
     pub drawable: Drawable,
     pub physics: PhysicsBody,
-    pub spatial: SpatialNode,
+    pub spatial: SpatialHierarchyNode,
     pub world: WorldTransform,
 }
 // TODO: bundles move into the plugin?
@@ -45,7 +45,7 @@ pub struct PlayerQuery<'a> {
     pub control: &'a mut Control,
     pub drawable: &'a mut Drawable,
     pub physics: &'a mut PhysicsBody,
-    pub spatial: &'a mut SpatialNode,
+    pub spatial: &'a mut SpatialHierarchyNode,
     pub world: &'a mut WorldTransform,
 }
 
@@ -54,7 +54,7 @@ impl Player {
     ///
     /// TODO:
     ///     - take a local transform?
-    pub fn new(gfx_prefab: Entity, spatial: SpatialNode) -> Self {
+    pub fn new(gfx_prefab: Entity, spatial: SpatialHierarchyNode) -> Self {
         let perspective = Mat4::perspective_lh(
             1.7,    //aspect
             0.75,   //fovy
@@ -93,7 +93,7 @@ mod tests {
         let mut world = heks::World::new();
         let root = world.spawn((WorldTransform::default(),));
         let gfx = world.spawn((WorldTransform::default(),));
-        let player = Player::new(gfx, SpatialNode::new(root));
+        let player = Player::new(gfx, SpatialHierarchyNode::new(root));
 
         let p = world.spawn(player);
 

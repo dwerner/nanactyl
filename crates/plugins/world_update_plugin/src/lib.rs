@@ -19,7 +19,7 @@ use rapier3d::prelude::{
 };
 use stable_typeid::StableTypeId;
 use world::bundles::StaticObject;
-use world::components::spatial::SpatialNode;
+use world::components::spatial::SpatialHierarchyNode;
 use world::components::{Camera, Control, PhysicsBody, WorldTransform};
 use world::graphics::Shape;
 use world::{Entity, World, WorldError};
@@ -103,14 +103,14 @@ impl WorldUpdatePluginState {
             .unwrap();
 
         let (root_transform,) = root_transform.get().unwrap();
-        let mut parents_query = world.world.heks_world.query::<&SpatialNode>();
+        let mut parents_query = world.world.heks_world.query::<&SpatialHierarchyNode>();
         let parents = parents_query.view();
 
         let mut world_transforms_updated = vec![];
         for (entity, (node, entity_world_transform)) in world
             .world
             .heks_world
-            .query::<(&SpatialNode, &mut WorldTransform)>()
+            .query::<(&SpatialHierarchyNode, &mut WorldTransform)>()
             .iter()
             .filter(|(_entity, (node, _))| node.is_dirty())
         {
@@ -165,7 +165,7 @@ impl WorldUpdatePluginState {
         // TODO: use physics object to set up properties of colliders
         for (entity, (spatial, physics)) in world
             .heks_world
-            .query::<(&SpatialNode, &PhysicsBody)>()
+            .query::<(&SpatialHierarchyNode, &PhysicsBody)>()
             .iter()
         {
             let pos = spatial.get_pos();
@@ -210,7 +210,10 @@ impl WorldUpdatePluginState {
         // TODO: try out adding a debug mesh
         let ground_phys = StaticObject::new(
             gfx,
-            SpatialNode::new_at(world.root, vec3(0.0, -ground_height - ground_y_offset, 0.0)),
+            SpatialHierarchyNode::new_at(
+                world.root,
+                vec3(0.0, -ground_height - ground_y_offset, 0.0),
+            ),
         );
 
         // TODO: spawn object method
@@ -223,7 +226,7 @@ fn mark_clean_updated_nodes(world: &mut WorldExt, world_transforms_updated: &[En
     for node in world
         .world
         .heks_world
-        .query::<&mut SpatialNode>()
+        .query::<&mut SpatialHierarchyNode>()
         .iter()
         .filter_map(|(e, node)| {
             if world_transforms_updated.contains(&e) {
@@ -323,7 +326,7 @@ impl<'a> WorldExt<'a> {
             for (_entity, (control, spatial)) in self
                 .world
                 .heks_world
-                .query::<(&Control, &mut SpatialNode)>()
+                .query::<(&Control, &mut SpatialHierarchyNode)>()
                 .iter()
             {
                 let linear = control.linear_intention * action_scale;
@@ -341,58 +344,43 @@ impl<'a> WorldExt<'a> {
         controller: &InputState,
         entity: Entity,
     ) -> Result<(), WorldError> {
-        // let player_entity = self.world.heks_world.entity(entity).unwrap();
-        // trace!(
-        //     self.world.logger,
-        //     "entity={:?} has Camera={:?}",
-        //     player_entity.entity(),
-        //     player_entity.has::<Camera>()
-        // );
-
         let mut query = self
             .world
             .heks_world
-            .query_one::<(&mut Camera, &mut Control, &SpatialNode, &PhysicsBody)>(entity)
+            .query_one::<(&mut Camera, &mut Control, &WorldTransform, &PhysicsBody)>(entity)
             .map_err(WorldError::NoSuchEntity)?;
 
         let (camera, control, spatial, physics) = query.get().ok_or(WorldError::NoSuchCamera)?;
 
-        // TODO: move the get_camera_facet method up into World, and use that here.
-        // kludge! this relies on the first two phys facets being the cameras 0,1
-        // a speed-up 'run' effect if cancel is held down while moving
         let speed = if controller.is_button_pressed(Button::Cancel) {
             5.0
         } else {
             2.0
         };
 
-        // FOR NOW: this works ok but needs work.
-        // The crux here is to push changes into World from bouncing it off the physics
-        // sim, but update the simulation with positions at certain points
-
-        info!(
-            self.logger,
-            "control pos {:?} angles {:?}",
-            spatial.get_pos(),
-            spatial.get_angles()
-        );
+        if self.world.stats.updates % 120 == 0 && entity == self.world.player(0).unwrap() {
+            info!(
+                self.logger,
+                "control pos {:?} angles {:?}",
+                spatial.get_pos(),
+                spatial.get_angles()
+            );
+        }
 
         let forward = spatial.forward();
+
         if controller.is_button_pressed(Button::Down) {
-            let transform = camera.view * Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0) * speed);
-            control.linear_intention += transform.transform_vector3(forward);
+            control.linear_intention += forward * speed;
         } else if controller.is_button_pressed(Button::Up) {
-            let transform =
-                camera.view * Mat4::from_scale(-1.0 * (Vec3::new(1.0, 1.0, 1.0) * speed));
-            control.linear_intention += transform.transform_vector3(forward);
+            control.linear_intention -= forward * speed;
         } else {
             control.linear_intention = Vec3::ZERO;
         }
 
         if controller.is_button_pressed(Button::Left) {
-            control.angular_intention.y = speed;
-        } else if controller.is_button_pressed(Button::Right) {
             control.angular_intention.y = -1.0 * speed;
+        } else if controller.is_button_pressed(Button::Right) {
+            control.angular_intention.y = speed;
         } else {
             control.angular_intention.y = 0.0;
         }

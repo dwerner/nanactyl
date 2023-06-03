@@ -1,13 +1,12 @@
-use std::time::Duration;
+use std::f32::consts::PI;
 
 pub mod spatial;
 
 use gfx::Graphic;
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use heks::Entity;
-use spatial::SpatialNode;
 
-use crate::graphics::Shape;
+use crate::graphics::{Shape, EULER_ROT_ORDER};
 
 /// A component representing a camera.
 #[derive(Debug, Default)]
@@ -21,7 +20,7 @@ pub struct Camera {
 impl Camera {
     // Problematic because multiple components make up the properties of the camera,
     // including position, matrices, etc.
-    pub fn new(spatial: &SpatialNode) -> Self {
+    pub fn new(world_transform: &WorldTransform) -> Self {
         let mut camera = Camera {
             view: Mat4::IDENTITY,
 
@@ -36,33 +35,26 @@ impl Camera {
             // because it's not supported yet
             occlusion_culling: false,
         };
-        camera.update_view_matrix(spatial);
+        camera.update_view_matrix(world_transform);
         camera
     }
 
-    pub fn update_from_phys(
-        &mut self,
-        dt: &Duration,
-        spatial: &mut SpatialNode,
-        physics: &PhysicsBody,
-    ) {
-        let amount = (dt.as_millis() as f64 / 100.0) as f32;
-        spatial.translate(physics.linear_velocity * amount);
-        self.update_view_matrix(spatial);
-    }
-
-    pub fn update_view_matrix(&mut self, spatial: &SpatialNode) {
+    pub fn update_view_matrix(&mut self, world: &WorldTransform) {
         // TODO: debugging view matrix
 
-        self.view =
-            (spatial.transform * Mat4::from_translation(Vec3::new(0.0, -1.0, 0.0))).inverse();
+        let camera_offset = Mat4::from_rotation_translation(
+            Quat::from_rotation_y(1.5 * PI),
+            Vec3::new(0.0, -1.0, 0.0),
+        );
+
+        self.view = (world.world * camera_offset).inverse();
     }
 
     pub fn set_perspective(&mut self, fov: f32, aspect: f32, near: f32, far: f32) {
         self.projection = Mat4::perspective_lh(aspect, fov, near, far);
     }
 
-    pub fn view_projection(&self) -> Mat4 {
+    pub fn combined_projection(&self) -> Mat4 {
         self.projection * self.view
     }
 }
@@ -121,6 +113,23 @@ pub struct WorldTransform {
     pub world: Mat4,
 }
 
+impl WorldTransform {
+    pub fn forward(&self) -> Vec3 {
+        -self.world.z_axis.truncate().normalize()
+    }
+    /// Get the position of this transform.
+    pub fn get_pos(&self) -> Vec3 {
+        let (_scale, _rot, trans) = self.world.to_scale_rotation_translation();
+        trans
+    }
+
+    /// Get the angles of rotation in EULER_ROT_ORDER.
+    pub fn get_angles(&self) -> Vec3 {
+        let (_scale, rot, _trans) = self.world.to_scale_rotation_translation();
+        rot.to_euler(EULER_ROT_ORDER).into()
+    }
+}
+
 /// A component representing an audio source.
 #[derive(Debug, Default)]
 pub struct AudioSource {
@@ -131,6 +140,7 @@ pub struct AudioSource {
 mod tests {
     use super::*;
     use crate::bundles::Player;
+    use crate::components::spatial::SpatialHierarchyNode;
 
     #[test]
     fn playing_with_heks() {
@@ -142,11 +152,11 @@ mod tests {
             gfx: Graphic::ParticleSystem,
         },));
 
-        let player = Player::new(gfx_prefab, SpatialNode::new(root_transform));
+        let player = Player::new(gfx_prefab, SpatialHierarchyNode::new(root_transform));
         let _player_id = world.spawn(player);
 
         let entity = {
-            let mut query = world.query::<(&Camera, &SpatialNode)>();
+            let mut query = world.query::<(&Camera, &SpatialHierarchyNode)>();
             let (entity, (camera, pos)) = query.iter().next().unwrap();
             println!("{:?}", entity);
 

@@ -2960,8 +2960,8 @@ dependencies = [
 
 [[package]]
 name = "spirv-std"
-version = "0.7.0"
-source = "git+https://github.com/EmbarkStudios/rust-gpu#a686676e44c3fb2c970f47e9dd1c6be03c2385ee"
+version = "0.8.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#cfaabbab08739d1e6b467d9a6e971dde06264a61"
 dependencies = [
  "bitflags",
  "glam",
@@ -2972,8 +2972,8 @@ dependencies = [
 
 [[package]]
 name = "spirv-std-macros"
-version = "0.7.0"
-source = "git+https://github.com/EmbarkStudios/rust-gpu#a686676e44c3fb2c970f47e9dd1c6be03c2385ee"
+version = "0.8.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#cfaabbab08739d1e6b467d9a6e971dde06264a61"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2983,8 +2983,8 @@ dependencies = [
 
 [[package]]
 name = "spirv-std-types"
-version = "0.7.0"
-source = "git+https://github.com/EmbarkStudios/rust-gpu#a686676e44c3fb2c970f47e9dd1c6be03c2385ee"
+version = "0.8.0"
+source = "git+https://github.com/EmbarkStudios/rust-gpu#cfaabbab08739d1e6b467d9a6e971dde06264a61"
 
 [[package]]
 name = "spirv_headers"

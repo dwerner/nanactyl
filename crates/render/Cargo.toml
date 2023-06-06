@@ -8,7 +8,6 @@ platform = { path = "../platform" }
 world = { path = "../world" }
 gfx = { path = "../gfx" }
 logger = { path = "../logger" }
-plugin_self = { path = "../plugin_self" }
 
 # workspace
 async-lock = { workspace = true }

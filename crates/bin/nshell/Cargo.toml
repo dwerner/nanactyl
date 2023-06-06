@@ -7,10 +7,15 @@ edition = "2021"
 core_executor = { path = "../../core_executor" }
 input = { path = "../../input" }
 platform = { path = "../../platform" }
-plugin_loader = { path = "../../plugin_loader" }
 render = { path = "../../render" }
 world = { path = "../../world" }
 logger = { path = "../../logger" }
+
+# systems
+ash_renderer_system = { path = "../../systems/ash_renderer_system" }
+asset_loader_system = { path = "../../systems/asset_loader_system" }
+net_sync_system = { path = "../../systems/net_sync_system" }
+world_update_system = { path = "../../systems/world_update_system" }
 
 smol = "1.2.5"
 futures-util = "0.3.28"

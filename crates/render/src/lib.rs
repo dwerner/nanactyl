@@ -1,4 +1,4 @@
-//! In support of ash_rendering_plugin, implements various wrappers over
+//! In support of ash_rendering_system, implements various wrappers over
 //! vulkan/ash that are used in the plugin.
 //!
 //! This module is a landing-pad (In particular VulkanBase) for functionality
@@ -11,7 +11,6 @@ use async_lock::Mutex;
 use gfx::Graphic;
 use logger::{info, trace, warn, LogLevel, Logger};
 use platform::WinPtr;
-use plugin_self::PluginState;
 use world::components::GraphicPrefab;
 use world::{Entity, World};
 
@@ -61,32 +60,23 @@ impl RenderState {
 
     /// Search through the world for models that need to be uploaded, and do so.
     /// Does not yet handle updates to models.
-    pub fn upload_untracked_graphics_prefabs(
-        &mut self,
-        world: &World,
-        mut plugin: Option<&mut Box<dyn RenderPluginState<GameState = RenderState> + Send + Sync>>,
-    ) {
-        for (entity, graphic) in world.heks_world.query::<&GraphicPrefab>().iter() {
-            match plugin.as_mut() {
-                Some(plugin) => {
-                    if let Some(uploaded_at) = plugin.tracked_graphics(entity) {
-                        trace!(
-                            self.logger,
-                            "graphic {:?} already tracked for {}ms",
-                            entity,
-                            Instant::now().duration_since(uploaded_at).as_millis()
-                        );
-                    } else {
-                        info!(self.logger, "uploading graphic {:?}", entity);
-
-                        plugin
-                            .upload_graphics(&[(entity, &graphic.gfx)])
-                            .expect("unable to upload graphics");
-                    }
-                }
-                None => {
-                    warn!(self.logger, "no render state to upload to");
-                }
+    pub fn upload_untracked_graphics_prefabs<P>(&mut self, world: &World, system: &mut P)
+    where
+        P: Presenter + Send + Sync,
+    {
+        for (entity, graphic) in world.hecs_world.query::<&GraphicPrefab>().iter() {
+            if let Some(uploaded_at) = system.tracked_graphics(entity) {
+                trace!(
+                    self.logger,
+                    "graphic {:?} already tracked for {}ms",
+                    entity,
+                    Instant::now().duration_since(uploaded_at).as_millis()
+                );
+            } else {
+                info!(self.logger, "uploading graphic {:?}", entity);
+                system
+                    .upload_graphics(&[(entity, &graphic.gfx)])
+                    .expect("unable to upload graphics");
             }
         }
     }
@@ -103,9 +93,6 @@ pub trait Presenter {
 
     fn upload_graphics(&mut self, graphics: &[(Entity, &Graphic)]) -> Result<(), RenderStateError>;
 }
-
-/// A trait for the loader side to call into the renderer side.
-pub trait RenderPluginState: PluginState + Presenter {}
 
 #[derive(Debug, Copy, Clone)]
 pub struct TextureId(u32);

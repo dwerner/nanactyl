@@ -1,4 +1,3 @@
 [alias]
 xtask = "run --package xtask --"
-p = "run --package xtask -- run-server-and-client"
-xp = "run --package xtask -- build-plugin -p"
+xp = "build --package "

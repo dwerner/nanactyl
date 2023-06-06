@@ -1,4 +1,4 @@
-check_plugins_interval: 15
+check_systems_interval: 15
 backtrace: true
 enable_validation_layer: true
 log_level: debug

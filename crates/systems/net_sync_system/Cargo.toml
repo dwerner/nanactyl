@@ -1,0 +1,27 @@
+[package]
+name = "net_sync_system"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+input = { path = "../../input" }
+world = { path = "../../world" }
+network = { path = "../../network" }
+logger = { path = "../../logger" }
+
+# workspace
+async-io = { workspace = true }
+async-net = { workspace = true }
+async-trait = { workspace = true }
+bitvec = { workspace = true }
+bytemuck = { workspace = true }
+futures-lite = { workspace = true }
+histogram = { workspace = true }
+thiserror = { workspace = true }
+zstd = { workspace = true }
+
+[dev-dependencies]
+hex = "0.4.3"
+smol-potat = "1.1.2"

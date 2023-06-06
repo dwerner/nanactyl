@@ -19,7 +19,6 @@
 
 ### Command-Line Options
 
-- `--plugin_dir`: Path to the directory containing the plugins (default: `plugin_loader::RELATIVE_TARGET_DIR`).
 - `--cwd`: Optional path to change the current working directory.
 - `--backtrace`: Enable/disable stack traces (default: false).
 - `--enable_validation_layer`: Enable/disable the Vulkan validation layer (default: false).

@@ -1,36 +1,29 @@
 //! Implements a simple shell entrypoint for the engine.
 
 use std::fs::File;
-use std::future::Future;
 use std::io::{BufReader, Read};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_lock::Mutex;
-use core_executor::ThreadPoolExecutor;
 use futures_lite::future;
 use histogram::Histogram;
 use input::wire::InputState;
 use input::{DeviceEvent, EngineEvent};
-use logger::{error, info, LogFilter, LogLevel, Logger};
-use plugin_loader::{Plugin, PluginCheck, PluginError};
-use render::{RenderPluginState, RenderState};
+use logger::{info, LogFilter, LogLevel, Logger};
+use render::{Presenter, RenderState};
 use serde::Deserialize;
 use structopt::StructOpt;
 use structopt_yaml::StructOptYaml;
-use world::{AssetLoaderState, AssetLoaderStateAndWorldLock, World, WorldLockAndControllerState};
+use world::{AssetLoaderState, AssetLoaderStateAndWorldLock, WorldLockAndControllerState};
 
 const FRAME_LENGTH_MS: u64 = 8;
 
 #[derive(StructOpt, Debug, StructOptYaml, Deserialize)]
 #[serde(default)]
 struct CliOpts {
-    #[structopt(long, default_value = plugin_loader::RELATIVE_TARGET_DIR)]
-    plugin_dir: PathBuf,
-
     #[structopt(long)]
     cwd: Option<PathBuf>,
 
@@ -44,7 +37,7 @@ struct CliOpts {
     connect_to_server: Option<SocketAddr>,
 
     #[structopt(long, default_value = "15")]
-    check_plugin_interval: u64,
+    check_system_interval: u64,
 
     #[structopt(long, default_value = "info")]
     log_level: LogLevel,
@@ -88,7 +81,6 @@ impl CliOpts {
 
 fn main() {
     let logger = LogLevel::Info.logger().sub("nshell");
-    plugin_loader::register_tls_dtor_hook!();
 
     let opts = CliOpts::load_with_overrides(&logger);
     match (opts.log_level_filter, opts.log_tag_filter) {
@@ -98,8 +90,6 @@ fn main() {
         (None, None) => {}
     }
 
-    let mut executor = ThreadPoolExecutor::new(std::thread::available_parallelism().unwrap().get());
-
     // FIXME: currently the server-side must be started first, and waits for a
     // client to connect here.
     let world = world::World::new(opts.connect_to_server, &logger, opts.net_disabled);
@@ -107,6 +97,12 @@ fn main() {
 
     let logger2 = logger.sub("main");
     future::block_on(async move {
+        let mut frame_start;
+        let mut last_frame_complete = Instant::now();
+
+        let mut frame = 0u64;
+        let own_controllers: [InputState; 2] = Default::default();
+        let own_controllers = Arc::new(Mutex::new(own_controllers));
         let logger = logger2;
         let mut frame_histogram = Histogram::new();
         let mut platform_context = platform::PlatformContext::new(&logger).unwrap();
@@ -127,53 +123,6 @@ fn main() {
 
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();
 
-        // ash renderer
-        let ash_renderer_plugin = Plugin::<
-            RenderState,
-            Box<dyn RenderPluginState<GameState = RenderState> + Send + Sync>,
-        >::open_from_target_dir(
-            &opts.plugin_dir,
-            "ash_renderer_plugin",
-            logger.sub("ash_renderer_plugin"),
-        )
-        .unwrap()
-        .into_shared();
-
-        // world update
-        let world_update_plugin = Plugin::<World, ()>::open_from_target_dir(
-            &opts.plugin_dir,
-            "world_update_plugin",
-            logger.sub("world_update_plugin"),
-        )
-        .unwrap()
-        .into_shared();
-
-        // net sync
-        let net_sync_plugin = if !opts.net_disabled {
-            Some(
-                Plugin::<WorldLockAndControllerState, ()>::open_from_target_dir(
-                    &opts.plugin_dir,
-                    "net_sync_plugin",
-                    logger.sub("net_sync_plugin"),
-                )
-                .unwrap()
-                .into_shared(),
-            )
-        } else {
-            None
-        };
-
-        // asset loader
-        let asset_loader_state = Arc::new(Mutex::new(AssetLoaderState::default()));
-        let asset_loader_plugin = Plugin::<AssetLoaderStateAndWorldLock, ()>::open_from_target_dir(
-            &opts.plugin_dir,
-            "asset_loader_plugin",
-            logger.sub("asset_loader_plugin"),
-        )
-        .unwrap()
-        .into_shared();
-
-        // state needs to be dropped on the same thread as it was created
         let render_state = RenderState::new(
             win_ptr,
             opts.enable_validation_layer,
@@ -181,31 +130,29 @@ fn main() {
             logger.sub("render_state"),
         )
         .into_shared();
+        let mut ash_renderer_system = ash_renderer_system::VulkanRenderPluginState::default();
+        ash_renderer_system.load(&mut *render_state.lock().await);
 
-        let mut frame_start;
-        let mut last_frame_complete = Instant::now();
+        let mut world_update_system = world_update_system::WorldUpdatePluginState::new();
+        world_update_system.load(&mut *world.lock().await);
 
-        // {
-        //     let mut plugin = ash_renderer_plugin.lock().await;
-        //     let plugin_state: Option<
-        //         &mut Box<dyn RenderPluginState<GameState = RenderState> + Send +
-        // Sync>,
-        //     > = plugin.call_plugin_state().unwrap();
+        let mut net_sync_system = if !opts.net_disabled {
+            let world = Arc::clone(&world);
+            let controller_state = Arc::clone(&own_controllers);
+            let mut net = net_sync_system::NetSyncPluginState::new();
+            let mut state = WorldLockAndControllerState::lock(&world, &controller_state).await;
+            net.load(&mut state);
+            Some(net)
+        } else {
+            None
+        };
 
-        //     render_state
-        //         .lock()
-        //         .await
-        //         .upload_untracked_graphics_prefabs(&*world.lock().await,
-        // plugin_state); }
-
-        let mut frame = 0u64;
-        let own_controllers: [InputState; 2] = Default::default();
-        let own_controllers = Arc::new(Mutex::new(own_controllers));
+        let asset_state = Arc::new(Mutex::new(AssetLoaderState::default()));
+        let mut asset_loader = asset_loader_system::AssetLoaderPlugin::new();
+        asset_loader.load(&mut AssetLoaderStateAndWorldLock::lock(&world, &asset_state).await);
 
         'frame_loop: loop {
-            let world = Arc::clone(&world);
             frame_start = Instant::now();
-
             platform_context.pump_events();
 
             if let Some(EngineEvent::ExitToDesktop) = handle_input_events(
@@ -216,87 +163,27 @@ fn main() {
                 break 'frame_loop;
             }
 
-            // Essentially, check for updated versions of plugins every 2 seconds
-            if frame % opts.check_plugin_interval == 0 {
-                check_plugin(
-                    &mut *asset_loader_plugin.lock().await,
-                    &mut AssetLoaderStateAndWorldLock::lock(&world, &asset_loader_state).await,
-                    &logger,
-                );
-
-                if let Some(net_sync_plugin) = &net_sync_plugin {
-                    check_plugin(
-                        &mut *net_sync_plugin.lock().await,
-                        &mut WorldLockAndControllerState::lock(&world, &own_controllers).await,
-                        &logger,
-                    );
-                }
-
-                let _check_plugins = futures_util::future::join(
-                    executor.spawn_on_core(
-                        3,
-                        check_plugin_async(&ash_renderer_plugin, &render_state, &logger),
-                    ),
-                    executor.spawn_on_core(
-                        5,
-                        check_plugin_async(&world_update_plugin, &world, &logger),
-                    ),
-                )
-                .await;
-            }
-
             let last_frame_elapsed = last_frame_complete.elapsed();
 
-            let _asset_loader_duration = executor
-                .spawn_on_core(1, {
-                    let plugin = Arc::clone(&asset_loader_plugin);
-                    let asset_loader_state = Arc::clone(&asset_loader_state);
-                    let world = Arc::clone(&world);
-                    Box::pin(async move {
-                        let mut state_and_world =
-                            AssetLoaderStateAndWorldLock::lock(&world, &asset_loader_state).await;
-                        plugin
-                            .lock()
-                            .await
-                            .call_update(&mut state_and_world, &last_frame_elapsed)
-                            .await
-                    })
-                })
-                .await
-                .unwrap();
+            asset_loader.update(
+                &mut AssetLoaderStateAndWorldLock::lock(&world, &asset_state).await,
+                &last_frame_elapsed,
+            );
 
-            {
-                // This is a bit convoluted, but the renderer plugin allows us to fetch a
-                // pointer to it's "state" which in this case is a dyn Renderer + Presenter
-                // trait object
-                let state = &mut *render_state.lock().await;
-                let world = &*world.as_ref().lock().await;
-                let mut plugin = ash_renderer_plugin.lock().await;
-                let plugin_state: Option<
-                    &mut Box<dyn RenderPluginState<GameState = RenderState> + Send + Sync>,
-                > = plugin.call_plugin_state().unwrap();
-                state.upload_untracked_graphics_prefabs(world, plugin_state);
-            }
+            // This is a bit convoluted, but the renderer plugin allows us to fetch a
+            // pointer to it's "state" which in this case is a dyn Renderer + Presenter
+            // trait object
+            render_state.lock().await.upload_untracked_graphics_prefabs(
+                &*world.as_ref().lock().await,
+                &mut ash_renderer_system,
+            );
 
-            match net_sync_plugin {
-                Some(ref net_sync_plugin) => {
-                    let _update_result = executor
-                        .spawn_on_core(3, {
-                            let world = Arc::clone(&world);
-                            let controller_state = Arc::clone(&own_controllers);
-                            let net_sync_plugin = Arc::clone(net_sync_plugin);
-                            Box::pin(async move {
-                                let mut state =
-                                    WorldLockAndControllerState::lock(&world, &controller_state)
-                                        .await;
-                                net_sync_plugin
-                                    .lock()
-                                    .await
-                                    .call_update(&mut state, &last_frame_elapsed)
-                                    .await
-                            })
-                        })
-                        .await;
+            match net_sync_system.as_mut() {
+                Some(net_sync_system) => {
+                    net_sync_system.update(
+                        &mut WorldLockAndControllerState::lock(&world, &own_controllers).await,
+                        &last_frame_elapsed,
+                    );
                 }
                 // Net is not enabled, so just update the world with the controller state
                 None => {
@@ -307,33 +194,11 @@ fn main() {
                 }
             }
 
-            {
-                // Actually call present - this is not done in the plugin anymore due to the
-                // trait object plumbing
-                let world = &*world.as_ref().lock().await;
-                let mut plugin = ash_renderer_plugin.lock().await;
-                if let Some(plugin_state) = plugin.call_plugin_state().unwrap() {
-                    plugin_state.present(&world);
-                }
-            }
+            ash_renderer_system.present(&*world.as_ref().lock().await);
 
             // update the renderer and the world simultaneously
-            let _join_result = futures_util::future::join(
-                // effectively a no-op now that we call present directly
-                executor.spawn_on_core(
-                    1,
-                    call_plugin_update_async(
-                        &ash_renderer_plugin,
-                        &render_state,
-                        &last_frame_elapsed,
-                    ),
-                ),
-                executor.spawn_on_core(
-                    3,
-                    call_plugin_update_async(&world_update_plugin, &world, &last_frame_elapsed),
-                ),
-            )
-            .await;
+            ash_renderer_system.update(&mut *render_state.lock().await, &last_frame_elapsed);
+            world_update_system.update(&mut *world.lock().await, &last_frame_elapsed);
 
             let elapsed = frame_start.elapsed();
             let last_frame_elapsed_micros = elapsed.as_micros();
@@ -365,35 +230,9 @@ fn main() {
 
             frame += 1;
         } // 'frame_loop
-
-        // without clearing the world, we segfault on the drop of heks_world :S
-        // TODO: figure out why
-        info!(logger, "clearing world");
-        world.lock().await.heks_world.clear();
     });
 
     info!(logger, "quitting.");
-}
-
-fn call_plugin_update_async<'a, T, P>(
-    plugin: &Arc<Mutex<Plugin<'a, T, P>>>,
-    state: &Arc<Mutex<T>>,
-    dt: &Duration,
-) -> Pin<Box<impl Future<Output = Result<Duration, PluginError>> + Send + Sync + 'a>>
-where
-    T: Send + Sync,
-    P: Send + Sync,
-{
-    let plugin = Arc::clone(plugin);
-    let state = Arc::clone(state);
-    let dt = *dt;
-    Box::pin(async move {
-        plugin
-            .lock()
-            .await
-            .call_update(&mut *state.lock().await, &dt)
-            .await
-    })
 }
 
 fn handle_input_events(
@@ -427,51 +266,4 @@ fn handle_input_events(
         }
     }
     None
-}
-
-fn check_plugin_async<'p, T, P>(
-    plugin: &Arc<Mutex<Plugin<'p, T, P>>>,
-    state: &Arc<Mutex<T>>,
-    logger: &Logger,
-) -> Pin<Box<impl Future<Output = ()> + Send + Sync + 'p>>
-where
-    T: Send + Sync,
-    P: Send + Sync,
-{
-    let logger = logger.sub("check_plugin_async");
-    let plugin = Arc::clone(plugin);
-    let state = Arc::clone(state);
-    Box::pin(async move {
-        check_plugin(&mut *plugin.lock().await, &mut *state.lock().await, &logger);
-    })
-}
-
-// Main loop policy for handling plugin errors
-fn check_plugin<T, P>(plugin: &mut Plugin<T, P>, state: &mut T, logger: &Logger)
-where
-    T: Send + Sync,
-    P: Send + Sync,
-{
-    let logger = logger.sub("check_plugin");
-    match plugin.check(state) {
-        Ok(PluginCheck::FoundNewVersion) => info!(
-            logger,
-            "found new version ({}) of plugin: {}",
-            plugin.version(),
-            plugin.name(),
-        ),
-        Ok(PluginCheck::Unchanged) => (),
-        Err(m @ PluginError::MetadataIo { .. }) => {
-            error!(
-                logger,
-                "error getting file metadata for plugin {}: {:?}",
-                plugin.name(),
-                m
-            );
-        }
-        Err(o @ PluginError::ErrorOnOpen(_)) => {
-            error!(logger, "error opening plugin {}: {:?}", plugin.name(), o);
-        }
-        Err(err) => panic!("unexpected error checking plugin - {err:?}"),
-    }
 }

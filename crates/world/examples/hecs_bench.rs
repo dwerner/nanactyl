@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use core_executor::scoped::ScopedThreadPoolExecutor;
 use core_executor::ThreadPoolExecutor;
 use glam::{Mat4, Vec3};
-use heks::World;
+use hecs::World;
 use world::graphics::Shape;
 use world::health::HealthFacet;
 
@@ -116,7 +116,7 @@ fn main() {
                 let arch = archetypes.next().unwrap();
                 let mut player_column = arch.get::<&mut TestComponent>().unwrap();
 
-                // It turns out there is a way to get a column and split it in heks.
+                // It turns out there is a way to get a column and split it in hecs.
                 let mid = player_column.len() / 2;
                 let (left, right) = player_column.split_at_mut(mid);
                 let mut slice_partitions = vec![left, right];

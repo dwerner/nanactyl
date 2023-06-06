@@ -1,9 +1,5 @@
-use std::fs::File;
-use std::io::BufRead;
 use std::path::PathBuf;
-use std::time::Duration;
 
-use colorful::Colorful;
 use duct::cmd;
 use structopt::StructOpt;
 
@@ -13,50 +9,14 @@ const RUST_GPU_TOOLCHAIN: &str = "nightly-2022-12-18";
 
 #[derive(StructOpt, Debug)]
 enum Command {
-    RunServerAndClient {
-        #[structopt(short, long)]
-        debug: bool,
-    },
     FmtLint,
     BuildShaders,
-    /// Build a single plugin, defaults to release mode, -d or --debug for debug
-    /// mode.
-    BuildPlugin {
-        #[structopt(short)]
-        plugin_name: String,
-        #[structopt(short, long)]
-        debug: bool,
-    },
-    /// Build all plugins, defaults to release mode, -d or --debug for debug
-    /// mode.
-    BuildAllPlugins {
-        #[structopt(short, long)]
-        debug: bool,
-    },
-    /// Build everything, defaults to release mode, -d or --debug for debug
-    /// mode.
-    BuildAll {
-        #[structopt(short, long)]
-        debug: bool,
-    },
 }
 
 #[derive(StructOpt)]
 struct Opts {
     #[structopt(subcommand)]
     cmd: Option<Command>,
-}
-
-macro_rules! client {
-    ($($arg:tt)*) => {
-        println!("{}", format!($($arg)*).color(colorful::Color::DarkGray))
-     };
-}
-
-macro_rules! server {
-    ($($arg:tt)*) => {
-        println!("{}", format!($($arg)*).color(colorful::Color::Cyan))
-     };
 }
 
 // Panic if we aren't in the project root.
@@ -89,28 +49,12 @@ fn set_required_rustflags(flags: &[&'static str]) {
 fn dispatch(cmd: Command) -> Result<(), std::io::Error> {
     println!("xtask : {cmd:?}");
     match cmd {
-        Command::RunServerAndClient { debug } => {
-            run_server_and_client(debug)?;
-            Ok(())
-        }
         Command::FmtLint => {
             fmt_and_lint()?;
             Ok(())
         }
-        Command::BuildAllPlugins { debug } => {
-            build_plugins(debug)?;
-            Ok(())
-        }
-        Command::BuildPlugin { plugin_name, debug } => {
-            build_one_plugin(&plugin_name, debug)?;
-            Ok(())
-        }
         Command::BuildShaders => {
             build_shaders()?;
-            Ok(())
-        }
-        Command::BuildAll { debug } => {
-            build_plugins(debug)?;
             Ok(())
         }
     }
@@ -121,44 +65,6 @@ fn fmt_and_lint() -> Result<(), std::io::Error> {
     println!("xtask fmt {}", String::from_utf8_lossy(&output.stdout));
     let output = cmd!("cargo", "clippy").run()?;
     println!("xtask clippy {}", String::from_utf8_lossy(&output.stdout));
-    Ok(())
-}
-
-fn build_plugins(debug: bool) -> Result<(), std::io::Error> {
-    let output = if debug {
-        cmd!("cargo", "build").run()?
-    } else {
-        cmd!("cargo", "build", "--release").run()?
-    };
-    println!(
-        "xtask build everything {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-    Ok(())
-}
-
-fn build_one_plugin(plugin_name: &str, debug: bool) -> Result<(), std::io::Error> {
-    let project_root_dir = std::env::current_dir()?;
-    let mut plugin_dir = project_root_dir.clone();
-    plugin_dir.push(format!("crates/plugins/{plugin_name}"));
-    client!("{plugin_dir:?}");
-    assert!(
-        File::open(&plugin_dir)?.metadata()?.is_dir(),
-        "{plugin_dir:?} doesn't correspond to a plugin."
-    );
-    std::env::set_current_dir(plugin_dir)?;
-    let output = if debug {
-        cmd!("cargo", "build").run()?
-    } else {
-        cmd!("cargo", "build", "--release").run()?
-    };
-    println!(
-        "Plugin {} compiled: {}",
-        plugin_name,
-        String::from_utf8_lossy(&output.stdout)
-    );
-    server!("Built plugin: crates/plugins/{plugin_name}.");
-    std::env::set_current_dir(project_root_dir)?;
     Ok(())
 }
 
@@ -182,48 +88,5 @@ fn build_shaders() -> Result<(), std::io::Error> {
         String::from_utf8_lossy(&output.stderr)
     );
     std::env::set_current_dir(project_root_dir)?;
-    Ok(())
-}
-
-/// Currently bound to the concept of a single server and client. Starts a
-/// server, waits a second, then starts the client. Prints output to stdout with
-/// fancy ascii coloration.
-fn run_server_and_client(debug: bool) -> Result<(), std::io::Error> {
-    let server_proc = cmd!(
-        "cargo",
-        "run",
-        if debug { "--profile=dev" } else { "--release" },
-        "--bin",
-        "nshell",
-    )
-    .reader()?;
-    // HACK: wait 1 second for the server to start
-    std::thread::sleep(Duration::from_secs(1));
-    let client_proc = cmd!(
-        "cargo",
-        "run",
-        if debug { "--profile=dev" } else { "--release" },
-        "--bin",
-        "nshell",
-        "--",
-        "--connect-to-server",
-        "127.0.0.1:12002",
-    )
-    .reader()?;
-    let jh = std::thread::spawn(move || {
-        for line in std::io::BufReader::new(&server_proc).lines() {
-            let server_pids = server_proc.pids();
-            server!("server{:?}: {}", server_pids, line.unwrap());
-        }
-    });
-    let ch = std::thread::spawn(move || {
-        for line in std::io::BufReader::new(&client_proc).lines() {
-            let client_pids = client_proc.pids();
-            client!("client{:?}: {}", client_pids, line.unwrap());
-        }
-    });
-
-    jh.join().unwrap();
-    ch.join().unwrap();
     Ok(())
 }

@@ -16,7 +16,7 @@ use bundles::Player;
 use components::{GraphicPrefab, WorldTransform};
 use gfx::{DebugMesh, Graphic, Model};
 pub use glam::{Mat4, Quat, Vec3};
-pub use heks::Entity;
+pub use hecs::Entity;
 use input::wire::InputState;
 use logger::{info, LogLevel, Logger};
 use network::{Connection, RpcError};
@@ -103,16 +103,15 @@ pub enum WorldError {
     NoSuchPhys(u32),
 
     #[error("component error {0:?}")]
-    Component(heks::ComponentError),
+    Component(hecs::ComponentError),
 
     #[error("component error {0:?}")]
-    NoSuchEntity(heks::NoSuchEntity),
+    NoSuchEntity(hecs::NoSuchEntity),
 }
 
 pub struct World {
-    pub heks_world: heks::World,
-
-    pub root: heks::Entity,
+    pub hecs_world: hecs::World,
+    pub root: Option<hecs::Entity>,
 
     pub stats: Stats,
     pub config: Config,
@@ -121,7 +120,7 @@ pub struct World {
     // TODO: move into networking related struct
     pub connection: Option<Box<dyn Connection + Send + Sync + 'static>>,
 
-    players: Vec<Entity>,
+    pub players: Vec<Entity>,
     pub client_controller_state: Option<InputState>,
     pub server_controller_state: Option<InputState>,
 
@@ -147,8 +146,8 @@ impl World {
     ///
     /// FIXME: make this /// independent of any connecting clients.
     pub fn new(maybe_server_addr: Option<SocketAddr>, logger: &Logger, net_disabled: bool) -> Self {
-        let mut heks_world = heks::World::new();
-        let root_entity = heks_world.spawn((WorldTransform::default(),));
+        let mut hecs_world = hecs::World::new();
+        let root_entity = hecs_world.spawn((WorldTransform::default(),));
         Self {
             connection: None,
 
@@ -167,8 +166,8 @@ impl World {
                 last_tick: Instant::now(),
             },
 
-            heks_world,
-            root: root_entity,
+            hecs_world,
+            root: Some(root_entity),
 
             logger: logger.sub("world"),
         }
@@ -187,19 +186,19 @@ impl World {
     }
 
     pub fn add_debug_mesh(&mut self, mesh: DebugMesh) -> Entity {
-        self.heks_world.spawn((GraphicPrefab {
+        self.hecs_world.spawn((GraphicPrefab {
             gfx: Graphic::DebugMesh(mesh),
         },))
     }
 
     pub fn add_model(&mut self, model: Model) -> Entity {
-        self.heks_world.spawn((GraphicPrefab {
+        self.hecs_world.spawn((GraphicPrefab {
             gfx: Graphic::Model(model),
         },))
     }
 
     pub fn add_player(&mut self, player: Player) -> Entity {
-        let player = self.heks_world.spawn(player);
+        let player = self.hecs_world.spawn(player);
         let log = self.logger.sub("entity");
         info!(
             log,

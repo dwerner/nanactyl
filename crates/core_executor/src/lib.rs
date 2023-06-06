@@ -195,7 +195,7 @@ impl<'s> ThreadPoolExecutor {
         CoreFuture::new(spawner.core_id, future.boxed())
     }
 
-    /// block the current thread until spawned tasks are complete.
+    /// block the current thread until spawned async tasks are complete.
     pub fn scope_and_block<'scope, T, R, F>(
         &'s mut self,
         f: F,

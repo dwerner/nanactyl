@@ -1,5 +1,5 @@
 use glam::{Mat4, Vec3};
-use heks::Entity;
+use hecs::Entity;
 
 use crate::graphics::EULER_ROT_ORDER;
 
@@ -50,8 +50,8 @@ impl SpatialHierarchyNode {
     /// Construct a new node from the existing one with a new rotation in
     /// EULER_ROT_ORDER.
     pub fn with_angles(self, angles: Vec3) -> Self {
-        let transform =
-            Mat4::from_euler(EULER_ROT_ORDER, angles.x, angles.y, angles.z) * self.transform;
+        let rotation = Mat4::from_euler(EULER_ROT_ORDER, angles.x, angles.y, angles.z);
+        let transform = self.transform * rotation;
         Self {
             transform,
             updated: true,

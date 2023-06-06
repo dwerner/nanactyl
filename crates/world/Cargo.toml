@@ -9,12 +9,12 @@ network = { path = "../network" }
 input = { path = "../input" }
 logger = { path = "../logger" }
 core_executor = { path = "../core_executor" }
-heks = { path = "../heks", features = ["macros"] }
 stable-typeid = { path = "../stable-typeid" }
 
 # workspace deps
 async-lock = { workspace = true }
 glam = { workspace = true, features = ["std"] }
+hecs = { workspace = true, features = ["macros"] }
 thiserror = { workspace = true }
 serde = { workspace = true }
 
@@ -22,7 +22,6 @@ serde = { workspace = true }
 smol-potat = "1.1.2"
 rand = "0.8.4"
 plotters = "0.3.4"
-plugin_self = { path = "../plugin_self" }
 paste = { workspace = true }
 futures-util = { workspace = true }
 futures-lite = { workspace = true }

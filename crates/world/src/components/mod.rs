@@ -1,12 +1,11 @@
-use std::f32::consts::PI;
-
 pub mod spatial;
 
 use gfx::Graphic;
-use glam::{Mat4, Quat, Vec3};
-use heks::Entity;
+use glam::{Mat4, Vec3};
+use hecs::Entity;
 
 use crate::graphics::{Shape, EULER_ROT_ORDER};
+use crate::World;
 
 /// A component representing a camera.
 #[derive(Debug, Default)]
@@ -40,13 +39,9 @@ impl Camera {
     }
 
     pub fn update_view_matrix(&mut self, world: &WorldTransform) {
-        // TODO: debugging view matrix
-
-        let camera_offset = Mat4::from_rotation_translation(
-            Quat::from_rotation_y(1.5 * PI),
-            Vec3::new(0.0, -1.0, 0.0),
-        );
-
+        // fine to offset the camera somewhat here, but the orientation of the model
+        // should be done at the entity level. I.e. spatial hierarchy entity
+        let camera_offset = Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0));
         self.view = (world.world * camera_offset).inverse();
     }
 
@@ -143,8 +138,8 @@ mod tests {
     use crate::components::spatial::SpatialHierarchyNode;
 
     #[test]
-    fn playing_with_heks() {
-        let mut world = heks::World::new();
+    fn playing_with_hecs() {
+        let mut world = hecs::World::new();
 
         let root_transform = world.spawn((WorldTransform::default(),));
         let gfx_prefab = world.spawn((GraphicPrefab {

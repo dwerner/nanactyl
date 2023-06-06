@@ -1,0 +1,16 @@
+[package]
+name = "world_update_system"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+input = { path = "../../input" }
+logger = { path = "../../logger" }
+world = { path = "../../world" }
+stable-typeid = { path = "../../stable-typeid" }
+
+# workspace
+rapier3d = { workspace = true }
+glam = { workspace = true, features = ["std"] }

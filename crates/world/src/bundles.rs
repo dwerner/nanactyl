@@ -1,7 +1,7 @@
 //! Bundles for common archetypes
 
 use glam::Mat4;
-use heks::{Bundle, Entity, Query};
+use hecs::{Bundle, Entity, Query};
 
 use crate::components::spatial::SpatialHierarchyNode;
 use crate::components::{Camera, Control, Drawable, PhysicsBody, WorldTransform};
@@ -90,7 +90,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_player_bundle() {
-        let mut world = heks::World::new();
+        let mut world = hecs::World::new();
         let root = world.spawn((WorldTransform::default(),));
         let gfx = world.spawn((WorldTransform::default(),));
         let player = Player::new(gfx, SpatialHierarchyNode::new(root));

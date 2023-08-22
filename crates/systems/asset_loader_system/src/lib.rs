@@ -8,11 +8,11 @@ use world::components::spatial::SpatialHierarchyNode;
 use world::components::WorldTransform;
 use world::{AssetLoaderStateAndWorldLock, Vec3};
 
-pub struct AssetLoaderPlugin {
+pub struct AssetLoader {
     logger: Logger,
 }
 
-impl AssetLoaderPlugin {
+impl AssetLoader {
     pub fn new() -> Self {
         Self {
             logger: LogLevel::Info.logger().sub("asset-loader"),

@@ -90,8 +90,6 @@ fn main() {
         (None, None) => {}
     }
 
-    // FIXME: currently the server-side must be started first, and waits for a
-    // client to connect here.
     let world = world::World::new(opts.connect_to_server, &logger, opts.net_disabled);
     let world = Arc::new(Mutex::new(world));
 
@@ -122,6 +120,7 @@ fn main() {
         };
 
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();
+        let egui_context = egui::Context::new();
 
         let render_state = RenderState::new(
             win_ptr,
@@ -130,16 +129,17 @@ fn main() {
             logger.sub("render_state"),
         )
         .into_shared();
+
         let mut ash_renderer_system = ash_renderer_system::VulkanRenderPluginState::default();
         ash_renderer_system.load(&mut *render_state.lock().await);
 
-        let mut world_update_system = world_update_system::WorldUpdatePluginState::new();
+        let mut world_update_system = world_update_system::WorldUpdate::new();
         world_update_system.load(&mut *world.lock().await);
 
         let mut net_sync_system = if !opts.net_disabled {
             let world = Arc::clone(&world);
             let controller_state = Arc::clone(&own_controllers);
-            let mut net = net_sync_system::NetSyncPluginState::new();
+            let mut net = net_sync_system::NetSyncState::new();
             let mut state = WorldLockAndControllerState::lock(&world, &controller_state).await;
             net.load(&mut state);
             Some(net)
@@ -148,7 +148,7 @@ fn main() {
         };
 
         let asset_state = Arc::new(Mutex::new(AssetLoaderState::default()));
-        let mut asset_loader = asset_loader_system::AssetLoaderPlugin::new();
+        let mut asset_loader = asset_loader_system::AssetLoader::new();
         asset_loader.load(&mut AssetLoaderStateAndWorldLock::lock(&world, &asset_state).await);
 
         'frame_loop: loop {

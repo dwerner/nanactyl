@@ -23,7 +23,8 @@ serde = { version = "1.0.130", features = ["derive"] }
 structopt-yaml = "0.4.6"
 
 # workspace
-histogram = { workspace = true }
 async-lock = { workspace = true }
 futures-lite = { workspace = true }
+egui = "0.22"
+histogram = { workspace = true }
 structopt = { workspace = true }

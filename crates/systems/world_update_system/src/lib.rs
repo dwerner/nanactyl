@@ -25,7 +25,7 @@ use world::{Entity, World, WorldError};
 
 /// Internal plugin state. The lifespan is load->update->unload and dropped
 /// after unload.
-pub struct WorldUpdatePluginState {
+pub struct WorldUpdate {
     logger: Logger,
     rigid_bodies: RigidBodySet,
     colliders: ColliderSet,
@@ -33,7 +33,7 @@ pub struct WorldUpdatePluginState {
     collider_handles: HashMap<world::Entity, ColliderHandle>,
 }
 
-impl WorldUpdatePluginState {
+impl WorldUpdate {
     pub fn new() -> Self {
         Self {
             logger: LogLevel::Info.logger().sub("world-update"),
@@ -75,7 +75,7 @@ impl WorldUpdatePluginState {
     }
 }
 
-impl WorldUpdatePluginState {
+impl WorldUpdate {
     /// For every child in the tree, walk it's ancestors and update it's world
     /// transform from them.
     fn update_transform_hierarchy(&self, world: &mut WorldExt) {

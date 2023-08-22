@@ -32,11 +32,11 @@ enum PluginError {
     World(#[from] WorldError),
 }
 
-pub struct NetSyncPluginState {
+pub struct NetSyncState {
     logger: Logger,
 }
 
-impl NetSyncPluginState {
+impl NetSyncState {
     pub fn new() -> Self {
         Self {
             logger: LogLevel::Info.logger(),

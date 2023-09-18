@@ -68,7 +68,7 @@ where
     }
 
     /// Iterate over nodes in a depth-first manner.
-    pub fn depth_first_iter<'a>(&'a self) -> DepthFirstIterator<'a, V> {
+    pub fn depth_first_iter(&'_ self) -> DepthFirstIterator<V> {
         DepthFirstIterator::new(self, 0)
     }
 }
@@ -128,7 +128,8 @@ impl<'a, V> DepthFirstIterator<'a, V>
 where
     V: Clone + Debug,
 {
-    /// Create a new depth-first iterator over `tree` starting at the node with the index `starting_index`.
+    /// Create a new depth-first iterator over `tree` starting at the node with
+    /// the index `starting_index`.
     pub fn new(tree: &'a Tree<V>, starting_index: NodeIndex) -> Self {
         DepthFirstIterator {
             tree,
@@ -166,13 +167,13 @@ mod tests {
 
         let mut depth_first = vec![];
         for (index, node) in tree.depth_first_iter() {
-            println!("{:?}", node);
+            println!("{node:?}");
             depth_first.push((index, node.value));
         }
 
         assert_eq!(tree.nodes.len(), 26);
         assert!(tree.nodes[0].is_root());
-        println!("{:?}", depth_first);
+        println!("{depth_first:?}");
         let mut depth_first: Vec<_> = depth_first.into_iter().rev().collect();
         for expected in [
             (0, 0),

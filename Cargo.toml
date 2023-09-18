@@ -2,28 +2,88 @@
 members = [
     # base libraries
     "crates/core_executor",
+    "crates/font-loader",
+    "crates/logger",
     "crates/input",
-    "crates/models",
+    "crates/gfx",
     "crates/network",
     "crates/obj-parser",
-    "crates/plugin_loader",
+    "crates/platform",
     "crates/render",
     "crates/world",
-    "crates/platform",
+    "crates/shader_objects",
+    "crates/stable-typeid",
+    "crates/wat-cpu",
 
-    # plugins: these should not be depended upon by anything other than binaries, indirectly
-    "crates/plugins/ash_renderer_plugin",
-    "crates/plugins/asset_loader_plugin",
-    "crates/plugins/tui_renderer_plugin",
-    "crates/plugins/world_update_plugin",
-    "crates/plugins/world_render_update_plugin",
+    # systems
+    "crates/systems/ash_renderer_system",
+    "crates/systems/ash_renderer_system",
+    "crates/systems/asset_loader_system",
+    "crates/systems/world_update_system",
+    "crates/systems/net_sync_system",
 
     # binaries
     "crates/bin/nshell",
 
+    "xtask",
 ]
 exclude = [
     # shaders
     "assets/shaders",
 ]
 
+# Individual crates "inherit dependencies that are shared.
+# plugins can depend on crates.
+#
+# Shared dependencies should be moved here to keep crate deps in sync across all crates.
+[workspace.dependencies]
+ash = "0.37.2"
+ash-window = "0.11.0" # lock on 0.11 for now
+async-channel = "1.8.0"
+async-lock = "2.5.0"
+async-io = "1.9.0"
+async-net = "1.7.0"
+async-trait = "0.1"
+bitvec = { version = "1.0.1", features = ["serde"] }
+bytemuck = { version = "1.12.1", features = ["derive", "extern_crate_std"] }
+cstr = "0.2.10"
+duct = "0.13.6"
+egui = "0.22"
+futures-lite = "1.12.0"
+futures-util = "0.3.28"
+function_name = "0.3"
+glam = { version = "0.24", default-features = false }
+histogram = "0.6.9" # lock in 0.6.9 for now
+hecs = "0.10.3"
+image = "0.24.3"
+libloading = "0.7"
+num-traits = { version = "0.2.14", default-features = false, features = [
+    "libm",
+] }
+rapier3d = "0.17.2"
+raw-window-handle = "0.4.2" # lock on 0.4.2 for now
+paste = "1.0.6"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+sdl2 = { version = "0.35.2", features = ["raw-window-handle", "bundled"] }
+spirv-reflect = "0.2.3"
+structopt = "0.3"
+tempdir = "0.3.7"
+thiserror = "1"
+uuid = { version = "1.3.3" }
+zstd = "0.12.2"
+
+[profile.dev]
+incremental = true
+
+[profile.debug-with-opt]
+inherits = "dev"
+opt-level = 3
+
+[profile.release]
+lto = true
+strip = true
+incremental = true
+
+# turn on debug info
+# debug = true

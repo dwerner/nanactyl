@@ -1,132 +1,181 @@
-use std::str;
-use std::str::FromStr;
+use std::str::{self, FromStr};
 
-use nom::{digit, eol};
+use nom::branch::alt;
+use nom::bytes::complete::{is_not, tag};
+use nom::character::complete::{digit1, line_ending, multispace0};
+use nom::combinator::{eof, map_res, opt, recognize};
+use nom::number::complete::recognize_float;
+use nom::sequence::tuple;
+use nom::IResult;
 
-named!(pub whitespace, eat_separator!(&b" \t"[..]));
+fn eol(input: &str) -> IResult<&str, &str> {
+    line_ending(input)
+}
 
-#[macro_export]
-macro_rules! sp (
-   ($i:expr, $($args:tt)*) => ({
-        use $crate::parser::common::whitespace;
-       sep!($i, whitespace, $($args)*)
-   })
-);
+pub(crate) fn end_of_line_maybe_comment(input: &str) -> IResult<&str, ()> {
+    let (i, _) = alt((eof, eol, comment))(input)?;
+    Ok((i, ()))
+}
 
-named!(pub slashes, eat_separator!(&b"/"[..]));
+pub(crate) fn comment(input: &str) -> IResult<&str, &str> {
+    let (input, _) = tag("#")(input)?;
+    let (input, comment) = is_not("\r\n")(input)?;
+    let (input, _) = line_ending(input)?;
+    Ok((input, comment))
+}
 
-#[macro_export]
-macro_rules! slash_sep (
-   ($i:expr, $($args:tt)*) => ({
-       sep!($i, slashes, $($args)*)
-   })
- );
+pub(crate) fn unsigned_integer(input: &str) -> IResult<&str, u32> {
+    map_res(recognize(digit1), FromStr::from_str)(input)
+}
 
-named!(pub end_of_line, alt!(
-    eof!()
-    |
-    eol
-    |
-    comment  // handle end of line comments - these are not kept
-));
+fn unsigned_float(input: &str) -> IResult<&str, f32> {
+    map_res(recognize_float, |s: &str| s.parse::<f32>())(input)
+}
 
-/// Meta macro, define parser for lines starting with $i, map to enum $tt type $ty
-/// Converts to &str and trims whitespace from line
-#[macro_export]
-macro_rules! def_string_line (
-   ($id:ident, $i:expr, $tt:tt, $ty:ident) => (
-       named!( $id< &[u8], $tt >, map!(
-           delimited!(tag!($i), take_until!("\n"), end_of_line),
-           |s| $tt :: $ty(str::from_utf8(s).unwrap().trim().to_string())
-       ));
-   )
-);
+fn float(input: &str) -> IResult<&str, f32> {
+    let (i, sign) = opt(alt((tag("+"), tag("-"))))(input)?;
+    let (i, value) = unsigned_float(i)?;
+    Ok((
+        i,
+        sign.and_then(|s| {
+            if let Some('-') = s.chars().next() {
+                Some(-1f32)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(1f32)
+            * value,
+    ))
+}
 
-named!(pub comment, delimited!(
-    tag!("#"),
-    take_until!("\n"),
-    alt!( eof!() | eol )
-));
+pub(crate) fn float_triple_opt_4th(input: &str) -> IResult<&str, (f32, f32, f32, Option<f32>)> {
+    let (i, tuple_result) =
+        tuple((spaced_float, spaced_float, spaced_float, opt(spaced_float)))(input)?;
+    Ok((i, tuple_result))
+}
 
-named!(pub unsigned_float <f32>, map_res!(
-  map_res!(
-    recognize!(
-      alt!(
-        delimited!(digit, complete!(tag!(".")), opt!(complete!(digit)))
-        |
-        delimited!(opt!(digit), complete!(tag!(".")), digit)
-        |
-        digit
-      )
-    ),
-    str::from_utf8
-  ),
-  FromStr::from_str
-));
+pub(crate) fn float_pair_opt_3rd(input: &str) -> IResult<&str, (f32, f32, Option<f32>)> {
+    let (i, tuple_result) = tuple((spaced_float, spaced_float, opt(spaced_float)))(input)?;
+    Ok((i, tuple_result))
+}
 
-named!(pub float <f32>, map!(
-   pair!(
-     opt!(alt!(tag!("+") | tag!("-"))),
-     unsigned_float
-   ),
-   |(sign, value): (Option<&[u8]>, f32)| {
-     sign.and_then(|s| if s[0] == b'-' { Some(-1f32) } else { None }).unwrap_or(1f32) * value
-   }
-));
+pub(crate) fn float_triple(input: &str) -> IResult<&str, (f32, f32, f32)> {
+    let (i, tuple_result) = tuple((spaced_float, spaced_float, spaced_float))(input)?;
+    Ok((i, tuple_result))
+}
 
-named!(pub uint <u32>, map_res!(map_res!( recognize!( digit ), str::from_utf8 ), FromStr::from_str));
+pub(crate) fn spaced_float(input: &str) -> IResult<&str, f32> {
+    let (i, _) = multispace0(input)?;
+    let (i, value) = float(i)?;
+    let (i, _) = multispace0(i)?;
+    Ok((i, value))
+}
 
-named!(pub float_triple_opt_4th< &[u8], (f32,f32,f32,Option<f32>)>, sp!(
-    tuple!( float, float, float, opt!(float) )
-));
-
-named!(pub float_pair_opt_3rd< &[u8], (f32,f32,Option<f32>) >, sp!(
-    tuple!(float, float, opt!(float))
-));
-
-named!(pub float_triple< &[u8], (f32,f32,f32) >, sp!(tuple!(float, float, float)));
-named!(pub float_pair< &[u8], (f32,f32) >,  sp!(tuple!(float, float)));
+pub(crate) fn spaced_uint(input: &str) -> IResult<&str, u32> {
+    let (i, _) = multispace0(input)?;
+    let (i, value) = unsigned_integer(i)?;
+    let (i, _) = multispace0(i)?;
+    Ok((i, value))
+}
 
 #[cfg(test)]
 mod tests {
-    use nom::IResult;
+
+    use nom::error::{Error, ErrorKind};
+    use nom::Err;
 
     use super::*;
 
     #[test]
-    fn can_parse_signed_floats() {
-        let something = float("-0.00005".as_bytes());
-        assert_eq!(something, IResult::Done(&b""[..], -0.00005));
+    fn test_unsigned_float() {
+        assert_eq!(unsigned_float("3.14"), Ok(("", 3.14)));
+        assert_eq!(unsigned_float(".5"), Ok(("", 0.5)));
+        assert_eq!(unsigned_float("123"), Ok(("", 123.0)));
+        assert_eq!(unsigned_float("0"), Ok(("", 0.0)));
+        assert_eq!(unsigned_float("10."), Ok(("", 10.0)));
+        assert_eq!(unsigned_float("2.5e-2"), Ok(("", 0.025)));
+        assert_eq!(unsigned_float("1.e3"), Ok(("", 1000.0)));
+        assert!(unsigned_float("abc").is_err());
     }
 
     #[test]
-    fn can_parse_float_pair() {
-        let ff = float_pair("     -1.000001 7742.9 ".as_bytes());
-        let (_, b) = ff.unwrap();
-        assert_eq!(b, (-1.000001, 7742.9));
+    fn test_float() {
+        assert_eq!(float("3.14"), Ok(("", 3.14)));
+        assert_eq!(float("+3.14"), Ok(("", 3.14)));
+        assert_eq!(float("-3.14"), Ok(("", -3.14)));
+        assert_eq!(float("+123"), Ok(("", 123.0)));
+        assert_eq!(float("-.5"), Ok(("", -0.5)));
+        assert_eq!(float("-10."), Ok(("", -10.0)));
+        assert_eq!(float("-2.5e-2"), Ok(("", -0.025)));
+        assert_eq!(float("+1.e3"), Ok(("", 1000.0)));
+        assert!(float("abc").is_err());
     }
 
     #[test]
     fn can_parse_float_triple() {
-        let fff = float_triple("    0.95  -1.000001 42.9 ".as_bytes());
-        let (_, b) = fff.unwrap();
-        assert_eq!(b, (0.95, -1.000001, 42.9));
+        let fff = float_triple("    0.95  -1.000001 42.9 ");
+        assert_eq!(fff, Ok(("", (0.95, -1.000001, 42.9))));
     }
 
     #[test]
     fn can_parse_comments() {
-        let cmt = comment("# a comment exists here \n".as_bytes());
-        let (_, b) = cmt.unwrap();
-        assert_eq!(str::from_utf8(b).unwrap(), " a comment exists here ");
+        let cmt = comment("# a comment exists here \n");
+        assert_eq!(cmt, Ok(("", " a comment exists here ")));
     }
 
     #[test]
     fn can_parse_comments_2() {
-        let cmt = comment("# Blender v2.78 (sub 0) OBJ File: \'untitled.blend\'\n".as_bytes());
-        let (_, b) = cmt.unwrap();
+        let cmt = comment("# Blender v2.78 (sub 0) OBJ File: 'untitled.blend'\n");
         assert_eq!(
-            str::from_utf8(b).unwrap(),
-            " Blender v2.78 (sub 0) OBJ File: \'untitled.blend\'"
+            cmt,
+            Ok(("", " Blender v2.78 (sub 0) OBJ File: 'untitled.blend'"))
+        );
+    }
+
+    #[test]
+    fn test_end_of_line_maybe_comment_eof() {
+        assert_eq!(end_of_line_maybe_comment(""), Ok(("", ())));
+    }
+
+    #[test]
+    fn test_end_of_line_maybe_comment_eol() {
+        assert_eq!(end_of_line_maybe_comment("\n"), Ok(("", ())));
+    }
+
+    #[test]
+    fn test_end_of_line_maybe_comment_comment() {
+        assert_eq!(
+            end_of_line_maybe_comment("# This is a comment\n"),
+            Ok(("", ()))
+        );
+    }
+
+    #[test]
+    fn test_end_of_line_maybe_comment_comment_no_newline() {
+        // still an error, becase there's no newline
+        assert_eq!(
+            end_of_line_maybe_comment("# This is a comment"),
+            Err(Err::Error(Error::new("", ErrorKind::CrLf)))
+        );
+    }
+
+    #[test]
+    fn test_end_of_line_maybe_comment_comment_newline() {
+        assert_eq!(
+            end_of_line_maybe_comment("# This is a comment\n"),
+            Ok(("", ()))
+        );
+    }
+
+    #[test]
+    fn test_end_of_line_maybe_comment_text() {
+        assert_eq!(
+            end_of_line_maybe_comment("This is not a comment"),
+            Err(Err::Error(Error::new(
+                "This is not a comment",
+                ErrorKind::Tag // missing # tag
+            )))
         );
     }
 }

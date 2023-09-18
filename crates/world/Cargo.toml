@@ -4,17 +4,24 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-core_executor = { path = "../core_executor" }
-models = { path = "../models" }
+gfx = { path = "../gfx" }
 network = { path = "../network" }
 input = { path = "../input" }
+logger = { path = "../logger" }
+core_executor = { path = "../core_executor" }
+stable-typeid = { path = "../stable-typeid" }
 
-async-lock = "2.5.0"
-async-io = "1.9.0"
-bytemuck = "1.12.1"
-histogram = "0.6.9"
-zstd = "0.11.2+zstd.1.5.2"
-nalgebra = "0.31.1"
-thiserror = "1.0.33"
-futures-lite = "1.12.0"
-parry3d = "0.9.0"
+# workspace deps
+async-lock = { workspace = true }
+glam = { workspace = true, features = ["std"] }
+hecs = { workspace = true, features = ["macros"] }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+smol-potat = "1.1.2"
+rand = "0.8.4"
+plotters = "0.3.4"
+paste = { workspace = true }
+futures-util = { workspace = true }
+futures-lite = { workspace = true }

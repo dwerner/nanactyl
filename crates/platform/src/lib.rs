@@ -1,12 +1,17 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::path::Path;
 
+use image::GenericImageView;
 use input::{Button, DeviceEvent, EngineEvent, InputEvent};
+use logger::{info, Logger};
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 use sdl2::controller::GameController;
 use sdl2::event::Event as SdlEvent;
 use sdl2::haptic::Haptic;
 use sdl2::keyboard::Keycode;
+use sdl2::pixels::PixelFormatEnum;
+use sdl2::surface::Surface;
 
 #[derive(thiserror::Error, Debug)]
 pub enum PlatformError {
@@ -44,13 +49,12 @@ unsafe impl Sync for WinPtr {}
 
 unsafe impl HasRawWindowHandle for WinPtr {
     fn raw_window_handle(&self) -> RawWindowHandle {
-        println!("{:?}", self.raw_window_handle);
         self.raw_window_handle
     }
 }
 
 pub struct PlatformContext {
-    _todo_sdl_context: sdl2::Sdl,
+    _sdl_context: sdl2::Sdl,
     haptic_subsystem: sdl2::HapticSubsystem,
     game_controller_subsystem: sdl2::GameControllerSubsystem,
     event_pump: sdl2::EventPump,
@@ -62,10 +66,12 @@ pub struct PlatformContext {
     outgoing_events: Vec<EngineEvent>,
     game_controllers: HashMap<u32, GameController>,
     haptic_devices: HashMap<u32, Haptic>,
+    logger: Logger,
 }
 
 impl PlatformContext {
-    pub fn new() -> Result<Self, PlatformError> {
+    pub fn new(logger: &Logger) -> Result<Self, PlatformError> {
+        let logger = logger.sub("platform");
         let sdl_context = sdl2::init().map_err(PlatformError::Sdl)?;
         let haptic_subsystem = sdl_context.haptic().map_err(PlatformError::HapticInit)?;
         let game_controller_subsystem = sdl_context
@@ -77,7 +83,7 @@ impl PlatformContext {
         let audio_subsystem = sdl_context.audio().map_err(PlatformError::AudioInit)?;
         let video_subsystem = sdl_context.video().map_err(PlatformError::VideoInit)?;
         Ok(Self {
-            _todo_sdl_context: sdl_context,
+            _sdl_context: sdl_context,
             _todo_audio_subsystem: audio_subsystem,
 
             haptic_subsystem,
@@ -88,6 +94,7 @@ impl PlatformContext {
             outgoing_events: Vec::with_capacity(50),
             game_controllers: HashMap::new(),
             haptic_devices: HashMap::new(),
+            logger,
         })
     }
 
@@ -100,17 +107,40 @@ impl PlatformContext {
         height: u32,
     ) -> Result<usize, PlatformError> {
         let idx = self.windows.len();
-        self.windows.push(
-            self.video_subsystem
-                .window(title, width, height)
-                .position(x, y)
-                .resizable()
-                .allow_highdpi()
-                .vulkan()
-                .build()
-                .map_err(PlatformError::AddWindow)?,
-        );
+        let mut window = self
+            .video_subsystem
+            .window(title, width, height)
+            .position(x, y)
+            .resizable()
+            .allow_highdpi()
+            .vulkan()
+            .build()
+            .map_err(PlatformError::AddWindow)?;
+
+        let icon = Self::load_png_image_as_surface("assets/icon.png").unwrap();
+        window.set_icon(&icon);
+        self.windows.push(window);
         Ok(idx)
+    }
+
+    fn load_png_image_as_surface<'a, P: AsRef<Path>>(path: P) -> Result<Surface<'a>, String> {
+        let img = image::open(path).map_err(|e| e.to_string())?;
+        let (width, height) = img.dimensions();
+        let mut img_data = img.to_rgba8().into_raw();
+        let temp_surface = Surface::from_data(
+            &mut img_data,
+            width,
+            height,
+            (width * 4) as u32, // 4 bytes per pixel
+            PixelFormatEnum::RGBA32,
+        )
+        .map_err(|e| e.to_string())?;
+
+        let mut surface =
+            Surface::new(width, height, PixelFormatEnum::RGBA32).map_err(|e| e.to_string())?;
+        temp_surface.blit(None, &mut surface, None)?;
+
+        Ok(surface)
     }
 
     pub fn get_raw_window_handle(&self, index: usize) -> Option<WinPtr> {
@@ -122,6 +152,7 @@ impl PlatformContext {
 
     // Pump a maximum of 50 events.
     pub fn pump_events(&mut self) {
+        let logger = self.logger.sub("pump_events");
         self.outgoing_events.clear();
         const MAX_EVENTS: usize = 50;
         let mut event_ctr = 0;
@@ -135,7 +166,7 @@ impl PlatformContext {
             };
             self.outgoing_events.push(e);
             if event_ctr == MAX_EVENTS {
-                println!("max events reached");
+                info!(logger, "max events reached");
                 break 'poll_event;
             }
         }
@@ -145,8 +176,9 @@ impl PlatformContext {
         &self.outgoing_events
     }
 
-    // TODO: Probably we want either a Result<EngineEvent, ...> or Option<EngineEvent> here.
-    /// Evaluate an event from SDL, modify state internally and surface an engine event event if it's relevant to the event loop.
+    // TODO: Probably we want either a Result<EngineEvent, ...> or
+    /// Evaluate an event from SDL, modify state internally and then raise an
+    /// engine event event if it's relevant to the event loop.
     fn evaluate_event(&mut self, event: &SdlEvent) -> EngineEvent {
         match event {
             SdlEvent::Quit { .. }

@@ -2,3 +2,11 @@ target
 */**/target
 
 callgrind.*
+
+# temp files
+*/**/*~
+*/**/*-autosave.kra
+*/**.blend\d
+
+bench.png
+*_bench.svg

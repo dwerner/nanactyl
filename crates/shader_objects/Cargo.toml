@@ -1,0 +1,19 @@
+[package]
+name = "shader_objects"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["std"]
+std = ["dep:bytemuck", "glam/serde", "glam/bytemuck", "glam/libm"]
+spirv-std = ["dep:spirv-std"]
+
+[dependencies]
+
+# std
+bytemuck = { workspace = true, optional = true }
+glam = { workspace = true, optional = true }
+
+# libm
+spirv-std = { git = "https://github.com/EmbarkStudios/rust-gpu", version = "=0.8.0", optional = true }

@@ -1,0 +1,18 @@
+[package]
+name = "font-loader"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.68"
+image = "0.24"
+rusttype = "0.9"
+
+logger = { path = "../logger" }
+
+
+# TODO: remove sdl here, we just want an 
+# `image` type instead for our engine to 
+# consume.
+sdl2 = "0.35.1"
+thiserror = "1"

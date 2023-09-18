@@ -1,4 +1,6 @@
-/// Input events
+//! Implements input and related events and errors.
+
+/// Input state descriptor.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Button {
@@ -15,6 +17,8 @@ pub enum Button {
     Unmapped,
 }
 
+/// InputEvent is an event and descriptor for that event. Types are scaled to
+/// reasonable resolution for wire transmission.
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum InputEvent {
     KeyPressed(Button),
@@ -32,13 +36,14 @@ pub enum DeviceEvent {
     GameControllerRemoved(u32),
 }
 
-/// Control flow for the game loop
+/// Control flow for the game loop, including events.
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum EngineEvent {
     /// Continue execution of the game loop.
     Continue,
 
-    /// Specific events, like devices being added/removed should notifiy the game loop.
+    /// Specific events, like devices being added/removed should notifiy the
+    /// game loop.
     InputDevice(DeviceEvent),
 
     /// Input events
@@ -48,6 +53,7 @@ pub enum EngineEvent {
     ExitToDesktop,
 }
 
+/// Wire types - specifically intended for wire transmission.
 pub mod wire {
     use bitvec::view::BitView;
     use bytemuck::{Pod, Zeroable};
@@ -60,6 +66,8 @@ pub mod wire {
         value: i8,
     }
 
+    /// Wire representation of a controller with axes and buttons. Scaled down
+    /// data types are used for compact representation.
     #[derive(Debug, Default, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
     pub struct InputState {
@@ -70,6 +78,7 @@ pub mod wire {
     }
 
     impl InputState {
+        /// Create a new `InputState`.
         pub fn new(id: u8) -> Self {
             Self {
                 id,
@@ -78,7 +87,8 @@ pub mod wire {
             }
         }
 
-        pub fn update_with_event(&mut self, event: &InputEvent) {
+        /// Update the state from a given `InputEvent`.
+        pub fn update_from_event(&mut self, event: &InputEvent) {
             match event {
                 InputEvent::ButtonPressed(id, button) if self.id == *id => {
                     self.set_button_bit(*button as u8, true);
@@ -101,12 +111,14 @@ pub mod wire {
             }
         }
 
+        /// Set a bit representing the state of a button.
         fn set_button_bit(&mut self, button: u8, value: bool) {
             let buttons = self.buttons.view_bits_mut::<bitvec::prelude::Lsb0>();
             buttons.set(button as usize, value);
         }
 
-        pub fn button_state(&self, button: Button) -> bool {
+        /// Read if a button is down from the state bits.
+        pub fn is_button_pressed(&self, button: Button) -> bool {
             let buttons = self.buttons.view_bits::<bitvec::prelude::Lsb0>();
             match buttons.get(button as usize) {
                 Some(val) => *val,

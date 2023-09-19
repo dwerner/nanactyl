@@ -120,7 +120,6 @@ fn main() {
         };
 
         let win_ptr = platform_context.get_raw_window_handle(index).unwrap();
-        let egui_context = egui::Context::new();
 
         let render_state = RenderState::new(
             win_ptr,
